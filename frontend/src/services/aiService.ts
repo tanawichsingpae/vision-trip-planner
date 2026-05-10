@@ -360,7 +360,7 @@ export async function getEmbedding(image: File | Blob): Promise<number[]> {
   }
 
   try {
-    const res = await fetch("/embedding", {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/embedding`, {
       method: "POST",
       body: formData
     });
@@ -382,7 +382,7 @@ export async function getEmbedding(image: File | Blob): Promise<number[]> {
 export async function getEmbeddingFromUrl(url: string): Promise<number[]> {
   console.log("Getting CLIP embedding from URL (Server-side fetch):", url);
   try {
-    const res = await fetch("/embedding_url", {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/embedding_url`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
