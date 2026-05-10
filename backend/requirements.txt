@@ -1,0 +1,11 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch
+torchvision
+torchaudio
+Flask
+Flask-Cors
+Pillow
+open-clip-torch
+requests
+gunicorn
