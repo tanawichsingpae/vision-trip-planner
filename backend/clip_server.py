@@ -14,7 +14,7 @@ import requests
 # --------------------
 
 app = Flask(__name__)
-CORS(app, origins=["https://YOUR-VERCEL.vercel.app"])
+CORS(app, origins=["https://vision-trip-planner.vercel.app","http://localhost:5173"])
 
 # --------------------
 # Device
