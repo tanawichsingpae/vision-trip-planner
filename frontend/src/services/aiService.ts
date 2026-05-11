@@ -4,13 +4,8 @@ import { type AIProviderType } from "@/context/AIProviderContext";
 import { safeFetch, validateApiKey } from "@/utils/apiUtils";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
-
 // Validation at module load or initialization
-validateApiKey(GEMINI_API_KEY, "Gemini");
-validateApiKey(OPENAI_API_KEY, "OpenAI");
-validateApiKey(GOOGLE_MAPS_API_KEY, "Google Maps");
+validateApiKey(GOOGLE_MAPS_API_KEY, \"Google Maps\");
 
 export interface TravelPlanResponse {
   itinerary: DayPlan[];
@@ -207,56 +202,51 @@ async function callOpenAI(places: string[], preferences: TripPreferences): Promi
     "suggestions": [{ "name": "...", "category": "food", "description": "...", "lat": 0, "lng": 0 }]
   }`;
 
-  const data = await safeFetch<any>("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
+    method: \"POST\",
+    headers: { \"Content-Type\": \"application/json\" },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
+      messages: [{ role: \"user\", content: prompt }]
     }),
   });
 
-  const text = data.choices[0].message.content;
+  const text = data.text;
   return await formatResponse(JSON.parse(text));
 }
 
 async function analyzeImageOpenAI(base64: string, mimeType: string, prompt: string): Promise<VisionResult> {
-  const data = await safeFetch<any>("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
+    method: \"POST\",
+    headers: { \"Content-Type\": \"application/json\" },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
       messages: [
         {
-          role: "user",
+          role: \"user\",
           content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
+            { type: \"text\", text: prompt },
+            { type: \"image_url\", image_url: { url: `data:${mimeType};base64,${base64}` } }
           ],
         }
-      ],
-      response_format: { type: "json_object" },
+      ]
     }),
   });
 
-  return JSON.parse(data.choices[0].message.content);
+  return JSON.parse(data.text);
 }
 
 async function chatOpenAI(userMessage: string, systemPrompt: string): Promise<string> {
-  const data = await safeFetch<any>("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
+    method: \"POST\",
+    headers: { \"Content-Type\": \"application/json\" },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage }
-      ],
+        { role: \"system\", content: systemPrompt },
+        { role: \"user\", content: userMessage }
+      ]
     }),
   });
 
-  return data.choices[0].message.content;
+  return data.text;
 }
 
 // ==========================================
@@ -298,50 +288,43 @@ async function callGemini(places: string[], preferences: TripPreferences): Promi
     "suggestions": [{ "name": "...", "category": "food", "description": "...", "lat": 0, "lng": 0 }]
   }`;
 
-  const data = await safeFetch<any>(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
+    method: \"POST\",
+    headers: { \"Content-Type\": \"application/json\" },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { response_mime_type: "application/json" },
+      prompt: prompt
     }),
   });
 
-  const text = data.candidates[0].content.parts[0].text;
+  const text = data.text;
   return await formatResponse(JSON.parse(text));
 }
 
 async function analyzeImageGemini(base64: string, mimeType: string, prompt: string): Promise<VisionResult> {
-  const data = await safeFetch<any>(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
+    method: \"POST\",
+    headers: { \"Content-Type\": \"application/json\" },
     body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64 } }
-        ]
-      }],
-      generationConfig: { response_mime_type: "application/json" },
+      prompt: prompt,
+      image_base64: base64,
+      mime_type: mimeType
     }),
   });
 
-  const text = data.candidates[0].content.parts[0].text;
+  const text = data.text;
   return JSON.parse(text);
 }
 
 async function chatGemini(userMessage: string, systemPrompt: string): Promise<string> {
-  const data = await safeFetch<any>(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
+    method: \"POST\",
+    headers: { \"Content-Type\": \"application/json\" },
     body: JSON.stringify({
-      contents: [
-        { role: "user", parts: [{ text: systemPrompt + "\n\nUser: " + userMessage }] }
-      ]
+      prompt: systemPrompt + \"\n\nUser: \" + userMessage
     }),
   });
 
-  return data.candidates[0].content.parts[0].text;
+  return data.text;
 }
 
 // ==========================================
@@ -414,42 +397,36 @@ function cosineSimilarity(query: number[], candidate: number[]): number {
 }
 
 async function getInitialGuessesOpenAI(base64: string, mimeType: string, prompt: string): Promise<string[]> {
-  const data = await safeFetch<any>("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
+    method: \"POST\",
+    headers: { \"Content-Type\": \"application/json\" },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
       messages: [
         {
-          role: "user",
+          role: \"user\",
           content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
+            { type: \"text\", text: prompt },
+            { type: \"image_url\", image_url: { url: `data:${mimeType};base64,${base64}` } }
           ],
         }
-      ],
-      response_format: { type: "json_object" },
+      ]
     }),
   });
-  const result = JSON.parse(data.choices[0].message.content);
+  const result = JSON.parse(data.text);
   return result.places;
 }
 
 async function getInitialGuessesGemini(base64: string, mimeType: string, prompt: string): Promise<string[]> {
-  const data = await safeFetch<any>(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
+    method: \"POST\",
+    headers: { \"Content-Type\": \"application/json\" },
     body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64 } }
-        ]
-      }],
-      generationConfig: { response_mime_type: "application/json" },
+      prompt: prompt,
+      image_base64: base64,
+      mime_type: mimeType
     }),
   });
-  const text = data.candidates[0].content.parts[0].text;
+  const text = data.text;
   const result = JSON.parse(text);
   return result.places;
 }
@@ -597,11 +574,11 @@ async function fileToBase64(file: File): Promise<string> {
 
 export async function testGeminiConnection() {
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/gemini`, {
+      method: \"POST\",
+      headers: { \"Content-Type\": \"application/json\" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: "Hello" }] }]
+        prompt: \"Hello\"
       }),
     });
     if (!response.ok) {
@@ -619,12 +596,11 @@ export async function testGeminiConnection() {
 
 export async function testOpenAIConnection() {
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/openai`, {
+      method: \"POST\",
+      headers: { \"Content-Type\": \"application/json\" },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: "Hello" }]
+        messages: [{ role: \"user\", content: \"Hello\" }]
       }),
     });
     if (!response.ok) {

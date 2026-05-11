@@ -9,3 +9,5 @@ Pillow
 open-clip-torch
 requests
 gunicorn
+google-generativeai
+openai

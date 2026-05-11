@@ -9,6 +9,24 @@ from PIL import Image
 import open_clip
 import requests
 
+import google.generativeai as genai
+from openai import OpenAI
+
+# --------------------
+# AI Config
+# --------------------
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+if OPENAI_API_KEY:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+else:
+    openai_client = None
+
 # --------------------
 # Flask setup
 # --------------------
@@ -147,6 +165,84 @@ def get_embedding_url():
 
     except Exception as e:
         print("Error:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# --------------------
+# Gemini AI
+# --------------------
+
+@app.route("/gemini", methods=["POST"])
+def call_gemini():
+    data = request.get_json()
+    if not data or "prompt" not in data:
+        return jsonify({"error": "No prompt provided"}), 400
+
+    try:
+        prompt_text = data["prompt"]
+        image_base64 = data.get("image_base64")
+        mime_type = data.get("mime_type")
+
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        contents = [prompt_text]
+        if image_base64 and mime_type:
+            contents.append({
+                "mime_type": mime_type,
+                "data": image_base64
+            })
+
+        response = model.generate_content(
+            contents,
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json"
+            )
+        )
+
+        return jsonify({"text": response.text})
+
+    except Exception as e:
+        print("Gemini Error:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# --------------------
+# OpenAI
+# --------------------
+
+@app.route("/openai", methods=["POST"])
+def call_openai():
+    if not openai_client:
+        return jsonify({"error": "OpenAI not configured"}), 500
+
+    data = request.get_json()
+    if not data or "messages" not in data:
+        return jsonify({"error": "No messages provided"}), 400
+
+    try:
+        messages = data["messages"]
+        image_base64 = data.get("image_base64")
+        mime_type = data.get("mime_type")
+
+        # If there's an image, we can append it to the first user message if we want,
+        # but the frontend might already pass the full messages structure including image_url!
+        # If the frontend passes `messages` containing `image_url`, we don't need to do anything.
+        # But let's check if they pass it explicitly as image_base64.
+        
+        # If the frontend passes `image_base64`, let's just make sure it's injected.
+        # Actually, if frontend passes messages properly, we just pass it to API.
+        
+        # We will just pass the messages directly.
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            response_format={"type": "json_object"}
+        )
+
+        return jsonify({"text": response.choices[0].message.content})
+
+    except Exception as e:
+        print("OpenAI Error:", e)
         return jsonify({"error": str(e)}), 500
 
 
