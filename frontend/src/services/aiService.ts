@@ -5,7 +5,7 @@ import { safeFetch, validateApiKey } from "@/utils/apiUtils";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 // Validation at module load or initialization
-validateApiKey(GOOGLE_MAPS_API_KEY, \"Google Maps\");
+validateApiKey(GOOGLE_MAPS_API_KEY, "Google Maps");
 
 export interface TravelPlanResponse {
   itinerary: DayPlan[];
@@ -203,10 +203,10 @@ async function callOpenAI(places: string[], preferences: TripPreferences): Promi
   }`;
 
   const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
-    method: \"POST\",
-    headers: { \"Content-Type\": \"application/json\" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      messages: [{ role: \"user\", content: prompt }]
+      messages: [{ role: "user", content: prompt }]
     }),
   });
 
@@ -216,15 +216,15 @@ async function callOpenAI(places: string[], preferences: TripPreferences): Promi
 
 async function analyzeImageOpenAI(base64: string, mimeType: string, prompt: string): Promise<VisionResult> {
   const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
-    method: \"POST\",
-    headers: { \"Content-Type\": \"application/json\" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       messages: [
         {
-          role: \"user\",
+          role: "user",
           content: [
-            { type: \"text\", text: prompt },
-            { type: \"image_url\", image_url: { url: `data:${mimeType};base64,${base64}` } }
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
           ],
         }
       ]
@@ -236,12 +236,12 @@ async function analyzeImageOpenAI(base64: string, mimeType: string, prompt: stri
 
 async function chatOpenAI(userMessage: string, systemPrompt: string): Promise<string> {
   const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
-    method: \"POST\",
-    headers: { \"Content-Type\": \"application/json\" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       messages: [
-        { role: \"system\", content: systemPrompt },
-        { role: \"user\", content: userMessage }
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage }
       ]
     }),
   });
@@ -289,8 +289,8 @@ async function callGemini(places: string[], preferences: TripPreferences): Promi
   }`;
 
   const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
-    method: \"POST\",
-    headers: { \"Content-Type\": \"application/json\" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       prompt: prompt
     }),
@@ -302,8 +302,8 @@ async function callGemini(places: string[], preferences: TripPreferences): Promi
 
 async function analyzeImageGemini(base64: string, mimeType: string, prompt: string): Promise<VisionResult> {
   const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
-    method: \"POST\",
-    headers: { \"Content-Type\": \"application/json\" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       prompt: prompt,
       image_base64: base64,
@@ -317,10 +317,10 @@ async function analyzeImageGemini(base64: string, mimeType: string, prompt: stri
 
 async function chatGemini(userMessage: string, systemPrompt: string): Promise<string> {
   const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
-    method: \"POST\",
-    headers: { \"Content-Type\": \"application/json\" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      prompt: systemPrompt + \"\n\nUser: \" + userMessage
+      prompt: systemPrompt + "\n\nUser: " + userMessage
     }),
   });
 
@@ -398,15 +398,15 @@ function cosineSimilarity(query: number[], candidate: number[]): number {
 
 async function getInitialGuessesOpenAI(base64: string, mimeType: string, prompt: string): Promise<string[]> {
   const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
-    method: \"POST\",
-    headers: { \"Content-Type\": \"application/json\" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       messages: [
         {
-          role: \"user\",
+          role: "user",
           content: [
-            { type: \"text\", text: prompt },
-            { type: \"image_url\", image_url: { url: `data:${mimeType};base64,${base64}` } }
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
           ],
         }
       ]
@@ -418,8 +418,8 @@ async function getInitialGuessesOpenAI(base64: string, mimeType: string, prompt:
 
 async function getInitialGuessesGemini(base64: string, mimeType: string, prompt: string): Promise<string[]> {
   const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
-    method: \"POST\",
-    headers: { \"Content-Type\": \"application/json\" },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       prompt: prompt,
       image_base64: base64,
@@ -575,10 +575,10 @@ async function fileToBase64(file: File): Promise<string> {
 export async function testGeminiConnection() {
   try {
     const response = await fetch(`${import.meta.env.VITE_API_URL}/gemini`, {
-      method: \"POST\",
-      headers: { \"Content-Type\": \"application/json\" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompt: \"Hello\"
+        prompt: "Hello"
       }),
     });
     if (!response.ok) {
@@ -597,10 +597,10 @@ export async function testGeminiConnection() {
 export async function testOpenAIConnection() {
   try {
     const response = await fetch(`${import.meta.env.VITE_API_URL}/openai`, {
-      method: \"POST\",
-      headers: { \"Content-Type\": \"application/json\" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messages: [{ role: \"user\", content: \"Hello\" }]
+        messages: [{ role: "user", content: "Hello" }]
       }),
     });
     if (!response.ok) {
