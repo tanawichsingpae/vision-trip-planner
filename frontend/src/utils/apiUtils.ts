@@ -23,8 +23,9 @@ export async function safeFetch<T>(url: string, options?: RequestInit): Promise<
 /**
  * Validates that an API key is present, otherwise throws 
  */
-export function validateApiKey(key: string | undefined, providerName: string) {
-  if (!key || key.trim() === "") {
-    throw new Error(`${providerName} API key is missing or empty. Please check your .env file.`);
+export function validateApiKey(key?: string, providerName?: string) {
+  // Only validate Google Maps key
+  if (providerName === "Google Maps" && (!key || key.trim() === "")) {
+    throw new Error("Google Maps API key is missing or empty.");
   }
 }
