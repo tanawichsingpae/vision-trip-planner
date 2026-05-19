@@ -1,5 +1,6 @@
 import os
 from io import BytesIO
+from pyexpat.errors import messages
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -233,12 +234,16 @@ def call_openai():
         # Actually, if frontend passes messages properly, we just pass it to API.
         
         # We will just pass the messages directly.
+        messages.insert(0, {
+            "role": "system",
+            "content": "You must return ONLY valid JSON."
+        })
+
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
             response_format={"type": "json_object"}
         )
-
         return jsonify({"text": response.choices[0].message.content})
 
     except Exception as e:
