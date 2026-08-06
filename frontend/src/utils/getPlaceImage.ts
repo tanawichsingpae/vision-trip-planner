@@ -8,5 +8,5 @@ export function getPlaceImage(place: {
   }
 
   const encodedName = encodeURIComponent(place.name);
-  return `https://source.unsplash.com/800x600/?${encodedName},travel`;
+  return `https://picsum.photos/seed/${encodedName}/800/600`;
 }

@@ -18,6 +18,95 @@ export function getPlacePhotoUrl(photoReference: string) {
   return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photoReference}&key=${API_KEY}`;
 }
 
+export interface PlaceDetails {
+  photo_url: string | null;
+  rating: number | null;
+  userRatingsTotal: number | null;
+  openNow: boolean | null;
+  openingHours: string[] | null;
+  priceLevel: number | null;    // 0=Free, 1=$, 2=$$, 3=$$$, 4=$$$$
+  website: string | null;
+  phoneNumber: string | null;
+}
+
+export async function fetchPlaceDetails(placeName: string): Promise<PlaceDetails> {
+  const empty: PlaceDetails = {
+    photo_url: null,
+    rating: null,
+    userRatingsTotal: null,
+    openNow: null,
+    openingHours: null,
+    priceLevel: null,
+    website: null,
+    phoneNumber: null,
+  };
+
+  if (typeof google === "undefined" || !google.maps?.places) return empty;
+
+  const service = new google.maps.places.PlacesService(document.createElement("div"));
+
+  return new Promise((resolve) => {
+    // Step 1: Find place_id via textSearch
+    service.textSearch({ query: placeName }, (results, status) => {
+      if (
+        status !== google.maps.places.PlacesServiceStatus.OK ||
+        !results?.length
+      ) {
+        resolve(empty);
+        return;
+      }
+
+      const placeId = results[0].place_id;
+      if (!placeId) {
+        // Fallback: use whatever textSearch returned
+        const photo = results[0].photos?.[0]?.getUrl({ maxWidth: 800 }) ?? null;
+        resolve({
+          photo_url: photo,
+          rating: results[0].rating ?? null,
+          userRatingsTotal: results[0].user_ratings_total ?? null,
+          openNow: results[0].opening_hours?.isOpen?.() ?? null,
+          openingHours: null,
+          priceLevel: results[0].price_level ?? null,
+          website: null,
+          phoneNumber: null,
+        });
+        return;
+      }
+
+      // Step 2: getDetails for richer fields
+      service.getDetails(
+        {
+          placeId,
+          fields: ["name", "rating", "user_ratings_total", "opening_hours", "photos", "price_level", "website", "formatted_phone_number"],
+        },
+        (detail, detailStatus) => {
+          if (
+            detailStatus !== google.maps.places.PlacesServiceStatus.OK ||
+            !detail
+          ) {
+            resolve(empty);
+            return;
+          }
+
+          const photo = detail.photos?.[0]?.getUrl({ maxWidth: 800 }) ?? null;
+          const hours = detail.opening_hours?.weekday_text ?? null;
+
+          resolve({
+            photo_url: photo,
+            rating: detail.rating ?? null,
+            userRatingsTotal: detail.user_ratings_total ?? null,
+            openNow: detail.opening_hours?.isOpen?.() ?? null,
+            openingHours: hours,
+            priceLevel: detail.price_level ?? null,
+            website: detail.website ?? null,
+            phoneNumber: detail.formatted_phone_number ?? null,
+          });
+        }
+      );
+    });
+  });
+}
+
 export function getNearbyAttractions(
   lat: number,
   lng: number

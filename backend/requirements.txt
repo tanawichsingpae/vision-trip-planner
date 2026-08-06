@@ -3,11 +3,13 @@
 torch
 torchvision
 torchaudio
-Flask
-Flask-Cors
+fastapi
+uvicorn[standard]
+python-multipart
+gradio
 Pillow
 open-clip-torch
 requests
-gunicorn
 google-generativeai
 openai
+python-dotenv

@@ -1,5 +1,7 @@
 import { useState, useCallback } from "react";
-import { Plane, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Plane, Sparkles, LogOut } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { getPlaceImage } from "@/utils/getPlaceImage";
 import {
   DndContext,
@@ -18,7 +20,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import heroImage from "@/assets/hero-travel.jpg";
 import ImageUpload from "@/components/ImageUpload";
 import LocationDisplay, { type LocationData } from "@/components/LocationDisplay";
-import TripPreferencesForm, { type TripPreferences } from "@/components/TripPreferencesForm";
+import TripPreferencesForm from "@/components/TripPreferencesForm";
 import TravelItinerary, {
   type DayPlan,
   type Activity,
@@ -30,16 +32,24 @@ import TravelItinerary, {
 } from "@/components/TravelItinerary";
 import MapSection from "@/components/MapSection";
 import AISuggestedPlaces, { type SuggestedPlace, SuggestionDragOverlay } from "@/components/AISuggestedPlaces";
+import AIAccommodations, { HotelDragOverlay } from "@/components/AIAccommodations";
 import ChatBot from "@/components/ChatBot";
+import AnalyzingOverlay from "@/components/AnalyzingOverlay";
 import StepIndicator from "@/components/StepIndicator";
+import WeatherWidget from "@/components/WeatherWidget";
 import { Badge } from "@/components/ui/badge";
-import { getCoordinates } from "@/api/geocode";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Info } from "lucide-react";
+import { getCoordinates, distanceMetres } from "@/api/geocode";
 import { getNearbyAttractions } from "@/api/places";
-import { generateTravelPlan, analyzeImage, type VisionResult } from "@/services/aiService";
+import { generateTravelPlan, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
+import { getEnvironmentData, type EnvironmentData } from "@/services/environmentService";
 import { toast } from "sonner";
 import { type Attraction } from "@/api/places";
-import { useAI } from "@/context/AIProviderContext";
-import { extractPlaceName } from "@/utils/placeUtils";
+import { useAI, AI_MODEL_OPTIONS } from "@/context/AIProviderContext";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 
 // Mock initial data
 const MOCK_ITINERARY: DayPlan[] = [
@@ -96,12 +106,12 @@ const AttractionDragOverlay = ({ name, photo_url }: { name: string; photo_url?: 
   return (
     <div className="w-64 md:w-72 rounded-2xl overflow-hidden bg-card border border-primary shadow-2xl scale-105 rotate-1">
       <div className="relative h-40 overflow-hidden">
-        <img 
-          src={`https://source.unsplash.com/800x600/?${encodeURIComponent(name)}`} 
-          alt={name} 
-          className="w-full h-full object-cover" 
+        <img
+          src={photo_url || `https://picsum.photos/seed/${encodeURIComponent(name)}/800/600`}
+          alt={name}
+          className="w-full h-full object-cover"
           onError={(e) => {
-            e.currentTarget.src = "https://source.unsplash.com/800x600/?travel,landmark";
+            e.currentTarget.src = "https://picsum.photos/seed/travel/800/600";
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
@@ -123,12 +133,12 @@ const ItineraryDragOverlay = ({ activity }: { activity: Activity }) => {
   return (
     <div className="w-64 md:w-72 rounded-2xl overflow-hidden bg-card border shadow-2xl scale-105 rotate-1">
       <div className="relative h-40 overflow-hidden">
-        <img 
-          src={activity.image_url || `https://source.unsplash.com/800x600/?${encodeURIComponent(activity.title)}`} 
-          alt={activity.title} 
-          className="w-full h-full object-cover" 
+        <img
+          src={activity.image_url || `https://picsum.photos/seed/${encodeURIComponent(activity.title)}/800/600`}
+          alt={activity.title}
+          className="w-full h-full object-cover"
           onError={(e) => {
-            e.currentTarget.src = "https://source.unsplash.com/800x600/?travel,landmark";
+            e.currentTarget.src = "https://picsum.photos/seed/travel/800/600";
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
@@ -144,35 +154,107 @@ const ItineraryDragOverlay = ({ activity }: { activity: Activity }) => {
   );
 };
 
+// ─── User Session Menu ────────────────────────────────────────────────────────
+const UserMenu = () => {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/login");
+  };
+
+  if (!user) return null;
+
+  const avatarUrl: string | undefined = user.user_metadata?.avatar_url;
+  const displayName: string =
+    user.user_metadata?.full_name ||
+    user.user_metadata?.name ||
+    user.email ||
+    "User";
+  const initials = displayName
+    .split(" ")
+    .map((w: string) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+
+  return (
+    <div className="flex items-center gap-2 bg-background/10 backdrop-blur-md px-3 py-1.5 rounded-full border border-primary-foreground/20">
+      {/* Avatar */}
+      {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt={displayName}
+          referrerPolicy="no-referrer"
+          className="w-8 h-8 rounded-full object-cover ring-2 ring-primary-foreground/30 shrink-0"
+        />
+      ) : (
+        <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center ring-2 ring-primary-foreground/30 shrink-0">
+          <span className="text-xs font-bold text-primary-foreground">{initials}</span>
+        </div>
+      )}
+
+      {/* Display name */}
+      <span className="text-sm font-medium text-primary-foreground max-w-[120px] truncate hidden sm:block">
+        {displayName}
+      </span>
+
+      {/* Logout button */}
+      <button
+        id="logout-button"
+        onClick={handleSignOut}
+        title="Sign out"
+        className="flex items-center gap-1 px-2 py-1 rounded-full text-primary-foreground/80 hover:text-primary-foreground hover:bg-white/10 transition-all duration-200"
+      >
+        <LogOut className="w-4 h-4" />
+        <span className="text-xs font-medium hidden sm:inline">Sign out</span>
+      </button>
+    </div>
+  );
+};
+// ──────────────────────────────────────────────────────────────────────────────
+
 const Index = () => {
   const [step, setStep] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [overlayType, setOverlayType] = useState<"vision" | "itinerary">("vision");
   const [loadingStep, setLoadingStep] = useState<string>("Analyzing image...");
   const [detectedLocations, setDetectedLocations] = useState<VisionResult[]>([]);
   const [preferences, setPreferences] = useState<TripPreferences | null>(null);
   const [attractions, setAttractions] = useState<Attraction[]>([]);
   const [itinerary, setItinerary] = useState<DayPlan[]>(MOCK_ITINERARY);
+  const [mapItinerary, setMapItinerary] = useState<DayPlan[]>(MOCK_ITINERARY);
   const [suggestions, setSuggestions] = useState<SuggestedPlace[]>([]);
-  const [selectedPlace, setSelectedPlace] = useState<{lat: number, lng: number} | null>(null);
+  const [accommodations, setAccommodations] = useState<SuggestedPlace[]>([]);
+  const [selectedPlace, setSelectedPlace] = useState<{ lat: number, lng: number } | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeSuggestion, setActiveSuggestion] = useState<SuggestedPlace | null>(null);
   const [hoveredActivityId, setHoveredActivityId] = useState<string | null>(null);
+  const [useClip, setUseClip] = useState(true);
+  const [isRefreshingAccommodations, setIsRefreshingAccommodations] = useState(false);
+  const [environmentData, setEnvironmentData] = useState<EnvironmentData | null>(null);
+  const [typicalWeather, setTypicalWeather] = useState<TypicalWeather | null>(null);
+  const [tripStartDate, setTripStartDate] = useState<Date | null>(null);
 
-  const { provider, setProvider } = useAI();
+  const { model, setModel, provider } = useAI();
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
   const handleImagesUploaded = useCallback(async (files: File[]) => {
+    setOverlayType("vision");
     setIsAnalyzing(true);
     setStep(1);
-    
+
     try {
       // Step 1: Vision AI for each image
-      setLoadingStep("Loading Vision Model...");
-      const results = await Promise.all(files.map(file => analyzeImage(file, provider)));
-      
+      setLoadingStep(useClip ? "Loading Vision Model + CLIP..." : "Loading Vision Model...");
+      const results = await Promise.all(
+        files.map(file => analyzeImage(file, model, useClip, setLoadingStep))
+      );
+
       setLoadingStep("Processing results...");
       // Deduplicate locations by name
       const uniqueResults = results.filter((loc, index, self) =>
@@ -188,10 +270,13 @@ const Index = () => {
       setIsAnalyzing(false);
       setStep(0);
     }
-  }, [provider]);
+  }, [provider, useClip]);
 
   const handlePreferencesSubmit = useCallback(async (prefs: TripPreferences) => {
+    if (!detectedLocations.length) return;
     setPreferences(prefs);
+    setOverlayType("itinerary");
+    setLoadingStep("Analyzing Preferences...");
     setIsAnalyzing(true);
     setStep(3);
 
@@ -203,45 +288,107 @@ const Index = () => {
       setSelectedPlace(coords);
 
       // Step 2: Generation
+      setLoadingStep("Generating Travel Itinerary...");
       const locationNames = detectedLocations.map(l => l.place);
-      const { itinerary: generatedItinerary, suggestions: generatedSuggestions } = 
-        await generateTravelPlan(locationNames, prefs, provider);
+      const { itinerary: generatedItinerary, suggestions: generatedSuggestions, accommodations: generatedAccommodations, typicalWeather: aiTypicalWeather } =
+        await generateTravelPlan(locationNames, prefs, model);
+
+      // Store trip start date and typical weather for use in UI
+      setTripStartDate(prefs.startDate);
+      if (aiTypicalWeather) setTypicalWeather(aiTypicalWeather);
 
       // Step 3: Landmark Geocoding Enrichment
+      // ⚠ We process activities SEQUENTIALLY (not parallel) to avoid hitting
+      //   Google Places API rate limits — the root cause of pin clustering.
+      //   Each activity waits 100 ms before the next request starts.
+      setLoadingStep("Plotting Itinerary Map...");
       toast.info("Geocoding landmarks for precise mapping...", { duration: 3000 });
-      
-      const enrichedItinerary = await Promise.all(generatedItinerary.map(async (day) => {
-        const enrichedActivities = await Promise.all(day.activities.map(async (activity) => {
-          try {
-            // Use LLM-provided coordinates if they are accurate landmarks (non-zero)
-            if (activity.lat && activity.lng && activity.lat !== 0 && activity.lng !== 0) {
-              return activity;
-            }
 
-            // Geocode using "Activity Name, Destination Name" for accuracy
-            const cleanedTitle = extractPlaceName(activity.title);
-            const activityCoords = await getCoordinates(`${cleanedTitle}, ${mainLocation.place}`);
-            return { ...activity, lat: activityCoords.lat, lng: activityCoords.lng };
-          } catch (e) {
-            console.warn(`Failed to geocode: ${activity.title}`, e);
-            // Fallback to day center or main location with randomized slight offset
-            return { 
-              ...activity, 
-              lat: coords.lat + (Math.random() - 0.5) * 0.01, 
-              lng: coords.lng + (Math.random() - 0.5) * 0.01 
-            };
+      const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+      /**
+       * Validate that coords are not suspiciously close to the city centre.
+       * If they are within 200 m, geocoding likely fell back to a generic city result.
+       * We retry once with a shorter / more specific query.
+       */
+      async function geocodeWithValidation(title: string): Promise<{ lat: number; lng: number }> {
+        const result = await getCoordinates(title, coords, mainLocation.place);
+
+        // If the result is within 200 m of the city centre, it likely fell back to a generic
+        // city-level result. Retry once with a shorter / stripped title.
+        if (distanceMetres(result, coords) < 200) {
+          console.warn(`[geocode] "${title}" resolved within 200m of city centre — retrying…`);
+          const cleaned = title
+            .replace(/^(Visit|Explore|See|Tour|Dinner at|Lunch at|Breakfast at)\s+/i, "")
+            .trim();
+          try {
+            const retry = await getCoordinates(
+              `${cleaned}, ${mainLocation.country ?? mainLocation.place}`,
+              coords,
+              mainLocation.place
+            );
+            if (distanceMetres(retry, coords) > 200) return retry;
+          } catch (_) { /* best effort */ }
+        }
+
+        return result;
+      }
+
+      const enrichedItinerary: typeof generatedItinerary = [];
+
+      for (let dayIndex = 0; dayIndex < generatedItinerary.length; dayIndex++) {
+        const day = generatedItinerary[dayIndex];
+        const enrichedActivities: typeof day.activities = [];
+
+        // Calculate actual date for this day to check opening hours
+        const dayDate = new Date(prefs.startDate);
+        dayDate.setDate(dayDate.getDate() + dayIndex);
+        const currentDayIndexGoogle = (dayDate.getDay() + 6) % 7; // Map JS Sunday=0 to Google Monday=0
+
+        for (const activity of day.activities) {
+          // Filter out closed locations
+          let isClosed = false;
+          if (activity.openingHours && activity.openingHours.length > 0) {
+            const todayHoursText = (activity.openingHours[currentDayIndexGoogle] || "").toLowerCase();
+            if (todayHoursText.includes("closed") || todayHoursText.includes("ปิด")) {
+              isClosed = true;
+            }
           }
-        }));
-        return { ...day, activities: enrichedActivities };
-      }));
-        
+
+          if (isClosed) {
+            console.warn(`[filter] Removed "${activity.title}" as it is closed on ${dayDate.toDateString()}`);
+            continue; // Skip adding this activity
+          }
+
+          setLoadingStep(`Plotting Itinerary Map: ${activity.title}...`);
+          await delay(100); // ← 100 ms gap prevents Google Places API rate-limit failures
+          try {
+            const activityCoords = await geocodeWithValidation(activity.title);
+            enrichedActivities.push({ ...activity, lat: activityCoords.lat, lng: activityCoords.lng });
+          } catch (e) {
+            console.warn(`[geocode] All strategies failed for: "${activity.title}"`, e);
+            // Fallback: city centre (marked with _geocodeFailed so MapSection can handle)
+            enrichedActivities.push({ ...activity, lat: coords.lat, lng: coords.lng });
+          }
+        }
+
+        enrichedItinerary.push({ ...day, activities: enrichedActivities });
+      }
+
       setItinerary(enrichedItinerary);
+      setMapItinerary(enrichedItinerary);
       setSuggestions(generatedSuggestions);
-      
-      // Step 4: Nearby Attractions (from principal coords)
-      const nearbyAttractions = await getNearbyAttractions(coords.lat, coords.lng);
+      setAccommodations(generatedAccommodations);
+
+      // Step 4: Nearby Attractions + Environment Data (parallel)
+      setLoadingStep("Fetching Weather Data...");
+      const [nearbyAttractions, envData] = await Promise.all([
+        getNearbyAttractions(coords.lat, coords.lng),
+        getEnvironmentData(coords.lat, coords.lng),
+      ]);
       setAttractions(nearbyAttractions);
-      
+      setEnvironmentData(envData);
+
       setIsAnalyzing(false);
     } catch (error) {
       console.error("Generation error:", error);
@@ -249,6 +396,50 @@ const Index = () => {
       setIsAnalyzing(false);
     }
   }, [detectedLocations, provider]);
+
+  const handleRefreshSuggestions = useCallback(async () => {
+    if (!detectedLocations.length) return;
+    const locationName = detectedLocations[0].place;
+    const existingPlaces = [
+      ...suggestions.map(s => s.name),
+      ...itinerary.flatMap(d => d.activities).map(a => a.title)
+    ];
+
+    try {
+      const newSuggestions = await generateMoreSuggestions(locationName, existingPlaces, model);
+      if (newSuggestions.length > 0) {
+        setSuggestions(prev => [...prev, ...newSuggestions]);
+        toast.success("Added new suggestions!");
+      } else {
+        toast.info("No new suggestions found.");
+      }
+    } catch (error) {
+      console.error("Failed to fetch new suggestions:", error);
+      toast.error("Failed to fetch new suggestions");
+    }
+  }, [detectedLocations, suggestions, itinerary, provider]);
+
+  const handleRefreshAccommodations = useCallback(async () => {
+    if (!detectedLocations.length) return;
+    const locationName = detectedLocations[0].place;
+    const existingPlaces = accommodations.map(a => a.name);
+
+    setIsRefreshingAccommodations(true);
+    try {
+      const newAccommodations = await generateMoreAccommodations(locationName, existingPlaces, model);
+      if (newAccommodations.length > 0) {
+        setAccommodations(prev => [...prev, ...newAccommodations]);
+        toast.success("Added new accommodations!");
+      } else {
+        toast.info("No new accommodations found.");
+      }
+    } catch (error) {
+      console.error("Failed to fetch new accommodations:", error);
+      toast.error("Failed to fetch new accommodations");
+    } finally {
+      setIsRefreshingAccommodations(false);
+    }
+  }, [detectedLocations, accommodations, model]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveDragId(event.active.id as string);
@@ -333,7 +524,7 @@ const Index = () => {
       return;
     }
 
-    // Case 2: Reordering within a day
+    // Case 2: Reordering within a day or moving across days
     if (activeId === overId) return;
 
     // Find which day the active card belongs to
@@ -346,31 +537,76 @@ const Index = () => {
     }
     if (activeDayIndex === -1) return;
 
-    // Find which day the over card belongs to (for within-day reorder)
-    let overDayIndex = -1;
-    for (let i = 0; i < itinerary.length; i++) {
-      if (itinerary[i].activities.some((a) => a.id === overId)) {
-        overDayIndex = i;
-        break;
+    // Find which day the over card belongs to
+    const overDayIndex = resolveTargetDay(overId);
+    if (overDayIndex === -1) return;
+
+    if (activeDayIndex === overDayIndex) {
+      // Reordering within the same day
+      const day = itinerary[activeDayIndex];
+      const oldIndex = day.activities.findIndex((a) => a.id === activeId);
+      const newIndex = day.activities.findIndex((a) => a.id === overId);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const reordered = arrayMove(day.activities, oldIndex, newIndex);
+      const originalTimes = day.activities.map((a) => a.time);
+      const withUpdatedTimes = reordered.map((a, i) => ({ ...a, time: originalTimes[i] }));
+
+      const updated = itinerary.map((d, i) =>
+        i === activeDayIndex ? { ...d, activities: withUpdatedTimes } : d
+      );
+      setItinerary(updated);
+    } else {
+      // Moving across days
+      const activeDay = itinerary[activeDayIndex];
+      const overDay = itinerary[overDayIndex];
+
+      const oldIndex = activeDay.activities.findIndex((a) => a.id === activeId);
+      if (oldIndex === -1) return;
+
+      const activityToMove = activeDay.activities[oldIndex];
+
+      // Remove from active day
+      const newActiveActivities = [...activeDay.activities];
+      newActiveActivities.splice(oldIndex, 1);
+
+      // Determine where to insert in the new day
+      let newIndex = overDay.activities.findIndex((a) => a.id === overId);
+      if (newIndex === -1) {
+        newIndex = overDay.activities.length;
       }
+
+      // Figure out the time for the new slot
+      let newTime = activityToMove.time;
+      if (overDay.activities.length > 0) {
+        if (newIndex === overDay.activities.length) {
+          // Append to end: 1 hour after the last activity
+          const lastTime = overDay.activities[overDay.activities.length - 1].time || "12:00";
+          const [h, m] = lastTime.split(':').map(Number);
+          newTime = `${String(Math.min(23, h + 1)).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        } else {
+          // Inserted at specific index: steal its time
+          newTime = overDay.activities[newIndex].time || "12:00";
+        }
+      } else {
+         newTime = "09:00";
+      }
+
+      const movedActivity = { ...activityToMove, time: newTime };
+      const newOverActivities = [...overDay.activities];
+      newOverActivities.splice(newIndex, 0, movedActivity);
+
+      // Re-sort times to maintain chronological order after insertion
+      const allTimes = newOverActivities.map((a) => a.time || "00:00").sort((a, b) => a.localeCompare(b));
+      const sortedNewOverActivities = newOverActivities.map((a, i) => ({ ...a, time: allTimes[i] }));
+
+      const updated = itinerary.map((d, i) => {
+        if (i === activeDayIndex) return { ...d, activities: newActiveActivities };
+        if (i === overDayIndex) return { ...d, activities: sortedNewOverActivities };
+        return d;
+      });
+      setItinerary(updated);
     }
-
-    // Only reorder within the same day
-    if (overDayIndex !== activeDayIndex) return;
-
-    const day = itinerary[activeDayIndex];
-    const oldIndex = day.activities.findIndex((a) => a.id === activeId);
-    const newIndex = day.activities.findIndex((a) => a.id === overId);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const reordered = arrayMove(day.activities, oldIndex, newIndex);
-    const originalTimes = day.activities.map((a) => a.time);
-    const withUpdatedTimes = reordered.map((a, i) => ({ ...a, time: originalTimes[i] }));
-
-    const updated = itinerary.map((d, i) =>
-      i === activeDayIndex ? { ...d, activities: withUpdatedTimes } : d
-    );
-    setItinerary(updated);
   };
 
   const handleSelectActivity = useCallback((activity: Activity) => {
@@ -388,10 +624,10 @@ const Index = () => {
   }, [attractions]);
 
   // Resolve drag overlay content
-  const handleAddSuggestion = useCallback((place: SuggestedPlace, dayIndex: number) => {
+  const handleAddSuggestion = useCallback((place: SuggestedPlace, dayIndex: number, time: string = "12:00") => {
     const newActivity: Activity = {
       id: `act-${Date.now()}`,
-      time: "12:00",
+      time,
       title: place.name,
       description: place.description,
       type: place.category === "food" ? "food" : "attraction",
@@ -400,6 +636,24 @@ const Index = () => {
       photo_url: place.photo_url,
       lat: place.lat,
       lng: place.lng,
+    };
+    setItinerary((prev) =>
+      prev.map((day, i) => (i === dayIndex ? { ...day, activities: [...day.activities, newActivity] } : day))
+    );
+  }, []);
+
+  const handleAddHotel = useCallback((hotel: SuggestedPlace, dayIndex: number, time: string = "14:00") => {
+    const newActivity: Activity = {
+      id: `act-${Date.now()}`,
+      time,
+      title: hotel.name,
+      description: hotel.description,
+      type: "hotel",
+      image: hotel.image,
+      image_url: hotel.image_url,
+      photo_url: hotel.photo_url,
+      lat: hotel.lat,
+      lng: hotel.lng,
     };
     setItinerary((prev) =>
       prev.map((day, i) => (i === dayIndex ? { ...day, activities: [...day.activities, newActivity] } : day))
@@ -419,6 +673,10 @@ const Index = () => {
       return <SuggestionDragOverlay place={activeSuggestion} />;
     }
 
+    if (activeDragId.startsWith("hotel-suggestion-") && activeSuggestion) {
+      return <HotelDragOverlay hotel={activeSuggestion} />;
+    }
+
     const activity = itinerary.flatMap((d) => d.activities).find((a) => a.id === activeDragId);
     if (activity) {
       return <ItineraryDragOverlay activity={activity} />;
@@ -436,42 +694,38 @@ const Index = () => {
         </div>
         <div className="relative container mx-auto px-4 pt-8 pb-20">
           <nav className="flex flex-col sm:flex-row items-center justify-between mb-16 gap-6">
+            {/* Logo */}
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-lg travel-gradient flex items-center justify-center shadow-lg">
                 <Plane className="w-5 h-5 text-primary-foreground" />
               </div>
-              <span className="text-xl font-bold text-primary-foreground tracking-tight">TravelVision AI</span>
+              <span className="text-xl font-bold text-primary-foreground tracking-tight">Pixinerary</span>
             </div>
-            
-            <div className="flex items-center gap-4 bg-background/10 backdrop-blur-md p-1.5 rounded-full border border-primary-foreground/20">
-              <div className="flex items-center px-4">
-                <Sparkles className="w-4 h-4 text-primary-foreground/80 mr-2" />
-                <span className="text-sm font-medium text-primary-foreground">
-                  Powered by: {provider === "gemini" ? "Google Gemini" : "OpenAI ChatGPT"}
-                </span>
+
+            <div className="flex items-center gap-3 flex-wrap justify-center">
+              {/* AI Model Selector */}
+              <div className="flex items-center gap-2 bg-background/10 backdrop-blur-md px-3 py-1.5 rounded-full border border-primary-foreground/20">
+                <Sparkles className="w-4 h-4 text-primary-foreground/80 shrink-0" />
+                <Select value={model} onValueChange={(v) => setModel(v as typeof model)}>
+                  <SelectTrigger
+                    className="border-0 bg-transparent shadow-none text-sm font-medium text-primary-foreground h-auto p-0 focus:ring-0 focus:ring-offset-0 [&>svg]:text-primary-foreground/70 min-w-[170px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border border-border/60 shadow-xl">
+                    {AI_MODEL_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="cursor-pointer">
+                        <span className="mr-1.5">{opt.icon}</span>
+                        <span className="font-medium">{opt.label}</span>
+                        <span className="ml-1.5 text-muted-foreground text-xs">· {opt.description}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="flex bg-background/20 rounded-full p-0.5">
-                <button
-                  onClick={() => setProvider("gemini")}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-300 ${
-                    provider === "gemini" 
-                      ? "bg-primary text-primary-foreground shadow-sm" 
-                      : "text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10"
-                  }`}
-                >
-                  Gemini
-                </button>
-                <button
-                  onClick={() => setProvider("openai")}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-300 ${
-                    provider === "openai" 
-                      ? "bg-primary text-primary-foreground shadow-sm" 
-                      : "text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10"
-                  }`}
-                >
-                  ChatGPT
-                </button>
-              </div>
+
+              {/* User session: avatar + display name + logout */}
+              <UserMenu />
             </div>
           </nav>
           <div className="text-center max-w-3xl mx-auto">
@@ -491,19 +745,53 @@ const Index = () => {
           <StepIndicator currentStep={step} />
 
           <section className="mb-12">
-            <ImageUpload onImagesUploaded={handleImagesUploaded} isAnalyzing={isAnalyzing} loadingLabel={loadingStep} />
+            {/* CLIP toggle — shown only before analysis starts */}
+            {!isAnalyzing && (
+              <div className="flex items-center justify-end gap-2 mb-4">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 cursor-default">
+                      <span className="text-sm font-medium text-foreground">Visual confidence scoring</span>
+                      <Info className="w-3.5 h-3.5 text-muted-foreground" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    Uses the CLIP vision model to compare your image against Google Places photos and rank candidates by visual similarity. More accurate, but slower.
+                  </TooltipContent>
+                </Tooltip>
+                <Switch
+                  id="clip-toggle"
+                  checked={useClip}
+                  onCheckedChange={setUseClip}
+                />
+                <span className="text-xs text-muted-foreground">{useClip ? "On (slower)" : "Off (faster)"}</span>
+              </div>
+            )}
+
+            {/* Animated analysis overlay — shown while pipeline is running */}
+            <AnalyzingOverlay
+              isAnalyzing={isAnalyzing}
+              loadingStep={loadingStep}
+              useClip={useClip}
+              type={overlayType}
+            />
+
+            {/* Upload dropzone — hidden (not unmounted) during analysis so file state is kept */}
+            <div className={isAnalyzing ? "hidden" : ""}>
+              <ImageUpload onImagesUploaded={handleImagesUploaded} isAnalyzing={isAnalyzing} loadingLabel={loadingStep} />
+            </div>
           </section>
 
           {detectedLocations.length > 0 && step === 2 && (
             <section className="mb-12">
-              <LocationDisplay locations={detectedLocations} />
+              <LocationDisplay locations={detectedLocations} useClip={useClip} />
               <div className="mt-8">
                 <TripPreferencesForm onSubmit={handlePreferencesSubmit} />
               </div>
             </section>
           )}
 
-          {step >= 3 && detectedLocations.length > 0 && (
+          {step >= 3 && detectedLocations.length > 0 && !isAnalyzing && (
             <DndContext
               sensors={sensors}
               collisionDetection={customCollisionDetection}
@@ -511,32 +799,68 @@ const Index = () => {
               onDragEnd={handleDragEnd}
             >
               <section className="mb-12">
-                <MapSection 
+                <MapSection
                   location={{
                     name: detectedLocations[0].place,
                     country: detectedLocations[0].country,
                     type: detectedLocations[0].type,
                     coordinates: selectedPlace || { lat: 0, lng: 0 },
-                    weather: "Sunny",
-                    temperature: "28°C",
-                    airQuality: "Good",
+                    weather: environmentData?.current
+                      ? `${environmentData.current.temperatureC}°C`
+                      : "Sunny",
+                    temperature: environmentData?.current
+                      ? `${environmentData.current.temperatureC}°C`
+                      : "28°C",
+                    airQuality: environmentData?.airQuality?.category ?? "Good",
                     timezone: "Local",
                     sunlight: "12h"
-                  }} 
-                  itinerary={itinerary}
+                  }}
+                  itinerary={mapItinerary}
                   dayColors={DAY_COLORS}
                 />
               </section>
               <section className="mb-12">
-                <AISuggestedPlaces onAddToItinerary={handleAddSuggestion} locationName={detectedLocations[0].place} suggestions={suggestions} />
+                <AISuggestedPlaces
+                  onAddToItinerary={handleAddSuggestion}
+                  locationName={detectedLocations[0].place}
+                  suggestions={suggestions}
+                  onRefreshSuggestions={handleRefreshSuggestions}
+                  daysCount={itinerary.length}
+                />
               </section>
+              {accommodations.length > 0 && (
+                <section className="mb-12">
+                  <AIAccommodations
+                    accommodations={accommodations}
+                    onAddToItinerary={handleAddHotel}
+                    locationName={detectedLocations[0].place}
+                    daysCount={itinerary.length}
+                    onRefreshAccommodations={handleRefreshAccommodations}
+                    isRefreshing={isRefreshingAccommodations}
+                  />
+                </section>
+              )}
+              {/* Weather & Air Quality Widget */}
+              {selectedPlace && (
+                <WeatherWidget
+                  lat={selectedPlace.lat}
+                  lng={selectedPlace.lng}
+                  locationName={detectedLocations[0].place}
+                  tripStartDate={tripStartDate ?? undefined}
+                  typicalWeather={typicalWeather ?? undefined}
+                />
+              )}
               <section className="mb-12">
-                <TravelItinerary 
-                  itinerary={itinerary} 
-                  onUpdate={setItinerary} 
-                  activeDragId={activeDragId} 
+              <TravelItinerary
+                  itinerary={itinerary}
+                  onUpdate={setItinerary}
+                  activeDragId={activeDragId}
                   onSelectActivity={handleSelectActivity}
                   onHoverActivity={setHoveredActivityId}
+                  onReloadMap={() => setMapItinerary(itinerary)}
+                  suggestions={suggestions}
+                  tripStartDate={tripStartDate ?? undefined}
+                  hourlyWeather={environmentData?.hourly ?? []}
                 />
               </section>
 
@@ -548,10 +872,10 @@ const Index = () => {
         </div>
       </main>
 
-      {step >= 3 && detectedLocations.length > 0 && <ChatBot locationName={detectedLocations[0].place} />}
+      {step >= 3 && detectedLocations.length > 0 && !isAnalyzing && <ChatBot locationName={detectedLocations[0].place} itinerary={itinerary} onUpdateItinerary={setItinerary} preferences={preferences} />}
 
       <footer className="border-t border-border py-6 text-center text-sm text-muted-foreground">
-        <p>TravelVision AI – Image-Based AI Travel Planning System • Research Project Prototype</p>
+        <p>Pixinerary – Image-Based AI Travel Planning System • Research Project Prototype</p>
       </footer>
     </div>
   );

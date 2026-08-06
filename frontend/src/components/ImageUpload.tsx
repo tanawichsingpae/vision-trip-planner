@@ -41,6 +41,18 @@ const ImageUpload = ({ onImagesUploaded, isAnalyzing, loadingLabel = "Analyzing 
     setPreviews([]);
   };
 
+  const loadSampleImages = async () => {
+    try {
+      // Create a dummy file for now, or fetch a real image from a placeholder service
+      const response = await fetch("https://images.unsplash.com/photo-1512453979798-5ea266f8880c?q=80&w=600&auto=format&fit=crop");
+      const blob = await response.blob();
+      const file = new File([blob], "dubai.jpg", { type: "image/jpeg" });
+      handleFiles([file]);
+    } catch (error) {
+      console.error("Failed to load sample image", error);
+    }
+  };
+
   if (previews.length > 0) {
     return (
       <div className="animate-fade-in max-w-4xl mx-auto">
@@ -93,24 +105,32 @@ const ImageUpload = ({ onImagesUploaded, isAnalyzing, loadingLabel = "Analyzing 
         multiple 
         accept="image/*" 
         onChange={handleChange} 
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-0" 
       />
-      <div className="animate-float">
+      <div className="animate-float relative z-10 pointer-events-none">
         <div className="w-20 h-20 rounded-2xl travel-gradient flex items-center justify-center mx-auto mb-6 shadow-lg">
           <Camera className="w-10 h-10 text-primary-foreground" />
         </div>
       </div>
-      <h3 className="text-xl font-semibold text-foreground mb-2">Upload a Travel Destination Image</h3>
-      <p className="text-muted-foreground mb-6">Drag & drop an image or click to browse</p>
-      <div className="flex items-center justify-center gap-4">
-        <Button variant="outline" className="gap-2">
+      <h3 className="text-xl font-semibold text-foreground mb-2 relative z-10 pointer-events-none">Upload a Travel Destination Image</h3>
+      <p className="text-muted-foreground mb-6 relative z-10 pointer-events-none">Drag & drop an image or click to browse</p>
+      <div className="flex items-center justify-center gap-4 relative z-10">
+        <Button variant="outline" className="gap-2 pointer-events-none">
           <Upload className="w-4 h-4" /> Browse Files
         </Button>
-        <Button variant="outline" className="gap-2">
+        <Button 
+          variant="outline" 
+          className="gap-2" 
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            loadSampleImages();
+          }}
+        >
           <ImageIcon className="w-4 h-4" /> Sample Images
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground mt-4">Supports JPG, PNG, WebP • Max 10MB</p>
+      <p className="text-xs text-muted-foreground mt-4 relative z-10 pointer-events-none">Supports JPG, PNG, WebP • Max 10MB</p>
     </div>
   );
 };

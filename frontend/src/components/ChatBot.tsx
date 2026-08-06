@@ -3,7 +3,8 @@ import { MessageSquare, Send, Bot, User, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAI } from "@/context/AIProviderContext";
-import { chatWithAssistant } from "@/services/aiService";
+import { chatWithAssistant, type TripPreferences, fetchPlacePhoto } from "@/services/aiService";
+import { type DayPlan, type Activity } from "@/components/TravelItinerary";
 
 interface Message {
   id: string;
@@ -21,9 +22,12 @@ const quickActions = [
 interface ChatBotProps {
   locationName: string;
   onSuggestion?: (suggestion: string) => void;
+  itinerary: DayPlan[];
+  onUpdateItinerary: (itinerary: DayPlan[]) => void;
+  preferences: TripPreferences | null;
 }
 
-const ChatBot = ({ locationName, onSuggestion }: ChatBotProps) => {
+const ChatBot = ({ locationName, onSuggestion, itinerary, onUpdateItinerary, preferences }: ChatBotProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -36,7 +40,7 @@ const ChatBot = ({ locationName, onSuggestion }: ChatBotProps) => {
   const [isTyping, setIsTyping] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   
-  const { provider } = useAI();
+  const { model } = useAI();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -50,7 +54,44 @@ const ChatBot = ({ locationName, onSuggestion }: ChatBotProps) => {
     setIsTyping(true);
 
     try {
-      const response = await chatWithAssistant(text, locationName, provider);
+      let response = await chatWithAssistant(text, locationName, model, itinerary, preferences);
+      
+      // Parse JSON action block if it exists
+      const jsonBlockRegex = /```json\s*(\{[\s\S]*?\})\s*```/;
+      const match = response.match(jsonBlockRegex);
+      
+      if (match && match[1]) {
+        try {
+          const actionData = JSON.parse(match[1]);
+          if (actionData.action === "UPDATE_ITINERARY" && actionData.updated_itinerary) {
+            
+            // Merge old images and fetch new ones
+            const oldActivities = new Map<string, Activity>();
+            itinerary.forEach(day => day.activities.forEach(act => oldActivities.set(act.id, act)));
+
+            const mergedItinerary: DayPlan[] = await Promise.all(actionData.updated_itinerary.map(async (day: DayPlan) => {
+              const mergedActivities = await Promise.all((day.activities || []).map(async (act: any) => {
+                const oldAct = oldActivities.get(act.id);
+                if (oldAct && (oldAct.image_url || oldAct.image)) {
+                  return { ...act, image_url: oldAct.image_url, photo_url: oldAct.photo_url, image: oldAct.image };
+                } else {
+                  // Fetch new photo
+                  const photo = await fetchPlacePhoto(act.title);
+                  return { ...act, image_url: photo, photo_url: photo, image: photo };
+                }
+              }));
+              return { ...day, activities: mergedActivities };
+            }));
+
+            onUpdateItinerary(mergedItinerary);
+          }
+        } catch (e) {
+          console.error("Failed to parse AI action block:", e);
+        }
+        // Remove the json block from the response text shown to the user
+        response = response.replace(jsonBlockRegex, "").trim();
+      }
+
       setMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: "assistant", content: response }]);
     } catch (error) {
       console.error("Chat error:", error);

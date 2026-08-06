@@ -14,7 +14,8 @@ export interface LocationData {
 }
 
 interface LocationDisplayProps {
-    locations: Array<{
+  useClip?: boolean;
+  locations: Array<{
     place: string;
     type: string;
     country: string;
@@ -26,7 +27,7 @@ interface LocationDisplayProps {
   }>;
 }
 
-const LocationDisplay = ({ locations }: LocationDisplayProps) => {
+const LocationDisplay = ({ locations, useClip = true }: LocationDisplayProps) => {
   return (
     <div className="animate-slide-up max-w-4xl mx-auto">
       <div className="glass-card rounded-3xl p-8 border border-primary/10 shadow-xl overflow-hidden relative">
@@ -59,7 +60,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                   </div>
                 </div>
                 
-                {loc.confidence !== undefined && (
+                {useClip && loc.confidence !== undefined && (
                   <div className="flex flex-col items-end gap-1.5">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-foreground">Visual Match</span>
@@ -75,7 +76,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                 )}
               </div>
 
-              {loc.confidence !== undefined && (
+              {useClip && loc.confidence !== undefined && (
                 <div className="mt-4 p-4 rounded-xl border border-border/50 bg-background/50">
                   <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Confidence Status</p>
                   {loc.confidence >= 0.75 ? (
@@ -110,7 +111,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
               )}
 
               {/* Initial Guesses Section */}
-              {loc.initial_candidates && loc.initial_candidates.length > 0 && (
+              {useClip && loc.initial_candidates && loc.initial_candidates.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-border/20">
                   <h5 className="text-sm font-bold text-foreground mb-4">Initial Guesses from AI (LLM)</h5>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -118,7 +119,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                       <div key={idx} className="flex flex-col rounded-xl overflow-hidden bg-background/40 border border-border/50 group/cand">
                         <div className="relative h-24 overflow-hidden">
                           <img 
-                            src={cand.photo_url || `https://source.unsplash.com/400x300/?${encodeURIComponent(cand.name)}`} 
+                            src={cand.photo_url || `https://picsum.photos/seed/${encodeURIComponent(cand.name)}/400/300`} 
                             alt={cand.name}
                             className="w-full h-full object-cover group-hover/cand:scale-110 transition-transform duration-500"
                           />
@@ -136,7 +137,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
               )}
 
               {/* CLIP Ranking Section */}
-              {loc.top_candidates && loc.top_candidates.length > 0 && (
+              {useClip && loc.top_candidates && loc.top_candidates.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-border/20">
                   <h5 className="text-sm font-bold text-foreground mb-4">CLIP Visual Similarity Ranking (Top 3)</h5>
                   <div className="space-y-3">
@@ -152,7 +153,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                         </div>
                         <div className="w-16 h-16 rounded-lg overflow-hidden border border-border/20 flex-shrink-0">
                           <img 
-                            src={cand.photo_url || `https://source.unsplash.com/400x300/?${encodeURIComponent(cand.name)}`} 
+                            src={cand.photo_url || `https://picsum.photos/seed/${encodeURIComponent(cand.name)}/400/300`} 
                             alt={cand.name}
                             className="w-full h-full object-cover"
                           />
@@ -177,7 +178,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                 </div>
               )}
 
-              {loc.similar_locations && loc.similar_locations.length > 0 && (
+              {useClip && loc.similar_locations && loc.similar_locations.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-border/20">
                   <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Visually Similar Locations</p>
                   <div className="flex flex-wrap gap-2">
@@ -191,7 +192,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                 </div>
               )}
 
-              {loc.ai_reasoning && loc.ai_reasoning.length > 0 && (
+              {useClip && loc.ai_reasoning && loc.ai_reasoning.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-border/50 text-sm text-muted-foreground">
                   <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-2">
                     Visual Evidence
