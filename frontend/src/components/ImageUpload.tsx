@@ -101,8 +101,10 @@ const ImageUpload = ({
 
   return (
     <div
-      className={`relative border-2 border-dashed rounded-2xl p-12 text-center transition-all max-w-2xl mx-auto ${
-        dragActive ? "border-primary bg-primary/5 scale-[1.02]" : "border-border hover:border-primary/50 hover:bg-muted/50"
+      className={`relative border-2 border-dashed rounded-3xl p-10 sm:p-14 text-center transition-all max-w-2xl mx-auto backdrop-blur-md ${
+        dragActive
+          ? "border-[#126c78] bg-[#126c78]/5 scale-[1.02] shadow-[0_12px_30px_rgba(18,108,120,0.15)]"
+          : "border-[#126c78]/25 bg-white/60 hover:border-[#126c78]/50 hover:bg-white/80 shadow-[0_8px_25px_rgba(18,108,120,0.06)]"
       }`}
       onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
       onDragLeave={() => setDragActive(false)}
@@ -115,30 +117,42 @@ const ImageUpload = ({
         onChange={handleChange} 
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-0" 
       />
-      <div className="animate-float relative z-10 pointer-events-none">
-        <div className="w-20 h-20 rounded-2xl travel-gradient flex items-center justify-center mx-auto mb-6 shadow-lg">
-          <Camera className="w-10 h-10 text-primary-foreground" />
+      <div className="animate-float relative z-10 pointer-events-none mb-6">
+        <div className="w-20 h-20 rounded-[22px_22px_22px_8px] bg-gradient-to-br from-[#126c78] to-[#188c91] flex items-center justify-center mx-auto shadow-[0_12px_28px_rgba(18,108,120,0.35)] relative">
+          <Camera className="w-10 h-10 text-white" />
+          <div className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-[#ff9276] flex items-center justify-center shadow-md">
+            <Upload className="w-3.5 h-3.5 text-white" />
+          </div>
         </div>
       </div>
-      <h3 className="text-xl font-semibold text-foreground mb-2 relative z-10 pointer-events-none">Upload a Travel Destination Image</h3>
-      <p className="text-muted-foreground mb-6 relative z-10 pointer-events-none">Drag & drop an image or click to browse</p>
-      <div className="flex items-center justify-center gap-4 relative z-10">
-        <Button variant="outline" className="gap-2 pointer-events-none">
-          <Upload className="w-4 h-4" /> Browse Files
+      <h3 className="text-xl font-bold text-[#173b43] mb-2 relative z-10 pointer-events-none">
+        Upload Travel Photos
+      </h3>
+      <p className="text-sm text-[#5d7e84] mb-6 max-w-md mx-auto relative z-10 pointer-events-none">
+        Drag & drop photos of landmarks, landscapes, or destinations, or browse from your device
+      </p>
+      <div className="flex items-center justify-center gap-3 relative z-10 flex-wrap">
+        <Button
+          variant="outline"
+          className="gap-2 pointer-events-none rounded-xl border-[#126c78]/25 bg-white/90 text-[#173b43] font-semibold text-xs shadow-xs"
+        >
+          <Upload className="w-4 h-4 text-[#188c91]" /> Browse Files
         </Button>
         <Button 
           variant="outline" 
-          className="gap-2" 
+          className="gap-2 rounded-xl border-[#126c78]/25 bg-white/90 hover:bg-white text-[#173b43] font-semibold text-xs shadow-xs hover:border-[#126c78]/50" 
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             loadSampleImages();
           }}
         >
-          <ImageIcon className="w-4 h-4" /> Sample Images
+          <ImageIcon className="w-4 h-4 text-[#ff9276]" /> Try Sample Image
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground mt-4 relative z-10 pointer-events-none">Supports JPG, PNG, WebP • Max 10MB</p>
+      <p className="text-[11px] text-muted-foreground mt-4 relative z-10 pointer-events-none">
+        Supports JPG, PNG, WebP • Up to 10 photos
+      </p>
     </div>
   );
 };

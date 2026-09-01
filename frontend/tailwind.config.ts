@@ -53,6 +53,7 @@ export default {
           sand: "hsl(var(--travel-sand))",
           forest: "hsl(var(--travel-forest))",
           sunset: "hsl(var(--travel-sunset))",
+          coral: "hsl(var(--travel-coral))",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",

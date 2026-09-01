@@ -193,9 +193,9 @@ const UserMenu = () => {
       <button
         id="login-button"
         onClick={() => navigate("/login")}
-        className="flex items-center gap-1.5 bg-background/10 hover:bg-white/20 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-primary-foreground/30 text-primary-foreground text-sm font-medium transition-all shadow-xs"
+        className="flex items-center gap-2 bg-white/15 hover:bg-white/25 backdrop-blur-md px-4 py-2 rounded-full border border-white/25 text-white text-sm font-semibold transition-all shadow-sm hover:shadow-md"
       >
-        <LogIn className="w-4 h-4" />
+        <LogIn className="w-4 h-4 text-[#ffe0a9]" />
         <span>Sign In</span>
       </button>
     );
@@ -215,23 +215,23 @@ const UserMenu = () => {
     .slice(0, 2);
 
   return (
-    <div className="flex items-center gap-2 bg-background/10 backdrop-blur-md px-3 py-1.5 rounded-full border border-primary-foreground/20">
+    <div className="flex items-center gap-2.5 bg-white/15 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/25 shadow-xs">
       {/* Avatar */}
       {avatarUrl ? (
         <img
           src={avatarUrl}
           alt={displayName}
           referrerPolicy="no-referrer"
-          className="w-8 h-8 rounded-full object-cover ring-2 ring-primary-foreground/30 shrink-0"
+          className="w-8 h-8 rounded-full object-cover ring-2 ring-[#ff9276] shrink-0 shadow-xs"
         />
       ) : (
-        <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center ring-2 ring-primary-foreground/30 shrink-0">
-          <span className="text-xs font-bold text-primary-foreground">{initials}</span>
+        <div className="w-8 h-8 rounded-full bg-[#ff9276] flex items-center justify-center ring-2 ring-white/50 shrink-0 shadow-xs">
+          <span className="text-xs font-bold text-white">{initials}</span>
         </div>
       )}
 
       {/* Display name */}
-      <span className="text-sm font-medium text-primary-foreground max-w-[120px] truncate hidden sm:block">
+      <span className="text-sm font-semibold text-white max-w-[130px] truncate hidden sm:block">
         {displayName}
       </span>
 
@@ -240,9 +240,9 @@ const UserMenu = () => {
         id="logout-button"
         onClick={handleSignOut}
         title="Sign out"
-        className="flex items-center gap-1 px-2 py-1 rounded-full text-primary-foreground/80 hover:text-primary-foreground hover:bg-white/10 transition-all duration-200"
+        className="flex items-center gap-1 px-2 py-1 rounded-full text-white/80 hover:text-white hover:bg-white/15 transition-all duration-200"
       >
-        <LogOut className="w-4 h-4" />
+        <LogOut className="w-3.5 h-3.5" />
         <span className="text-xs font-medium hidden sm:inline">Sign out</span>
       </button>
     </div>
@@ -1291,15 +1291,15 @@ const Index = () => {
     setPreferences((prev) =>
       prev
         ? {
-            ...prev,
-            hasHotel: "yes",
-            hotelName: hotel.name,
-            hotelLat: hotel.lat,
-            hotelLng: hotel.lng,
-            hotelPhotoUrl: hotel.photo_url || hotel.image_url || null,
-            hotelCheckInTime: checkInTime,
-            hotelCheckOutTime: checkOutTime,
-          }
+          ...prev,
+          hasHotel: "yes",
+          hotelName: hotel.name,
+          hotelLat: hotel.lat,
+          hotelLng: hotel.lng,
+          hotelPhotoUrl: hotel.photo_url || hotel.image_url || null,
+          hotelCheckInTime: checkInTime,
+          hotelCheckOutTime: checkOutTime,
+        }
         : null
     );
 
@@ -1546,48 +1546,51 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen relative overflow-hidden">
+      {/* Ambient background glows */}
+      <div className="ambient ambient-one fixed -top-40 -left-40 pointer-events-none" />
+      <div className="ambient ambient-two fixed -bottom-40 -right-40 pointer-events-none" />
+
       {/* Hero Header */}
-      <header className="relative overflow-hidden">
-        <div className="absolute inset-0">
+      <header className="relative overflow-hidden showcase-grid-bg bg-gradient-to-br from-[#126c78] via-[#188c91] to-[#3ca89f] text-white shadow-xl">
+        <div className="absolute inset-0 opacity-20 mix-blend-overlay">
           <img src={heroImage} alt="Travel destination" className="w-full h-full object-cover" width={1920} height={800} />
-          <div className="absolute inset-0 bg-gradient-to-b from-foreground/60 via-foreground/40 to-background" />
         </div>
-        <div className="relative container mx-auto px-4 pt-8 pb-20">
-          <nav className="flex flex-col sm:flex-row items-center justify-between mb-16 gap-6">
+        <div className="relative container mx-auto px-4 pt-7 pb-24 z-10">
+          <nav className="flex flex-col sm:flex-row items-center justify-between mb-12 gap-5">
             {/* Logo and Experiment Link */}
             <div className="flex items-center gap-4 flex-wrap justify-center sm:justify-start">
-              <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-lg travel-gradient flex items-center justify-center shadow-lg">
-                  <Plane className="w-5 h-5 text-primary-foreground" />
+              <Link to="/" className="flex items-center gap-2.5 group">
+                <div className="w-[34px] h-[34px] rounded-[10px_10px_10px_3px] bg-[#ff9276] flex items-center justify-center -rotate-12 shadow-[0_4px_12px_rgba(255,146,118,0.45)] shrink-0 transition-transform duration-300 group-hover:rotate-0">
+                  <Plane className="w-[18px] h-[18px] text-white rotate-12 group-hover:rotate-0 transition-transform duration-300" />
                 </div>
-                <span className="text-xl font-bold text-primary-foreground tracking-tight">Pixinerary</span>
-              </div>
+                <span className="text-2xl font-extrabold text-white tracking-[-0.04em]">pixinerary</span>
+              </Link>
               <Link
                 to="/experiment"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 text-primary-foreground/90 hover:bg-white/20 hover:text-white transition-all duration-200 border border-white/10 shadow-sm"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white/12 text-white hover:bg-white/20 hover:text-white transition-all duration-200 border border-white/20 shadow-xs"
               >
-                <Beaker className="w-3.5 h-3.5 text-blue-400" />
+                <Beaker className="w-3.5 h-3.5 text-[#ffe0a9]" />
                 <span>Experiment Console</span>
               </Link>
             </div>
 
             <div className="flex items-center gap-3 flex-wrap justify-center">
               {/* AI Model Selector */}
-              <div className="flex items-center gap-2 bg-background/10 backdrop-blur-md px-3 py-1.5 rounded-full border border-primary-foreground/20">
-                <Sparkles className="w-4 h-4 text-primary-foreground/80 shrink-0" />
+              <div className="flex items-center gap-2 bg-white/15 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/25 shadow-xs">
+                <Sparkles className="w-4 h-4 text-[#ffe0a9] shrink-0" />
                 <Select value={model} onValueChange={(v) => setModel(v as typeof model)}>
                   <SelectTrigger
-                    className="border-0 bg-transparent shadow-none text-sm font-medium text-primary-foreground h-auto p-0 focus:ring-0 focus:ring-offset-0 [&>svg]:text-primary-foreground/70 min-w-[170px]"
+                    className="border-0 bg-transparent shadow-none text-sm font-medium text-white h-auto p-0 focus:ring-0 focus:ring-offset-0 [&>svg]:text-white/80 min-w-[170px]"
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="rounded-xl border border-border/60 shadow-xl">
+                  <SelectContent className="rounded-2xl border border-border/80 shadow-2xl bg-white/95 backdrop-blur-xl">
                     {AI_MODEL_OPTIONS.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value} className="cursor-pointer">
                         <div className="flex items-center gap-2">
                           <img src={opt.icon} className="w-5 h-5 rounded-full object-cover shrink-0 bg-muted" alt="" />
-                          <span className="font-medium">{opt.label}</span>
+                          <span className="font-semibold text-foreground">{opt.label}</span>
                           <span className="text-muted-foreground text-xs">· {opt.description}</span>
                         </div>
                       </SelectItem>
@@ -1599,10 +1602,10 @@ const Index = () => {
               {/* My Saved Trips Button */}
               <button
                 onClick={() => setIsSavedTripsModalOpen(true)}
-                className="flex items-center gap-1.5 bg-background/10 hover:bg-white/20 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-primary-foreground/30 text-primary-foreground text-sm font-medium transition-all shadow-xs"
+                className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/25 text-white text-sm font-semibold transition-all shadow-xs"
                 title="ดูประวัติทริปและการสนทนาที่บันทึกไว้"
               >
-                <Compass className="w-4 h-4 text-travel-sand" />
+                <Compass className="w-4 h-4 text-[#ffe0a9]" />
                 <span className="hidden sm:inline">My Trips</span>
               </button>
 
@@ -1610,20 +1613,25 @@ const Index = () => {
               <UserMenu />
             </div>
           </nav>
-          <div className="text-center max-w-3xl mx-auto">
-            <h1 className="text-4xl md:text-5xl font-extrabold text-primary-foreground mb-4 leading-tight">
-              Plan Your Perfect Trip with <span className="text-travel-sand">AI</span>
+
+          <div className="text-center max-w-3xl mx-auto pt-2">
+            <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#d8ffef] bg-white/12 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/15 mb-4 shadow-xs">
+              <Sparkles className="w-3.5 h-3.5 text-[#ffe0a9]" />
+              Travel, thoughtfully planned
+            </p>
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold text-white mb-4 leading-[1.1] tracking-[-0.03em]">
+              Plan Your Perfect Trip with <em className="text-[#ffe0a9] font-serif italic font-normal">AI</em>
             </h1>
-            <p className="text-lg text-primary-foreground/80 mb-8">
-              Upload a photo of any destination and let AI create a personalized travel itinerary
+            <p className="text-base md:text-lg text-[#d5f1ef] max-w-2xl mx-auto leading-relaxed">
+              Upload a photo of any destination and let AI discover landmarks, craft your itinerary, and curate your journey.
             </p>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 -mt-8 pb-20">
-        <div className="bg-card rounded-3xl shadow-xl p-8 md:p-12">
+      <main className="container mx-auto px-4 -mt-10 pb-20 relative z-10">
+        <div className="glass-card rounded-3xl p-6 md:p-12 shadow-[0_20px_60px_rgba(18,108,120,0.12)]">
           <StepIndicator
             currentStep={step}
             maxUnlockedStep={maxUnlockedStep}
@@ -1962,7 +1970,7 @@ const Index = () => {
       />
 
       <footer className="border-t border-border py-6 text-center text-sm text-muted-foreground">
-        <p>Pixinerary – Image-Based AI Travel Planning System • Research Project Prototype</p>
+        <p>Pixinerary Image-Based AI Travel Planning System • Research Project</p>
       </footer>
     </div>
   );

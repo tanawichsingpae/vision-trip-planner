@@ -5,53 +5,55 @@
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 215 25% 15%;
+    --background: 180 30% 98%;
+    --foreground: 190 48% 17%;
 
     --card: 0 0% 100%;
-    --card-foreground: 215 25% 15%;
+    --card-foreground: 190 48% 17%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 215 25% 15%;
+    --popover-foreground: 190 48% 17%;
 
-    --primary: 210 100% 50%;
+    --primary: 187 73% 27%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 215 25% 15%;
+    --secondary: 177 45% 94%;
+    --secondary-foreground: 187 73% 27%;
 
-    --muted: 210 20% 95%;
-    --muted-foreground: 215 15% 50%;
+    --muted: 180 25% 94%;
+    --muted-foreground: 190 20% 45%;
 
-    --accent: 200 90% 45%;
+    --accent: 12 100% 73%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 210 20% 90%;
-    --input: 210 20% 90%;
-    --ring: 210 100% 50%;
+    --border: 185 25% 88%;
+    --input: 185 25% 88%;
+    --ring: 187 73% 27%;
 
-    --radius: 0.75rem;
+    --radius: 0.875rem;
 
     --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-foreground: 190 48% 17%;
+    --sidebar-primary: 187 73% 27%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 177 45% 94%;
+    --sidebar-accent-foreground: 187 73% 27%;
+    --sidebar-border: 185 25% 88%;
+    --sidebar-ring: 187 73% 27%;
 
-    /* Custom travel tokens */
-    --travel-sky: 200 80% 55%;
-    --travel-ocean: 210 100% 45%;
-    --travel-sand: 38 60% 90%;
-    --travel-forest: 150 40% 45%;
-    --travel-sunset: 25 95% 55%;
-    --travel-gradient-start: 210 100% 50%;
-    --travel-gradient-end: 200 90% 40%;
+    /* Custom Pixinerary signature travel tokens */
+    --travel-sky: 185 70% 42%;
+    --travel-ocean: 187 73% 27%;
+    --travel-sand: 38 100% 83%;
+    --travel-forest: 165 45% 42%;
+    --travel-sunset: 12 100% 73%;
+    --travel-gradient-start: 187 73% 27%;
+    --travel-gradient-end: 177 50% 55%;
+    --travel-coral: 12 100% 73%;
+    --travel-coral-hover: 12 90% 64%;
   }
 }
 
@@ -61,25 +63,66 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Inter', sans-serif;
+    @apply text-foreground font-sans antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #dff6f5 0%, #dff2f7 38%, #f9f8f2 100%) fixed;
+    min-height: 100vh;
   }
 }
 
 @layer utilities {
   .travel-gradient {
-    background: linear-gradient(135deg, hsl(var(--travel-gradient-start)), hsl(var(--travel-gradient-end)));
+    background: linear-gradient(135deg, #126c78 0%, #188c91 48%, #48ada6 100%);
+  }
+
+  .travel-gradient-coral {
+    background: linear-gradient(135deg, #188c91 0%, #cf7158 100%);
   }
 
   .travel-gradient-text {
-    background: linear-gradient(135deg, hsl(var(--travel-gradient-start)), hsl(var(--travel-gradient-end)));
+    background: linear-gradient(135deg, #126c78 0%, #188c91 50%, #ff9276 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
 
   .glass-card {
-    @apply bg-card/80 backdrop-blur-md border border-border/50 shadow-lg;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(18, 108, 120, 0.12);
+    box-shadow: 0 18px 45px rgba(18, 108, 120, 0.08), 0 4px 12px rgba(18, 108, 120, 0.03);
+  }
+
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+  }
+
+  .glass-pill {
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 8px 18px rgba(7, 91, 100, 0.15);
+  }
+
+  .showcase-grid-bg {
+    position: relative;
+  }
+
+  .showcase-grid-bg::after {
+    content: "";
+    opacity: 0.12;
+    pointer-events: none;
+    background-image: linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px);
+    background-size: 60px 60px;
+    position: absolute;
+    inset: 0;
+    -webkit-mask-image: linear-gradient(transparent, #000 25%, transparent 90%);
+    mask-image: linear-gradient(transparent, #000 25%, transparent 90%);
   }
 
   .animate-float {
