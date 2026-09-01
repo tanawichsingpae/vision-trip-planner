@@ -656,19 +656,19 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
             type="button"
             variant="outline"
             onClick={onBack}
-            className="w-full sm:w-auto h-12 px-6 rounded-xl border-border hover:bg-muted font-semibold flex items-center justify-center gap-2"
+            className="w-full sm:w-auto h-11 px-5 rounded-xl border-border/80 hover:bg-muted/60 text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
-            ย้อนกลับไปหน้าผลวิเคราะห์ภาพ
+            <span>Back to Vision Results</span>
           </Button>
         )}
         <Button
           type="submit"
           disabled={!canSubmit}
-          className="flex-1 w-full text-base sm:text-lg h-12 travel-gradient text-white font-bold shadow-lg disabled:opacity-50 rounded-xl flex items-center justify-center gap-2"
+          className="flex-1 w-full h-11 px-6 rounded-xl travel-gradient text-white font-semibold text-sm shadow-md disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-95 transition-opacity"
         >
-          <Sparkles className="w-5 h-5" />
-          สร้างแผนการเดินทางด้วย AI (Generate Itinerary)
+          <Sparkles className="w-4 h-4" />
+          <span>Generate Itinerary</span>
         </Button>
       </div>
     </form>

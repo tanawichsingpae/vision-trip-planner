@@ -1519,10 +1519,10 @@ const Index = () => {
                 <Button
                   variant="outline"
                   onClick={() => setStep(0)}
-                  className="w-full sm:w-auto h-12 px-6 rounded-xl border-border hover:bg-muted font-medium flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto h-11 px-5 rounded-xl border-border/80 hover:bg-muted/60 text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4" />
-                  อัปโหลดรูปภาพใหม่ (Upload New Photos)
+                  <span>Upload New Photos</span>
                 </Button>
 
                 <Button
@@ -1531,9 +1531,9 @@ const Index = () => {
                     setMaxUnlockedStep(prev => Math.max(prev, 2));
                     window.scrollTo({ top: 200, behavior: "smooth" });
                   }}
-                  className="w-full sm:w-auto h-12 px-8 rounded-xl travel-gradient text-white font-bold shadow-lg flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform"
+                  className="w-full sm:w-auto h-11 px-6 rounded-xl travel-gradient text-white font-semibold text-sm shadow-md flex items-center justify-center gap-2 hover:opacity-95 transition-opacity"
                 >
-                  <span>ไปหน้ากำหนดความต้องการเดินทาง (Next to Preferences)</span>
+                  <span>Continue to Preferences</span>
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </div>
@@ -1563,10 +1563,10 @@ const Index = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => setStep(1)}
-                  className="rounded-xl border-border text-foreground hover:bg-muted font-semibold text-xs self-start sm:self-auto flex items-center gap-1.5"
+                  className="rounded-xl border-border/80 text-foreground hover:bg-muted font-medium text-xs self-start sm:self-auto flex items-center gap-1.5"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  ดูผลสถานที่ (Vision AI)
+                  <span>Back to Vision AI</span>
                 </Button>
               </div>
 
@@ -1604,20 +1604,20 @@ const Index = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => setStep(2)}
-                  className="rounded-xl border-border text-foreground hover:bg-background font-semibold text-xs flex items-center gap-2 shadow-2xs"
+                  className="rounded-xl border-border/80 text-foreground hover:bg-background font-medium text-xs flex items-center gap-2 shadow-2xs transition-colors"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  แก้ไขความต้องการเดินทาง (Edit Preferences)
+                  <span>Edit Preferences</span>
                 </Button>
 
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setStep(1)}
-                  className="text-muted-foreground hover:text-foreground text-xs flex items-center gap-1.5"
+                  className="text-muted-foreground hover:text-foreground text-xs font-medium flex items-center gap-1.5 rounded-xl transition-colors"
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  ดูผลภาพถ่าย ({detectedLocations.length} แห่ง)
+                  <span>View Photos ({detectedLocations.length})</span>
                 </Button>
               </div>
 
