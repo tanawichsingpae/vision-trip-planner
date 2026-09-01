@@ -71,6 +71,39 @@ const LEGACY_MIGRATION_MAP: Record<string, AIModelType> = {
   "openai-pro": "openai-gpt4o",
 };
 
+/**
+ * Helper to get user-friendly label, icon, and description for any AI model key or ID.
+ */
+export function getAIModelInfo(modelKeyOrId?: string | null) {
+  if (!modelKeyOrId) return null;
+  const found = AI_MODEL_OPTIONS.find(
+    (opt) =>
+      opt.value === modelKeyOrId ||
+      opt.description === modelKeyOrId ||
+      opt.label.toLowerCase() === modelKeyOrId.toLowerCase()
+  );
+  if (found) return found;
+
+  // Check OpenRouter model ID mapping
+  for (const [key, id] of Object.entries(MODEL_ID_MAP)) {
+    if (id === modelKeyOrId || key === modelKeyOrId) {
+      const match = AI_MODEL_OPTIONS.find((opt) => opt.value === key);
+      if (match) return match;
+    }
+  }
+
+  // Fallback formatted label
+  return {
+    value: modelKeyOrId as AIModelType,
+    label: modelKeyOrId
+      .replace(/^google-|^openai-|^anthropic-|^xai-|^amazon-|^mistral-|^qwen-|^meta-/, "")
+      .replace(/-/g, " ")
+      .toUpperCase(),
+    description: modelKeyOrId,
+    icon: "/logos/gemini.png",
+  };
+}
+
 interface AIContextType {
   model: AIModelType;
   setModel: (model: AIModelType) => void;

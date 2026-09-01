@@ -68,7 +68,7 @@ import { generateTravelPlan, generateMoreSuggestions, generateMoreAccommodations
 import { getEnvironmentData, type EnvironmentData } from "@/services/environmentService";
 import { toast } from "sonner";
 import { type Attraction } from "@/api/places";
-import { useAI, AI_MODEL_OPTIONS } from "@/context/AIProviderContext";
+import { useAI, AI_MODEL_OPTIONS, getAIModelInfo, MODEL_ID_MAP } from "@/context/AIProviderContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { VisionOutlierModal, type OutlierItem } from "@/components/VisionOutlierModal";
 import { detectVisionOutliers } from "@/utils/outlierDetector";
@@ -290,6 +290,7 @@ function fileToBase64Thumbnail(file: File, maxWidth = 480): Promise<string> {
 // ──────────────────────────────────────────────────────────────────────────────
 
 const Index = () => {
+  const { model, setModel, provider } = useAI();
   const [step, setStep] = useState(0);
   const [maxUnlockedStep, setMaxUnlockedStep] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -340,11 +341,19 @@ const Index = () => {
     setIsSavingTrip(true);
     try {
       const destination = detectedLocations[0]?.place || (preferences ? "Travel Destination" : "ทริปท่องเที่ยว");
+      const currentModel = preferences?.aiModel || preferences?.ai_model || model;
       const saved = await saveTrip({
         id: currentTripId || undefined,
         title: currentTripTitle || undefined,
         destination,
-        preferences,
+        preferences: preferences
+          ? {
+              ...preferences,
+              aiModel: currentModel,
+              ai_model: currentModel,
+            }
+          : null,
+        ai_model: currentModel,
         itinerary,
         chat_messages: chatMessages,
         detected_locations: detectedLocations,
@@ -368,6 +377,7 @@ const Index = () => {
     currentTripTitle,
     detectedLocations,
     preferences,
+    model,
     itinerary,
     chatMessages,
     suggestions,
@@ -393,11 +403,19 @@ const Index = () => {
     if (trip.environment_data) {
       setEnvironmentData(trip.environment_data);
     }
+    const tripModel = trip.preferences?.aiModel || trip.preferences?.ai_model || trip.ai_model;
+    if (tripModel && typeof tripModel === "string") {
+      try {
+        if (tripModel in MODEL_ID_MAP) {
+          setModel(tripModel as any);
+        }
+      } catch {}
+    }
     setStep(3);
     setMaxUnlockedStep(3);
     window.scrollTo({ top: 200, behavior: "smooth" });
     toast.success(`โหลดข้อมูลทริป "${trip.title}" สำเร็จ ✨`);
-  }, []);
+  }, [setModel]);
 
   const handleNewTrip = useCallback(() => {
     setCurrentTripId(null);
@@ -414,8 +432,6 @@ const Index = () => {
     setMaxUnlockedStep(0);
     toast.info("เริ่มต้นสร้างทริปใหม่แล้ว");
   }, []);
-
-  const { model, setModel, provider } = useAI();
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -576,7 +592,12 @@ const Index = () => {
 
   const handlePreferencesSubmit = useCallback(async (prefs: TripPreferences) => {
     if (!detectedLocations.length) return;
-    setPreferences(prefs);
+    const prefsWithModel: TripPreferences = {
+      ...prefs,
+      aiModel: model,
+      ai_model: model,
+    };
+    setPreferences(prefsWithModel);
     setOverlayType("itinerary");
     setLoadingStep("Analyzing Preferences...");
     setIsAnalyzing(true);
@@ -596,15 +617,15 @@ const Index = () => {
       let dayClusters: DayCluster[] = [];
 
       try {
-        const candidatePois = await gatherCandidatePOIs(mainLocation.place, coords, locationNames, prefs.activities);
+        const candidatePois = await gatherCandidatePOIs(mainLocation.place, coords, locationNames, prefsWithModel.activities);
         if (candidatePois.length > 0) {
-          const scoredPois = scorePOIs(candidatePois, coords, prefs.activities);
-          const diversePois = selectDiversePOIs(scoredPois, Math.max(20, prefs.days * 5));
-          const rawClusters = kMeansCluster(diversePois, prefs.days);
+          const scoredPois = scorePOIs(candidatePois, coords, prefsWithModel.activities);
+          const diversePois = selectDiversePOIs(scoredPois, Math.max(20, prefsWithModel.days * 5));
+          const rawClusters = kMeansCluster(diversePois, prefsWithModel.days);
 
           // Macro-Cluster Sequencing: Sequence clusters 1..K in a contiguous progression from start location
-          const startLocation = prefs.hasHotel === "yes" && prefs.hotelLat && prefs.hotelLng
-            ? { lat: prefs.hotelLat, lng: prefs.hotelLng }
+          const startLocation = prefsWithModel.hasHotel === "yes" && prefsWithModel.hotelLat && prefsWithModel.hotelLng
+            ? { lat: prefsWithModel.hotelLat, lng: prefsWithModel.hotelLng }
             : coords;
           const sequencedClusters = sequenceDayClusters(rawClusters, startLocation);
 
@@ -627,7 +648,7 @@ const Index = () => {
       // Step 2: Generation
       setLoadingStep("Generating Travel Itinerary with AI...");
       const { itinerary: generatedItinerary, suggestions: generatedSuggestions, accommodations: generatedAccommodations, typicalWeather: aiTypicalWeather } =
-        await generateTravelPlan(locationNames, prefs, model, dayClusters);
+        await generateTravelPlan(locationNames, prefsWithModel, model, dayClusters);
 
       // Step 2b: Get the nearest IATA airport code for flight search / offers
       try {
@@ -1816,7 +1837,18 @@ const Index = () => {
                 </div>
 
                 {/* Save Trip Button & Status */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(() => {
+                    const currentModelKey = preferences?.aiModel || preferences?.ai_model || model;
+                    const modelInfo = getAIModelInfo(currentModelKey);
+                    if (!modelInfo) return null;
+                    return (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-primary font-semibold px-2.5 py-1 rounded-xl bg-primary/10 border border-primary/25 shadow-2xs">
+                        <Sparkles className="w-3.5 h-3.5 text-primary" />
+                        <span>AI: {modelInfo.label}</span>
+                      </span>
+                    );
+                  })()}
                   {currentTripTitle && (
                     <span className="text-xs text-muted-foreground font-medium hidden md:inline px-2 py-1 rounded-lg bg-background/60 border border-border/40">
                       📍 {currentTripTitle}

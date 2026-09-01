@@ -62,6 +62,8 @@ export interface TripPreferences {
   hotelPhotoUrl?: string | null;
   hotelCheckInTime?: string;
   hotelCheckOutTime?: string;
+  aiModel?: string;
+  ai_model?: string;
 }
 
 // ==========================================

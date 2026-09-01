@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Send, Bot, User, Sparkles, X, CheckCircle2, Maximize2, Minimize2, Move } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAI } from "@/context/AIProviderContext";
+import { useAI, getAIModelInfo } from "@/context/AIProviderContext";
 import { chatWithAssistant, type TripPreferences, fetchPlacePhoto } from "@/services/aiService";
 import { type DayPlan, type Activity } from "@/components/TravelItinerary";
 import { fetchPlaceDetails } from "@/api/places";
@@ -12,6 +12,9 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   actionSummary?: string;
+  aiModel?: string;
+  ai_model?: string;
+  timestamp?: number;
 }
 
 const quickActions = [
@@ -47,6 +50,7 @@ const ChatBot = ({
   messages: externalMessages,
   onUpdateMessages,
 }: ChatBotProps) => {
+  const { model } = useAI();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>(() => {
     if (externalMessages && externalMessages.length > 0) return externalMessages;
@@ -55,6 +59,8 @@ const ChatBot = ({
         id: "1",
         role: "assistant",
         content: `สวัสดีครับ! พิกซ์ (Pix) เองครับ 😊 Your AI Travel Companion สำหรับทริป ${locationName} ✈️📸\n\nไม่ว่าจะอยากปรับตารางเดินทาง สลับโรงแรม เปลี่ยนงบประมาณ หรือส่องสถานที่จากรูปถ่าย พิกซ์พร้อมช่วยคิดช่วยจัดให้เสมอ บอกผมได้เลยนะครับ!`,
+        aiModel: model,
+        timestamp: Date.now(),
       },
     ];
   });
@@ -108,7 +114,6 @@ const ChatBot = ({
   });
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const { model } = useAI();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -281,7 +286,7 @@ const ChatBot = ({
 
   const sendMessage = async (text: string) => {
     if (!text.trim()) return;
-    const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: text };
+    const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: text, timestamp: Date.now() };
     updateAndNotifyMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
@@ -409,6 +414,8 @@ const ChatBot = ({
           role: "assistant",
           content: response,
           actionSummary: actionSummaryText,
+          aiModel: model,
+          timestamp: Date.now(),
         },
       ]);
     } catch (error) {
@@ -419,6 +426,8 @@ const ChatBot = ({
           id: `e-${Date.now()}`,
           role: "assistant",
           content: "ขออภัยครับ ระบบเชื่อมต่อขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้งนะครับ",
+          aiModel: model,
+          timestamp: Date.now(),
         },
       ]);
     } finally {
@@ -514,7 +523,7 @@ const ChatBot = ({
             />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-bold text-white text-sm tracking-tight flex items-center gap-1.5">
                 <Move className="w-3.5 h-3.5 text-white/70" />
                 Pix (พิกซ์)
@@ -523,6 +532,16 @@ const ChatBot = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                 Online
               </span>
+              {(() => {
+                const modelInfo = getAIModelInfo(model);
+                if (!modelInfo) return null;
+                return (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-white/20 text-white border border-white/30 px-2 py-0.5 rounded-full shadow-2xs">
+                    <Sparkles className="w-2.5 h-2.5 text-[#ffe0a9]" />
+                    {modelInfo.label}
+                  </span>
+                );
+              })()}
             </div>
             <p className="text-[11px] text-white/80 font-medium">Your AI Travel Companion ✈️📸</p>
           </div>
@@ -576,6 +595,12 @@ const ChatBot = ({
                 <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 rounded-xl px-3 py-1.5 font-medium animate-fade-in">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   <span>{msg.actionSummary}</span>
+                </div>
+              )}
+              {msg.role === "assistant" && (
+                <div className="flex items-center gap-1 text-[10px] text-muted-foreground/80 pl-1 font-medium select-none">
+                  <Sparkles className="w-2.5 h-2.5 text-primary/70" />
+                  <span>โมเดล: {getAIModelInfo(msg.aiModel || msg.ai_model || model)?.label || "AI Model"}</span>
                 </div>
               )}
             </div>

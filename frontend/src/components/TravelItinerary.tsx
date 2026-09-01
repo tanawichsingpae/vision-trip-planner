@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { type SuggestedPlace } from "@/components/AISuggestedPlaces";
 import { useDistanceMatrix } from "@/hooks/useDistanceMatrix";
 import { type ForecastHour } from "@/services/environmentService";
@@ -235,48 +236,118 @@ const TravelConnector = ({
 // ─────────────────────────────────────────
 // Interactive Street View Component
 // ─────────────────────────────────────────
-function InteractiveStreetView({ lat, lng }: { lat: number; lng: number }) {
+const streetViewUnavailableCache = new Set<string>();
+
+function InteractiveStreetView({
+  lat,
+  lng,
+  title,
+  onClose,
+}: {
+  lat: number;
+  lng: number;
+  title?: string;
+  onClose: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (typeof google === "undefined" || !google.maps || !containerRef.current) return;
+    let isMounted = true;
+    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
 
-    const svService = new google.maps.StreetViewService();
-    svService.getPanorama({ location: { lat, lng }, radius: 50 }, (data, status) => {
-      if (status === google.maps.StreetViewStatus.OK && containerRef.current) {
-        new google.maps.StreetViewPanorama(containerRef.current, {
-          position: { lat, lng },
-          pov: { heading: 0, pitch: 0 },
-          zoom: 1,
-          disableDefaultUI: true,
-          showRoadLabels: false,
-          linksControl: true,
-          panControl: true,
-          zoomControl: true,
-          fullscreenControl: true, // Added fullscreen button
-          enableCloseButton: false,
-        });
-      } else {
-        setError(true);
+    if (streetViewUnavailableCache.has(key)) {
+      toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
+      onClose();
+      return;
+    }
+
+    async function initStreetView() {
+      try {
+        if (typeof google === "undefined" || !google.maps || !google.maps.StreetViewService) {
+          await importMapsLibrary("streetView");
+        }
+
+        if (typeof google === "undefined" || !google.maps || !google.maps.StreetViewService) {
+          if (isMounted) {
+            toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
+            streetViewUnavailableCache.add(key);
+            onClose();
+          }
+          return;
+        }
+
+        const svService = new google.maps.StreetViewService();
+        svService.getPanorama(
+          { location: { lat, lng }, radius: 50 },
+          (data, status) => {
+            if (!isMounted) return;
+
+            if (status === google.maps.StreetViewStatus.OK && data && data.location && containerRef.current) {
+              setLoading(false);
+              const panorama = new google.maps.StreetViewPanorama(containerRef.current, {
+                position: data.location.latLng || { lat, lng },
+                pov: { heading: 0, pitch: 0 },
+                zoom: 1,
+                disableDefaultUI: true,
+                showRoadLabels: false,
+                linksControl: true,
+                panControl: true,
+                zoomControl: true,
+                fullscreenControl: true,
+                enableCloseButton: false,
+              });
+
+              panorama.addListener("status_changed", () => {
+                if (panorama.getStatus() !== google.maps.StreetViewStatus.OK) {
+                  if (isMounted) {
+                    toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
+                    streetViewUnavailableCache.add(key);
+                    onClose();
+                  }
+                }
+              });
+            } else {
+              toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
+              streetViewUnavailableCache.add(key);
+              onClose();
+            }
+          }
+        );
+      } catch (err) {
+        console.warn("Street View initialization error:", err);
+        if (isMounted) {
+          toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
+          streetViewUnavailableCache.add(key);
+          onClose();
+        }
       }
-    });
-  }, [lat, lng]);
+    }
 
-  if (error) {
-    return null; // hide if not available
-  }
+    initStreetView();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [lat, lng, title, onClose]);
 
   return (
     <div
-      ref={containerRef}
-      className="w-full h-[180px] bg-muted/50 rounded-lg border border-border overflow-hidden mt-1.5"
+      className="relative w-full h-[180px] bg-muted/50 rounded-lg border border-border overflow-hidden mt-1.5"
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
-    />
+    >
+      {loading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10 text-xs text-muted-foreground gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-primary" />
+          <span>กำลังโหลด Street View...</span>
+        </div>
+      )}
+      <div ref={containerRef} className="w-full h-full" />
+    </div>
   );
 }
 
@@ -626,7 +697,7 @@ const SortableCard = ({
         )}
 
         {/* Street View thumbnail / toggle */}
-        {activity.lat && activity.lng && (
+        {activity.lat != null && activity.lng != null && (
           <div className="mt-2 pdf-hidden">
             <button
               onClick={(e) => { e.stopPropagation(); setShowStreetView(v => !v); }}
@@ -637,7 +708,12 @@ const SortableCard = ({
               {showStreetView ? "Hide Street View" : "Street View"}
             </button>
             {showStreetView && (
-              <InteractiveStreetView lat={activity.lat} lng={activity.lng} />
+              <InteractiveStreetView
+                lat={activity.lat}
+                lng={activity.lng}
+                title={activity.title}
+                onClose={() => setShowStreetView(false)}
+              />
             )}
           </div>
         )}

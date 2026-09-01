@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getUserTrips, deleteTrip, type TripRecord } from "@/services/tripService";
+import { getAIModelInfo } from "@/context/AIProviderContext";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -300,13 +301,26 @@ export const SavedTripsModal = ({
                     <div className="relative">
                       <TripCardCoverCollage trip={trip} />
 
-                      {/* Active Tag */}
-                      {isCurrent && (
-                        <div className="absolute top-2 left-2 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shadow-md flex items-center gap-1 z-10">
-                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-                          กำลังเปิดใช้งาน
-                        </div>
-                      )}
+                      {/* Top Badges (Active Status & AI Model) */}
+                      <div className="absolute top-2 left-2 flex items-center gap-1.5 z-10 flex-wrap">
+                        {isCurrent && (
+                          <div className="px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shadow-md flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                            กำลังเปิดใช้งาน
+                          </div>
+                        )}
+                        {(() => {
+                          const modelKey = trip.preferences?.aiModel || trip.preferences?.ai_model || trip.ai_model;
+                          const modelInfo = getAIModelInfo(modelKey);
+                          if (!modelInfo) return null;
+                          return (
+                            <div className="px-2 py-0.5 rounded-full bg-black/65 backdrop-blur-md text-white border border-white/20 text-[10px] font-semibold flex items-center gap-1 shadow-md">
+                              <Sparkles className="w-3 h-3 text-[#ffe0a9]" />
+                              <span>{modelInfo.label}</span>
+                            </div>
+                          );
+                        })()}
+                      </div>
 
                       {/* Title & destination on cover */}
                       <div className="absolute bottom-2.5 left-3.5 right-3.5 text-white z-10 pointer-events-none">
@@ -334,6 +348,18 @@ export const SavedTripsModal = ({
                             {totalMessages} ข้อความแชท
                           </span>
                         )}
+
+                        {(() => {
+                          const modelKey = trip.preferences?.aiModel || trip.preferences?.ai_model || trip.ai_model;
+                          const modelInfo = getAIModelInfo(modelKey);
+                          if (!modelInfo) return null;
+                          return (
+                            <span className="inline-flex items-center gap-1 bg-primary/10 border border-primary/20 text-primary px-2 py-0.5 rounded-md font-semibold text-[11px]">
+                              <Sparkles className="w-3 h-3 text-primary" />
+                              {modelInfo.label}
+                            </span>
+                          );
+                        })()}
                       </div>
 
                       <div className="flex items-center justify-between pt-2 border-t border-border/40 text-[11px] text-muted-foreground">
