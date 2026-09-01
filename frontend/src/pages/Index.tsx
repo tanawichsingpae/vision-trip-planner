@@ -56,6 +56,7 @@ import ChatBot, { type Message as ChatMessage } from "@/components/ChatBot";
 import AnalyzingOverlay from "@/components/AnalyzingOverlay";
 import StepIndicator from "@/components/StepIndicator";
 import WeatherWidget from "@/components/WeatherWidget";
+import GlobeFlightBackground from "@/components/GlobeFlightBackground";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -1551,11 +1552,22 @@ const Index = () => {
       <div className="ambient ambient-one fixed -top-40 -left-40 pointer-events-none" />
       <div className="ambient ambient-two fixed -bottom-40 -right-40 pointer-events-none" />
 
+      {/* Orbiting Flights & Bottom Globe Background */}
+      <GlobeFlightBackground />
+
       {/* Hero Header */}
-      <header className="relative overflow-hidden showcase-grid-bg bg-gradient-to-br from-[#126c78] via-[#188c91] to-[#3ca89f] text-white shadow-xl">
-        <div className="absolute inset-0 opacity-20 mix-blend-overlay">
+      <header className="relative overflow-hidden bg-gradient-to-b from-[#147b87] via-[#1a8e94] to-[#2aa69e] text-white shadow-xl before:absolute before:inset-0 before:bg-[radial-gradient(ellipse_80%_60%_at_50%_-10%,rgba(175,242,236,0.32),transparent_70%)]">
+        {/* Subtle grid backdrop */}
+        <div className="absolute inset-0 showcase-grid-bg opacity-30 pointer-events-none" />
+
+        {/* Soft, blended background photo */}
+        <div className="absolute inset-0 opacity-[0.08] mix-blend-overlay pointer-events-none">
           <img src={heroImage} alt="Travel destination" className="w-full h-full object-cover" width={1920} height={800} />
         </div>
+
+        {/* Top Header / Step-Indicator Orbiting Flights & Globe Set */}
+        <GlobeFlightBackground variant="header" />
+
         <div className="relative container mx-auto px-4 pt-7 pb-24 z-10">
           <nav className="flex flex-col sm:flex-row items-center justify-between mb-12 gap-5">
             {/* Logo and Experiment Link */}
@@ -1615,14 +1627,14 @@ const Index = () => {
           </nav>
 
           <div className="text-center max-w-3xl mx-auto pt-2">
-            <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#d8ffef] bg-white/12 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/15 mb-4 shadow-xs">
+            <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#d8ffef] bg-white/15 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 mb-4 shadow-sm">
               <Sparkles className="w-3.5 h-3.5 text-[#ffe0a9]" />
               Travel, thoughtfully planned
             </p>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold text-white mb-4 leading-[1.1] tracking-[-0.03em]">
-              Plan Your Perfect Trip with <em className="text-[#ffe0a9] font-serif italic font-normal">AI</em>
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold text-white mb-4 leading-[1.15] tracking-[-0.03em] drop-shadow-[0_4px_24px_rgba(10,50,56,0.3)]">
+              Plan Your Perfect Trip with <em className="text-[#ffe0a9] font-serif italic font-normal drop-shadow-[0_2px_12px_rgba(255,224,169,0.4)]">AI</em>
             </h1>
-            <p className="text-base md:text-lg text-[#d5f1ef] max-w-2xl mx-auto leading-relaxed">
+            <p className="text-base md:text-lg text-[#e6faf8] max-w-2xl mx-auto leading-relaxed drop-shadow-[0_2px_8px_rgba(10,50,56,0.2)]">
               Upload a photo of any destination and let AI discover landmarks, craft your itinerary, and curate your journey.
             </p>
           </div>

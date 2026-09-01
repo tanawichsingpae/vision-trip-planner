@@ -1,0 +1,279 @@
+/* ─── Pixinerary Globe & Orbiting Flights Background ─── */
+
+.globe-flight-container {
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Atmospheric Glow at the bottom center of viewport */
+.globe-atmosphere-glow {
+  position: absolute;
+  bottom: -280px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 980px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center top,
+    rgba(103, 196, 189, 0.28) 0%,
+    rgba(24, 140, 145, 0.16) 40%,
+    rgba(255, 146, 118, 0.08) 70%,
+    transparent 100%
+  );
+  filter: blur(40px);
+  pointer-events: none;
+}
+
+/* Atmospheric Glow for Header Set (Top / Hero) */
+.globe-flight-header-container {
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.globe-header-atmosphere-glow {
+  position: absolute;
+  bottom: -180px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 960px;
+  height: 420px;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center top,
+    rgba(216, 255, 239, 0.22) 0%,
+    rgba(103, 196, 189, 0.14) 45%,
+    rgba(255, 146, 118, 0.06) 75%,
+    transparent 100%
+  );
+  filter: blur(40px);
+  pointer-events: none;
+}
+
+/* Orbit Dash Moving Animations */
+.orbit-path-anim-slow {
+  animation: orbitDashMove 35s linear infinite;
+}
+
+.orbit-path-anim-fast {
+  animation: orbitDashMoveReverse 24s linear infinite;
+}
+
+@keyframes orbitDashMove {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 160;
+  }
+}
+
+@keyframes orbitDashMoveReverse {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -160;
+  }
+}
+
+/* Pinpoint Pulse Animations on Globe Waypoints */
+.globe-pin-pulse {
+  animation: pinPulse 2.4s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+  transform-origin: center;
+}
+
+.globe-pin-pulse-delay-1 {
+  animation: pinPulse 2.4s cubic-bezier(0, 0.2, 0.8, 1) infinite 0.7s;
+  transform-origin: center;
+}
+
+.globe-pin-pulse-delay-2 {
+  animation: pinPulse 2.4s cubic-bezier(0, 0.2, 0.8, 1) infinite 1.4s;
+  transform-origin: center;
+}
+
+.globe-pin-pulse-delay-3 {
+  animation: pinPulse 2.4s cubic-bezier(0, 0.2, 0.8, 1) infinite 1.9s;
+  transform-origin: center;
+}
+
+@keyframes pinPulse {
+  0% {
+    r: 4px;
+    opacity: 1;
+  }
+  100% {
+    r: 16px;
+    opacity: 0;
+  }
+}
+
+/* ── Airplane Motion Paths (CSS offset-path) - Bottom Set ── */
+.flight-plane-track {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 1400px;
+  height: 720px;
+  margin-left: -700px;
+  pointer-events: none;
+}
+
+.flight-plane-wrapper {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  offset-rotate: auto 90deg;
+}
+
+/* Bottom Track 1: High Arc (Left -> Right) */
+.track-1 .flight-plane-wrapper {
+  offset-path: path("M 100 680 C 250 180, 1150 180, 1300 680");
+  animation: flightMotion 24s linear infinite;
+}
+
+/* Bottom Track 2: Diagonal Cross Arc (Right -> Left) */
+.track-2 .flight-plane-wrapper {
+  offset-path: path("M 1250 620 C 1050 120, 350 240, 150 650");
+  animation: flightMotion 18s linear infinite 4s;
+}
+
+/* Bottom Track 3: Mid Arc (Left -> Right) */
+.track-3 .flight-plane-wrapper {
+  offset-path: path("M 220 700 C 400 320, 1000 320, 1180 700");
+  animation: flightMotion 28s linear infinite 10s;
+}
+
+/* Bottom Track 4: Low Swift Orbit (Right -> Left) */
+.track-4 .flight-plane-wrapper {
+  offset-path: path("M 1080 710 C 940 410, 460 410, 320 710");
+  animation: flightMotion 16s linear infinite 7s;
+}
+
+/* ── Airplane Motion Paths (CSS offset-path) - Header Set ── */
+.flight-plane-header-track {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 1600px;
+  height: 420px;
+  margin-left: -800px;
+  pointer-events: none;
+}
+
+/* Header Track 1: High Wide Orbit (Left -> Right) */
+.header-track-1 .flight-plane-wrapper {
+  offset-path: path("M 60 410 C 260 130, 1340 130, 1540 410");
+  animation: flightMotion 22s linear infinite;
+}
+
+/* Header Track 2: Diagonal Cross Orbit (Right -> Left) */
+.header-track-2 .flight-plane-wrapper {
+  offset-path: path("M 1500 390 C 1220 110, 380 150, 100 400");
+  animation: flightMotion 17s linear infinite 3.5s;
+}
+
+/* Header Track 3: Mid Arc (Left -> Right) */
+.header-track-3 .flight-plane-wrapper {
+  offset-path: path("M 220 415 C 440 210, 1160 210, 1380 415");
+  animation: flightMotion 24s linear infinite 8s;
+}
+
+/* Header Track 4: Swift Low Orbit (Right -> Left) */
+.header-track-4 .flight-plane-wrapper {
+  offset-path: path("M 1380 415 C 1160 210, 440 210, 220 415");
+  animation: flightMotion 15s linear infinite 5s;
+}
+
+@keyframes flightMotion {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  5% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  90% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+
+/* Plane Beacon Lights */
+.plane-beacon {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: beaconFlash 1.2s ease-in-out infinite alternate;
+}
+
+.beacon-cyan {
+  background: #67c4bd;
+  box-shadow: 0 0 10px #67c4bd, 0 0 16px #67c4bd;
+  top: -4px;
+  right: -4px;
+}
+
+.beacon-coral {
+  background: #ff9276;
+  box-shadow: 0 0 10px #ff9276, 0 0 18px #ff9276;
+  top: -4px;
+  right: -4px;
+}
+
+.beacon-gold {
+  background: #ffe0a9;
+  box-shadow: 0 0 10px #ffe0a9, 0 0 14px #ffe0a9;
+  top: -4px;
+  right: -4px;
+}
+
+@keyframes beaconFlash {
+  0% {
+    opacity: 0.3;
+    transform: scale(0.7);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .globe-svg-orbits,
+  .flight-plane-track,
+  .globe-svg-header-orbits,
+  .flight-plane-header-track {
+    transform: scale(0.85);
+    transform-origin: bottom center;
+  }
+}
+
+@media (max-width: 640px) {
+  .globe-svg-orbits,
+  .flight-plane-track,
+  .globe-svg-header-orbits,
+  .flight-plane-header-track {
+    transform: scale(0.65);
+    transform-origin: bottom center;
+  }
+  .globe-atmosphere-glow,
+  .globe-header-atmosphere-glow {
+    width: 600px;
+    height: 350px;
+  }
+}
