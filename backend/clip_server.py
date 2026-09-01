@@ -204,61 +204,134 @@ import html
 import re
 import urllib.parse
 
+def extract_clean_user_query(raw_text: str) -> str:
+    """Extracts the actual user question if embedded in a larger system prompt."""
+    if not raw_text:
+        return ""
+    text = raw_text.strip()
+    if "User:" in text:
+        text = text.split("User:")[-1].strip()
+    elif "Human:" in text:
+        text = text.split("Human:")[-1].strip()
+    # Strip any trailing JSON or markdown blocks
+    if "```" in text:
+        text = text.split("```")[0].strip()
+    return text[:200].strip()
+
 def search_web_duckduckgo(query: str, max_results: int = 4):
     """
-    Fetches real-time web search results from DuckDuckGo Instant API & Wikipedia Search API.
-    Zero extra dependencies required. Zero disk space needed.
+    Fetches real-time web search results from DuckDuckGo HTML Search, Instant API & Wikipedia.
+    Zero extra dependencies required.
     """
-    if not query or len(query.strip()) < 3:
+    clean_q = extract_clean_user_query(query)
+    if not clean_q or len(clean_q) < 2:
         return []
 
     results = []
+    seen_urls = set()
 
-    # 1. Query DuckDuckGo Instant API
+    # 1. Query DuckDuckGo HTML Search for live organic web results
     try:
-        ddg_url = "https://api.duckduckgo.com/"
-        ddg_params = {"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"}
-        resp = requests.get(ddg_url, params=ddg_params, timeout=6)
-        if resp.status_code == 200:
-            data = resp.json()
-            abstract = data.get("Abstract")
-            abstract_url = data.get("AbstractURL")
-            if abstract:
-                results.append({
-                    "title": data.get("Heading") or query,
-                    "snippet": abstract,
-                    "url": abstract_url or "https://duckduckgo.com"
-                })
-            for topic in data.get("RelatedTopics", [])[:3]:
-                if isinstance(topic, dict) and "Text" in topic and "FirstURL" in topic:
+        ddg_html_url = "https://html.duckduckgo.com/html/"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
+        }
+        resp = requests.post(ddg_html_url, data={"q": clean_q}, headers=headers, timeout=5)
+        if resp.status_code == 200 and resp.text:
+            # Find result blocks
+            raw_snippets = re.findall(r'<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)</a>', resp.text)
+            raw_titles = re.findall(r'<a[^>]+class="result__url"[^>]*href="([^"]+)"[\s\S]*?<a[^>]+class="result__title"[^>]*>([\s\S]*?)</a>', resp.text)
+            
+            # Alternative title match
+            alt_titles = re.findall(r'<a[^>]+class="result__snippet"[^>]*href="([^"]+)"', resp.text)
+
+            for i, snip in enumerate(raw_snippets[:max_results]):
+                clean_snip = html.unescape(re.sub(r'<[^>]+>', '', snip)).strip()
+                title = clean_q
+                url = "https://duckduckgo.com"
+
+                if i < len(raw_titles):
+                    url = raw_titles[i][0]
+                    title = html.unescape(re.sub(r'<[^>]+>', '', raw_titles[i][1])).strip()
+                elif i < len(alt_titles):
+                    url = alt_titles[i]
+
+                # Decode DDG redirect URL if needed (uddg=...)
+                if "uddg=" in url:
+                    try:
+                        parsed = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                        if "uddg" in parsed and parsed["uddg"]:
+                            url = parsed["uddg"][0]
+                    except Exception:
+                        pass
+
+                if clean_snip and url not in seen_urls:
+                    seen_urls.add(url)
                     results.append({
-                        "title": topic.get("Text", "")[:40],
-                        "snippet": topic.get("Text", ""),
-                        "url": topic.get("FirstURL", "")
+                        "title": title or clean_q,
+                        "snippet": clean_snip,
+                        "url": url
                     })
     except Exception as e:
-        print("[Search DDG Error]", e)
+        print("[Search DDG HTML Error]", e)
 
-    # 2. Query Wikipedia API (Thai & English)
-    try:
-        wiki_url = "https://th.wikipedia.org/w/api.php"
-        wiki_headers = {"User-Agent": "PixineraryBot/1.0 (https://pixinerary.com; dev@pixinerary.com)"}
-        wiki_params = {"action": "query", "list": "search", "srsearch": query, "format": "json", "utf8": "1"}
-        wresp = requests.get(wiki_url, headers=wiki_headers, params=wiki_params, timeout=6)
-        if wresp.status_code == 200:
-            wdata = wresp.json()
-            witems = wdata.get("query", {}).get("search", [])
-            for item in witems[:3]:
-                title = item.get("title", "")
-                snippet = re.sub(r'<[^>]+>', '', item.get("snippet", "")).strip()
-                if title and snippet:
+    # 2. If results < max_results, Query DuckDuckGo Instant API
+    if len(results) < max_results:
+        try:
+            ddg_url = "https://api.duckduckgo.com/"
+            ddg_params = {"q": clean_q, "format": "json", "no_html": "1", "skip_disambig": "1"}
+            resp = requests.get(ddg_url, params=ddg_params, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                abstract = data.get("Abstract")
+                abstract_url = data.get("AbstractURL")
+                if abstract and abstract_url not in seen_urls:
+                    seen_urls.add(abstract_url)
                     results.append({
-                        "title": title,
-                        "snippet": snippet,
-                        "url": f"https://th.wikipedia.org/wiki/{urllib.parse.quote(title)}"
+                        "title": data.get("Heading") or clean_q,
+                        "snippet": abstract,
+                        "url": abstract_url or "https://duckduckgo.com"
                     })
-    except Exception as e:
-        print("[Search Wiki Error]", e)
+                for topic in data.get("RelatedTopics", [])[:3]:
+                    if isinstance(topic, dict) and "Text" in topic and "FirstURL" in topic:
+                        t_url = topic.get("FirstURL", "")
+                        if t_url not in seen_urls:
+                            seen_urls.add(t_url)
+                            results.append({
+                                "title": topic.get("Text", "")[:50],
+                                "snippet": topic.get("Text", ""),
+                                "url": t_url
+                            })
+        except Exception as e:
+            print("[Search DDG Instant Error]", e)
+
+    # 3. Query Wikipedia API (Thai & English)
+    if len(results) < max_results:
+        try:
+            for lang in ["th", "en"]:
+                if len(results) >= max_results:
+                    break
+                wiki_url = f"https://{lang}.wikipedia.org/w/api.php"
+                wiki_headers = {"User-Agent": "PixineraryBot/1.0 (https://pixinerary.com; dev@pixinerary.com)"}
+                wiki_params = {"action": "query", "list": "search", "srsearch": clean_q, "format": "json", "utf8": "1"}
+                wresp = requests.get(wiki_url, headers=wiki_headers, params=wiki_params, timeout=5)
+                if wresp.status_code == 200:
+                    wdata = wresp.json()
+                    witems = wdata.get("query", {}).get("search", [])
+                    for item in witems[:2]:
+                        title = item.get("title", "")
+                        snippet = html.unescape(re.sub(r'<[^>]+>', '', item.get("snippet", ""))).strip()
+                        wiki_page_url = f"https://{lang}.wikipedia.org/wiki/{urllib.parse.quote(title)}"
+                        if title and snippet and wiki_page_url not in seen_urls:
+                            seen_urls.add(wiki_page_url)
+                            results.append({
+                                "title": f"{title} ({lang.upper()})",
+                                "snippet": snippet,
+                                "url": wiki_page_url
+                            })
+        except Exception as e:
+            print("[Search Wiki Error]", e)
 
     return results[:max_results]
 
@@ -338,8 +411,10 @@ def call_ai():
                         "=== Real-Time Web Search Context (Internet Results) ===\n"
                         "Use the up-to-date web search results below to inform your response if relevant. "
                         "Cite or refer to current details when answering questions about live events, weather, news, or places.\n"
-                        "IMPORTANT TONE & FORMATTING RULES:\n"
-                        "- Always address the user as 'คุณ' (NEVER use 'คุณลูกค้า').\n"
+                        "IMPORTANT PERSONA & FORMATTING RULES:\n"
+                        "- You are 'พิกซ์ (Pix) - Your AI Travel Companion' — a polite, warm, smart, friendly Korean-inspired travel buddy.\n"
+                        "- Always speak with polite Thai ending particles (ครับ), refer to yourself as 'ผม' or 'พิกซ์', and address the user as 'คุณ' (NEVER use 'คุณลูกค้า').\n"
+                        "- Explain reasons clearly and concisely. Do NOT dump huge unrequested lists.\n"
                         "- NEVER use markdown asterisks '*' or '**' for bold or bullet points in your response. Write clean, natural prose using line breaks and tasteful emojis instead.\n\n"
                         + "\n\n".join(context_blocks) + "\n"
                         "======================================================="

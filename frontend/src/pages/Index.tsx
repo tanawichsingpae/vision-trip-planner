@@ -1,6 +1,18 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Plane, Sparkles, LogOut, FileDown, Beaker } from "lucide-react";
+import {
+  Plane,
+  Sparkles,
+  LogOut,
+  FileDown,
+  Beaker,
+  Info,
+  ArrowLeft,
+  ArrowRight,
+  MapPin,
+  Eye,
+  SlidersHorizontal,
+} from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import html2pdf from "html2pdf.js";
 import { getPlaceImage } from "@/utils/getPlaceImage";
@@ -39,10 +51,10 @@ import ChatBot from "@/components/ChatBot";
 import AnalyzingOverlay from "@/components/AnalyzingOverlay";
 import StepIndicator from "@/components/StepIndicator";
 import WeatherWidget from "@/components/WeatherWidget";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info } from "lucide-react";
 import { getCoordinates, distanceMetres } from "@/api/geocode";
 import { getNearbyAttractions, fetchPlaceDetails, fetchPlaceDetailsByPlaceId } from "@/api/places";
 import { gatherCandidatePOIs, kMeansCluster, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
@@ -52,6 +64,8 @@ import { toast } from "sonner";
 import { type Attraction } from "@/api/places";
 import { useAI, AI_MODEL_OPTIONS } from "@/context/AIProviderContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { VisionOutlierModal, type OutlierItem } from "@/components/VisionOutlierModal";
+import { detectVisionOutliers } from "@/utils/outlierDetector";
 
 
 // Mock initial data
@@ -220,6 +234,7 @@ const UserMenu = () => {
 
 const Index = () => {
   const [step, setStep] = useState(0);
+  const [maxUnlockedStep, setMaxUnlockedStep] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [overlayType, setOverlayType] = useState<"vision" | "itinerary">("vision");
   const [loadingStep, setLoadingStep] = useState<string>("Analyzing image...");
@@ -241,6 +256,8 @@ const Index = () => {
   const [tripStartDate, setTripStartDate] = useState<Date | null>(null);
   const [destinationIata, setDestinationIata] = useState<string>("");
   const [coherenceResult, setCoherenceResult] = useState<ItineraryCoherence | null>(null);
+  const [outliers, setOutliers] = useState<OutlierItem[]>([]);
+  const [isOutlierModalOpen, setIsOutlierModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
     if (itinerary.length > 0) {
@@ -256,10 +273,27 @@ const Index = () => {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
+  const handleRestoreLocation = useCallback((outlierId: string) => {
+    const outlierIndex = outliers.findIndex(o => o.id === outlierId);
+    if (outlierIndex === -1) return;
+
+    const restoredItem = outliers[outlierIndex];
+    setOutliers(prev => prev.filter(o => o.id !== outlierId));
+
+    setDetectedLocations(prev => {
+      if (!prev.some(l => l.place.toLowerCase() === restoredItem.originalResult.place.toLowerCase())) {
+        return [...prev, restoredItem.originalResult];
+      }
+      return prev;
+    });
+
+    toast.success(`กู้คืน "${restoredItem.place}" กลับเข้าสู่รายการวางแผนแล้ว ✨`);
+  }, [outliers]);
+
   const handleImagesUploaded = useCallback(async (files: File[]) => {
     setOverlayType("vision");
     setIsAnalyzing(true);
-    setStep(1);
+    setStep(0);
 
     try {
       // Step 1: Vision AI for each image
@@ -268,15 +302,29 @@ const Index = () => {
         files.map(file => analyzeImage(file, model, useClip, setLoadingStep))
       );
 
-      setLoadingStep("Processing results...");
-      // Deduplicate locations by name
-      const uniqueResults = results.filter((loc, index, self) =>
-        index === self.findIndex((t) => t.place === loc.place)
-      );
+      setLoadingStep("Filtering & Checking Outliers...");
+      // Filter outliers (country mismatch, low confidence, non-travel, duplicates)
+      const { kept, outliers: detectedOutliers } = detectVisionOutliers(results, useClip);
 
-      setDetectedLocations(uniqueResults);
+      setDetectedLocations(kept);
+      setOutliers(detectedOutliers);
       setIsAnalyzing(false);
-      setStep(2);
+      setStep(1);
+      setMaxUnlockedStep(prev => Math.max(prev, 1));
+
+      if (detectedOutliers.length > 0) {
+        toast.warning(
+          `Vision AI คัดกรองสถานที่นอกเกณฑ์ ${detectedOutliers.length} รายการ`,
+          {
+            description: "คุณสามารถเปิดดูรายงานและกู้คืนสถานที่ได้ตลอดเวลา",
+            action: {
+              label: "ดูรายงาน Outlier",
+              onClick: () => setIsOutlierModalOpen(true),
+            },
+            duration: 6000,
+          }
+        );
+      }
     } catch (error) {
       console.error("Workflow error:", error);
       toast.error(error instanceof Error ? error.message : "Something went wrong during analysis");
@@ -292,6 +340,7 @@ const Index = () => {
     setLoadingStep("Analyzing Preferences...");
     setIsAnalyzing(true);
     setStep(3);
+    setMaxUnlockedStep(prev => Math.max(prev, 3));
 
     try {
       // Step 1: Destination Geocoding
@@ -516,17 +565,32 @@ const Index = () => {
           ? hotelLoc
           : (prevDayLastAct?.lat && prevDayLastAct?.lng ? { lat: prevDayLastAct.lat, lng: prevDayLastAct.lng } : hotelLoc);
 
+        const optimizedDay = optimizeDayActivities(day.activities, prefs.pace, dayStart);
         return {
           ...day,
-          activities: optimizeDayActivities(day.activities, prefs.pace, dayStart)
+          activities: [...optimizedDay].sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"))
         };
       });
 
       setItinerary(sortedEnrichedItinerary);
       setMapItinerary(sortedEnrichedItinerary);
       setSuggestions(generatedSuggestions);
-      setAccommodations(generatedAccommodations);
 
+      // Ensure at least 5 accommodations are provided
+      let finalAccommodations = [...generatedAccommodations];
+      if (finalAccommodations.length < 5) {
+        try {
+          const extraAccommodations = await generateMoreAccommodations(
+            mainLocation.place,
+            finalAccommodations.map(a => a.name),
+            model
+          );
+          finalAccommodations = [...finalAccommodations, ...extraAccommodations];
+        } catch (err) {
+          console.warn("[Accommodations] Could not fetch additional accommodations:", err);
+        }
+      }
+      setAccommodations(finalAccommodations);
 
       // Step 4: Nearby Attractions + Environment Data (parallel)
       setLoadingStep("Fetching Weather Data...");
@@ -648,6 +712,7 @@ const Index = () => {
         return day;
       });
       setItinerary(updated);
+      setMapItinerary(updated);
       return;
     }
 
@@ -690,6 +755,7 @@ const Index = () => {
         return day;
       });
       setItinerary(updated);
+      setMapItinerary(updated);
       return;
     }
 
@@ -799,6 +865,7 @@ const Index = () => {
         i === activeDayIndex ? { ...d, activities: withUpdatedTimes } : d
       );
       setItinerary(updated);
+      setMapItinerary(updated);
     } else {
       // Moving across days
       const activeDay = itinerary[activeDayIndex];
@@ -849,6 +916,7 @@ const Index = () => {
         return d;
       });
       setItinerary(updated);
+      setMapItinerary(updated);
     }
   };
 
@@ -887,8 +955,8 @@ const Index = () => {
       website: place.website,
       phoneNumber: place.phoneNumber,
     };
-    setItinerary((prev) =>
-      prev.map((day, i) => {
+    setItinerary((prev) => {
+      const updated = prev.map((day, i) => {
         if (i === dayIndex) {
           const newActivities = [...day.activities, newActivity];
           return {
@@ -897,8 +965,10 @@ const Index = () => {
           };
         }
         return day;
-      })
-    );
+      });
+      setMapItinerary(updated);
+      return updated;
+    });
   }, []);
 
   const handleAddHotel = useCallback((
@@ -950,31 +1020,41 @@ const Index = () => {
 
     setItinerary((prev) => {
       const updated = prev.map((day, i) => {
-        let activities = [...day.activities];
-        let changed = false;
+        let activities = day.activities.filter((a) => a.type !== "hotel");
 
         if (i === checkInDay) {
           activities.push(checkInActivity);
-          changed = true;
         }
         if (i === checkOutDay) {
           activities.push(checkOutActivity);
-          changed = true;
         }
 
-        if (changed) {
-          return {
-            ...day,
-            activities: activities.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"))
-          };
-        }
-        return day;
+        return {
+          ...day,
+          activities: activities.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"))
+        };
       });
       setMapItinerary(updated);
       return updated;
     });
 
+    setPreferences((prev) =>
+      prev
+        ? {
+            ...prev,
+            hasHotel: "yes",
+            hotelName: hotel.name,
+            hotelLat: hotel.lat,
+            hotelLng: hotel.lng,
+            hotelPhotoUrl: hotel.photo_url || hotel.image_url || null,
+            hotelCheckInTime: checkInTime,
+            hotelCheckOutTime: checkOutTime,
+          }
+        : null
+    );
+
     setAccommodations((prev) => prev.filter((a) => a.id !== hotel.id));
+    toast.success(`อัปเดตที่พักเป็น ${hotel.name} เรียบร้อยแล้ว`);
   }, []);
 
   const getOverlayContent = () => {
@@ -1284,11 +1364,32 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 -mt-8 pb-20">
         <div className="bg-card rounded-3xl shadow-xl p-8 md:p-12">
-          <StepIndicator currentStep={step} />
+          <StepIndicator
+            currentStep={step}
+            maxUnlockedStep={maxUnlockedStep}
+            onStepClick={(s) => {
+              if (s === 0 || (s === 1 && detectedLocations.length > 0) || (s === 2 && detectedLocations.length > 0) || (s === 3 && preferences)) {
+                setStep(s);
+              }
+            }}
+          />
 
-          <section className="mb-12">
-            {/* CLIP toggle — shown only before analysis starts */}
-            {!isAnalyzing && (
+          {/* Animated analysis overlay — shown during Vision AI analysis (type="vision") and Itinerary Planning (type="itinerary") */}
+          {isAnalyzing && (
+            <section className="mb-12 animate-fade-in">
+              <AnalyzingOverlay
+                isAnalyzing={isAnalyzing}
+                loadingStep={loadingStep}
+                useClip={useClip}
+                type={overlayType}
+              />
+            </section>
+          )}
+
+          {/* ── STEP 0: Upload Image & Vision AI Analysis ── */}
+          {step === 0 && !isAnalyzing && (
+            <section className="mb-12 animate-fade-in">
+              {/* CLIP toggle — shown only before analysis starts */}
               <div className="flex items-center justify-end gap-2 mb-4">
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1308,34 +1409,97 @@ const Index = () => {
                 />
                 <span className="text-xs text-muted-foreground">{useClip ? "On (slower)" : "Off (faster)"}</span>
               </div>
-            )}
 
-            {/* Animated analysis overlay — shown while pipeline is running */}
-            <AnalyzingOverlay
-              isAnalyzing={isAnalyzing}
-              loadingStep={loadingStep}
-              useClip={useClip}
-              type={overlayType}
-            />
-
-            {/* Upload dropzone — hidden (not unmounted) during analysis so file state is kept */}
-            <div className={isAnalyzing ? "hidden" : ""}>
+              {/* Upload dropzone */}
               <ImageUpload onImagesUploaded={handleImagesUploaded} isAnalyzing={isAnalyzing} loadingLabel={loadingStep} />
-            </div>
-          </section>
+            </section>
+          )}
 
-          {detectedLocations.length > 0 && step === 2 && (
-            <section className="mb-12">
-              <LocationDisplay locations={detectedLocations} useClip={useClip} />
-              <div className="mt-8">
-                <TripPreferencesForm
-                  onSubmit={handlePreferencesSubmit}
-                  destinationName={detectedLocations[0]?.place}
-                />
+          {/* ── STEP 1: Vision AI / Identified Destinations ONLY ── */}
+          {detectedLocations.length > 0 && step === 1 && !isAnalyzing && (
+            <section className="mb-12 space-y-8 animate-fade-in">
+              <LocationDisplay
+                locations={detectedLocations}
+                useClip={useClip}
+                outliersCount={outliers.length}
+                onOpenOutliersReport={() => setIsOutlierModalOpen(true)}
+              />
+
+              {/* Navigation Actions between Vision AI and Preferences */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-border">
+                <Button
+                  variant="outline"
+                  onClick={() => setStep(0)}
+                  className="w-full sm:w-auto h-12 px-6 rounded-xl border-border hover:bg-muted font-medium flex items-center justify-center gap-2"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  อัปโหลดรูปภาพใหม่ (Upload New Photos)
+                </Button>
+
+                <Button
+                  onClick={() => {
+                    setStep(2);
+                    setMaxUnlockedStep(prev => Math.max(prev, 2));
+                    window.scrollTo({ top: 200, behavior: "smooth" });
+                  }}
+                  className="w-full sm:w-auto h-12 px-8 rounded-xl travel-gradient text-white font-bold shadow-lg flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform"
+                >
+                  <span>ไปหน้ากำหนดความต้องการเดินทาง (Next to Preferences)</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
               </div>
             </section>
           )}
 
+          {/* ── STEP 2: Trip Preferences Form ONLY ── */}
+          {detectedLocations.length > 0 && step === 2 && !isAnalyzing && (
+            <section className="mb-12 space-y-6 animate-fade-in">
+              {/* Destination Header Banner with quick back to Vision AI */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-primary/5 border border-primary/20 rounded-2xl p-4 md:p-6 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl travel-gradient text-white flex items-center justify-center font-bold text-lg shadow-sm shrink-0">
+                    📍
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-foreground text-base md:text-lg">
+                      กำหนดทริปสำหรับ: {detectedLocations[0]?.place}, {detectedLocations[0]?.country}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      สถานที่ที่ผ่านการวิเคราะห์ทั้งหมด {detectedLocations.length} แห่ง (ระบุโดย Vision AI)
+                    </p>
+                  </div>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStep(1)}
+                  className="rounded-xl border-border text-foreground hover:bg-muted font-semibold text-xs self-start sm:self-auto flex items-center gap-1.5"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  ดูผลสถานที่ (Vision AI)
+                </Button>
+              </div>
+
+              {/* Preferences Form */}
+              <TripPreferencesForm
+                onSubmit={handlePreferencesSubmit}
+                destinationName={detectedLocations[0]?.place}
+                onBack={() => setStep(1)}
+              />
+            </section>
+          )}
+
+          {/* Vision Outlier Modal */}
+          <VisionOutlierModal
+            open={isOutlierModalOpen}
+            onOpenChange={setIsOutlierModalOpen}
+            outliers={outliers}
+            keptLocations={detectedLocations}
+            onRestoreLocation={handleRestoreLocation}
+          />
+
+          {/* ── STEP 3: Travel Itinerary & Interactive Dashboard ── */}
           {step >= 3 && detectedLocations.length > 0 && !isAnalyzing && (
             <DndContext
               sensors={sensors}
@@ -1343,6 +1507,29 @@ const Index = () => {
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
+              {/* Top Navigation Bar for Itinerary view */}
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-8 p-3 rounded-2xl bg-muted/40 border border-border/80">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStep(2)}
+                  className="rounded-xl border-border text-foreground hover:bg-background font-semibold text-xs flex items-center gap-2 shadow-2xs"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  แก้ไขความต้องการเดินทาง (Edit Preferences)
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setStep(1)}
+                  className="text-muted-foreground hover:text-foreground text-xs flex items-center gap-1.5"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  ดูผลภาพถ่าย ({detectedLocations.length} แห่ง)
+                </Button>
+              </div>
+
               <section className="mb-12">
                 <MapSection
                   location={{
@@ -1373,19 +1560,19 @@ const Index = () => {
                   daysCount={itinerary.length}
                 />
               </section>
-              {accommodations.length > 0 && (
-                <section className="mb-12">
-                  <AIAccommodations
-                    accommodations={accommodations}
-                    onAddToItinerary={handleAddHotel}
-                    locationName={detectedLocations[0].place}
-                    daysCount={itinerary.length}
-                    onRefreshAccommodations={handleRefreshAccommodations}
-                    isRefreshing={isRefreshingAccommodations}
-                    tripStartDate={tripStartDate ?? undefined}
-                  />
-                </section>
-              )}
+              <section className="mb-12">
+                <AIAccommodations
+                  accommodations={accommodations}
+                  onAddToItinerary={handleAddHotel}
+                  locationName={detectedLocations[0].place}
+                  daysCount={itinerary.length}
+                  onRefreshAccommodations={handleRefreshAccommodations}
+                  isRefreshing={isRefreshingAccommodations}
+                  tripStartDate={tripStartDate ?? undefined}
+                  hasHotelFromPreferences={preferences?.hasHotel === "yes" && !!preferences?.hotelName}
+                  selectedHotelName={preferences?.hotelName}
+                />
+              </section>
               {/* Weather & Air Quality Widget */}
               {selectedPlace && (
                 <WeatherWidget
@@ -1412,7 +1599,10 @@ const Index = () => {
                 <div id="pdf-cover-section" aria-hidden="true" />
                 <TravelItinerary
                   itinerary={itinerary}
-                  onUpdate={setItinerary}
+                  onUpdate={(newItinerary) => {
+                    setItinerary(newItinerary);
+                    setMapItinerary(newItinerary);
+                  }}
                   activeDragId={activeDragId}
                   onSelectActivity={handleSelectActivity}
                   onHoverActivity={setHoveredActivityId}
@@ -1434,7 +1624,27 @@ const Index = () => {
 
       {step >= 3 && detectedLocations.length > 0 && !isAnalyzing && (
         <>
-          <ChatBot locationName={detectedLocations[0].place} itinerary={itinerary} onUpdateItinerary={setItinerary} preferences={preferences} />
+          <ChatBot
+            locationName={detectedLocations[0]?.place || "Destination"}
+            itinerary={itinerary}
+            onUpdateItinerary={(newItinerary) => {
+              setItinerary(newItinerary);
+              setMapItinerary(newItinerary);
+            }}
+            preferences={preferences}
+            onUpdatePreferences={(updatedPrefs) => {
+              setPreferences((prev) => (prev ? { ...prev, ...updatedPrefs } : null));
+              toast.success("อัปเดตความต้องการเดินทางสำเร็จ");
+            }}
+            onUpdateHotel={(hotelName) => {
+              setPreferences((prev) => (prev ? { ...prev, hasHotel: "yes", hotelName } : null));
+              toast.success(`สลับโรงแรมเป็น: ${hotelName}`);
+            }}
+            onUpdateFlight={(flightCode) => {
+              setPreferences((prev) => (prev ? { ...prev, hasFlight: "yes", flightCode } : null));
+              toast.success(`อัปเดตเที่ยวบิน: ${flightCode}`);
+            }}
+          />
 
           {/* Floating Export PDF Button */}
           <button

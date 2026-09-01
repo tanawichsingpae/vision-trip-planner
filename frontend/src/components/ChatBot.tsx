@@ -48,7 +48,7 @@ const ChatBot = ({
     {
       id: "1",
       role: "assistant",
-      content: `สวัสดีครับ! Pix (พิกซ์) เองครับ 😊 Your AI Travel Companion สำหรับทริป ${locationName} ✈️📸\n\nไม่ว่าจะอยากปรับตารางเดินทาง สลับโรงแรม เปลี่ยนงบประมาณ หรือส่องสถานที่จากรูปถ่าย พิกซ์พร้อมช่วยคิดช่วยจัดให้เสมอ บอก Pix ได้เลยนะครับ!`,
+      content: `สวัสดีครับ! พิกซ์ (Pix) เองครับ 😊 Your AI Travel Companion สำหรับทริป ${locationName} ✈️📸\n\nไม่ว่าจะอยากปรับตารางเดินทาง สลับโรงแรม เปลี่ยนงบประมาณ หรือส่องสถานที่จากรูปถ่าย พิกซ์พร้อมช่วยคิดช่วยจัดให้เสมอ บอกผมได้เลยนะครับ!`,
     },
   ]);
   const [input, setInput] = useState("");
@@ -265,7 +265,16 @@ const ChatBot = ({
     setIsTyping(true);
 
     try {
-      let rawResponse = await chatWithAssistant(text, locationName, model, itinerary, preferences);
+      // Build clean history without raw code blocks to ensure multi-turn context
+      const historyPayload = messages
+        .filter((m) => m.content && m.content.trim().length > 0)
+        .slice(-8)
+        .map((m) => ({
+          role: m.role,
+          content: m.content.replace(/```(?:json)?[\s\S]*?```/gi, "").trim(),
+        }));
+
+      let rawResponse = await chatWithAssistant(text, locationName, model, itinerary, preferences, historyPayload);
       let actionSummaryText = "";
 
       const { actionData, cleanText } = parseActionJson(rawResponse);
@@ -395,6 +404,26 @@ const ChatBot = ({
     }
   };
 
+  // Check if last message was from assistant asking for confirmation or choices
+  const lastMessage = messages[messages.length - 1];
+  const isPendingConfirmation =
+    lastMessage?.role === "assistant" &&
+    !lastMessage.actionSummary &&
+    (lastMessage.content.includes("ไหมครับ") ||
+      lastMessage.content.includes("ดีครับ") ||
+      lastMessage.content.includes("ใช่ไหมครับ") ||
+      lastMessage.content.includes("เห็นด้วยไหม") ||
+      lastMessage.content.includes("สะดวกให้ผม") ||
+      lastMessage.content.includes("หรืออยาก") ||
+      lastMessage.content.includes("?"));
+
+  const confirmationChips = [
+    "ตกลงครับ บันทึกลงในแผนเลย",
+    "ขอเลือกเป็นวันอื่นแทนครับ",
+    "แนะนำตัวเลือกอื่นเพิ่มเติมหน่อยครับ",
+    "ขอยกเลิกก่อนครับ ยังไม่เพิ่ม",
+  ];
+
   if (!isOpen) {
     return (
       <button
@@ -522,7 +551,7 @@ const ChatBot = ({
                 {msg.content}
               </div>
               {msg.actionSummary && (
-                <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 border border-emerald-200/80 rounded-xl px-3 py-1.5 font-medium animate-fade-in">
+                <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 rounded-xl px-3 py-1.5 font-medium animate-fade-in">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   <span>{msg.actionSummary}</span>
                 </div>
@@ -552,7 +581,7 @@ const ChatBot = ({
                 <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                 <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                 <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                <span className="text-xs text-muted-foreground ml-2 font-medium">Pix กำลังวิเคราะห์อยู่นะครับ...</span>
+                <span className="text-xs text-muted-foreground ml-2 font-medium">พิกซ์กำลังคิดให้แป๊บนึงนะครับ... ☕✨</span>
               </div>
             </div>
           </div>
@@ -560,27 +589,49 @@ const ChatBot = ({
         <div ref={bottomRef} />
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick Actions / Confirmation Section */}
       <div className="px-4 py-2 border-t border-border/60 bg-muted/30">
-        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">คำสั่งด่วนที่แนะนำ (Quick Actions)</p>
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {quickActions.map((action) => (
-            <button
-              key={action}
-              onClick={() => sendMessage(action)}
-              className="shrink-0 px-3 py-1.5 rounded-full border border-border/80 bg-background/80 hover:bg-primary/10 hover:border-primary/50 text-xs text-foreground hover:text-primary transition-all font-medium shadow-2xs"
-            >
-              {action}
-            </button>
-          ))}
-        </div>
+        {isPendingConfirmation ? (
+          <div>
+            <p className="text-[11px] font-semibold text-primary uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-primary" />
+              คำตอบด่วนเพื่อยืนยัน (Quick Confirmation)
+            </p>
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {confirmationChips.map((chip) => (
+                <button
+                  key={chip}
+                  onClick={() => sendMessage(chip)}
+                  className="shrink-0 px-3 py-1.5 rounded-full border border-primary/40 bg-primary/10 hover:bg-primary hover:text-white text-xs text-primary transition-all font-medium shadow-2xs"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">คำสั่งด่วนที่แนะนำ (Quick Actions)</p>
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {quickActions.map((action) => (
+                <button
+                  key={action}
+                  onClick={() => sendMessage(action)}
+                  className="shrink-0 px-3 py-1.5 rounded-full border border-border/80 bg-background/80 hover:bg-primary/10 hover:border-primary/50 text-xs text-foreground hover:text-primary transition-all font-medium shadow-2xs"
+                >
+                  {action}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Input Area */}
       <div className="p-3 border-t border-border bg-card shrink-0">
         <div className="flex gap-2 items-center">
           <Input
-            placeholder="พิมพ์บอกความต้องการ เช่น เปลี่ยนโรงแรม, สลับวัน..."
+            placeholder="พิมพ์บอกความต้องการ เช่น เปลี่ยนโรงแรม, สลับวัน, หรือตอบยืนยัน..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
@@ -596,3 +647,4 @@ const ChatBot = ({
 };
 
 export default ChatBot;
+

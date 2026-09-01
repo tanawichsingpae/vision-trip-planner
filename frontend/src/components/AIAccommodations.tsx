@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { BedDouble, Plus, Globe, Star, Phone, MapPin, RefreshCw, ExternalLink, Building2, Clock, Search, ChevronUp } from "lucide-react";
+import { BedDouble, Plus, Globe, Star, Phone, MapPin, RefreshCw, ExternalLink, Building2, Clock, Search, ChevronUp, Sparkles } from "lucide-react";
 import { useDraggable } from "@dnd-kit/core";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -313,6 +313,8 @@ export const HotelDragOverlay = ({ hotel }: { hotel: SuggestedPlace }) => (
 // ─────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────
 interface AIAccommodationsProps {
   accommodations: SuggestedPlace[];
   onAddToItinerary: (
@@ -327,6 +329,7 @@ interface AIAccommodationsProps {
   onRefreshAccommodations?: () => Promise<void>;
   isRefreshing?: boolean;
   tripStartDate?: Date;
+  hasHotelFromPreferences?: boolean;
   selectedHotelName?: string;
 }
 
@@ -338,9 +341,11 @@ const AIAccommodations = ({
   onRefreshAccommodations,
   isRefreshing,
   tripStartDate,
+  hasHotelFromPreferences = false,
   selectedHotelName,
 }: AIAccommodationsProps) => {
   const [showSearch, setShowSearch] = useState(false);
+  const [showRecommendations, setShowRecommendations] = useState(false);
   const [searchHotelName, setSearchHotelName] = useState("");
   const [searchHotelLat, setSearchHotelLat] = useState<number | null>(null);
   const [searchHotelLng, setSearchHotelLng] = useState<number | null>(null);
@@ -361,8 +366,8 @@ const AIAccommodations = ({
       checkOutTime: string
     ) => {
       onAddToItinerary(hotel, checkInDay, checkInTime, checkOutDay, checkOutTime);
-      // Auto-hide search panel and reset search inputs after adding
       setShowSearch(false);
+      setShowRecommendations(false);
       setSearchHotelName("");
       setSearchHotelLat(null);
       setSearchHotelLng(null);
@@ -396,243 +401,295 @@ const AIAccommodations = ({
     image: searchHotelPhotoUrl,
   } : null;
 
-  return (
-    <div className="animate-slide-up max-w-4xl mx-auto">
-      {/* Section Header — mirrors AISuggestedPlaces layout */}
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
-          <BedDouble className="w-6 h-6 text-primary" />
-          Accommodation Recommendations near {locationName}
-        </h2>
-        {onRefreshAccommodations && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefreshAccommodations}
-            disabled={isRefreshing}
-            className="gap-1.5"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
-            {isRefreshing ? "Finding…" : "More Options"}
-          </Button>
-        )}
+  const hasHotel = hasHotelFromPreferences || !!selectedHotelName;
+
+  // Search Panel JSX helper
+  const renderSearchPanel = () => (
+    <div className="mb-6 p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/60 animate-slide-up space-y-4 shadow-sm">
+      <div className="space-y-1.5">
+        <Label htmlFor="custom-hotel-search" className="text-sm font-semibold flex items-center gap-1.5 text-foreground">
+          <BedDouble className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+          ค้นหาชื่อโรงแรม / ที่พักที่ต้องการ
+        </Label>
+        <HotelSelectCombobox
+          id="custom-hotel-search"
+          value={searchHotelName}
+          onChange={(name, lat, lng, details) => {
+            setSearchHotelName(name);
+            setSearchHotelLat(lat);
+            setSearchHotelLng(lng);
+            setSearchHotelPhotoUrl(details?.photoUrl || undefined);
+            setSearchHotelPlaceId(details?.placeId || undefined);
+          }}
+          destinationName={locationName}
+          placeholder="พิมพ์ชื่อโรงแรม เช่น Hilton, Marriott, โรงแรมใกล้สถานี..."
+        />
       </div>
 
-      <p className="text-sm text-muted-foreground mb-3">
-        Accommodations are not included in your itinerary by default — pick one to book directly or add to your preferred day.
-      </p>
+      {customHotel && (
+        <div className="space-y-4 pt-3 border-t border-indigo-200/50 dark:border-indigo-800/50 animate-slide-up">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="search-checkin-day" className="text-xs font-medium flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-emerald-500" />
+                วันและเวลา Check-in
+              </Label>
+              <div className="grid grid-cols-2 gap-1.5">
+                <select
+                  id="search-checkin-day"
+                  value={searchCheckInDay}
+                  onChange={(e) => setSearchCheckInDay(e.target.value)}
+                  className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                  {Array.from({ length: Math.max(1, daysCount) }, (_, i) => (
+                    <option key={i} value={i}>Day {i + 1}</option>
+                  ))}
+                </select>
+                <select
+                  value={searchCheckInTime}
+                  onChange={(e) => setSearchCheckInTime(e.target.value)}
+                  className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                  {["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00"].map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-      {/* Fake Search Bar Trigger — Airbnb style */}
-      {!showSearch ? (
-        <button
-          onClick={() => setShowSearch(true)}
-          className="w-full flex items-center gap-3 px-4 py-3 mb-4 rounded-2xl border border-border bg-card hover:border-primary/50 hover:shadow-md transition-all duration-200 group text-left"
-        >
-          <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-primary/10 group-hover:bg-primary/20 transition-colors shrink-0">
-            <Search className="w-4 h-4 text-primary" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground leading-none mb-0.5">ค้นหาที่พักเอง</p>
-            <p className="text-xs text-muted-foreground truncate">Hilton, Marriott, หรือโรงแรมที่คุณจอง...</p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {accommodations.length > 0 && (
-              <span className="text-xs bg-primary/5 border border-primary/20 text-primary px-2.5 py-1 rounded-full font-medium hidden sm:inline-flex">
-                {accommodations.length} available
-              </span>
-            )}
-            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
-              <Plus className="w-3.5 h-3.5 text-primary-foreground" />
+            <div className="space-y-1.5">
+              <Label htmlFor="search-checkout-day" className="text-xs font-medium flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                วันและเวลา Check-out
+              </Label>
+              <div className="grid grid-cols-2 gap-1.5">
+                <select
+                  id="search-checkout-day"
+                  value={searchCheckOutDay}
+                  onChange={(e) => setSearchCheckOutDay(e.target.value)}
+                  className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                  {Array.from({ length: Math.max(1, daysCount) }, (_, i) => (
+                    <option key={i} value={i}>Day {i + 1}</option>
+                  ))}
+                </select>
+                <select
+                  value={searchCheckOutTime}
+                  onChange={(e) => setSearchCheckOutTime(e.target.value)}
+                  className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                  {["07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00"].map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
-        </button>
-      ) : (
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          <button
-            onClick={() => setShowSearch(false)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-primary/40 bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
-          >
-            <ChevronUp className="w-3.5 h-3.5" />
-            ซ่อนกล่องค้นหา
-          </button>
-          {accommodations.length > 0 && (
-            <span className="text-xs bg-primary/5 border border-primary/20 text-primary px-3 py-1 rounded-full font-medium">
-              {accommodations.length} options available
-            </span>
-          )}
-        </div>
-      )}
 
-      {/* Manual Search Collapsible Panel (Preferences Theme) */}
-      {showSearch && (
-        <div className="mb-6 p-4 rounded-xl bg-primary/5 border border-primary/20 animate-slide-up space-y-4 shadow-sm">
-          {/* Hotel Name */}
-
-          <div className="space-y-1.5">
-            <Label htmlFor="custom-hotel-search" className="text-sm font-medium flex items-center gap-1.5">
-              <BedDouble className="w-3.5 h-3.5 text-primary" />
-              Hotel name
-            </Label>
-            <HotelSelectCombobox
-              id="custom-hotel-search"
-              value={searchHotelName}
-              onChange={(name, lat, lng, details) => {
-                setSearchHotelName(name);
-                setSearchHotelLat(lat);
-                setSearchHotelLng(lng);
-                setSearchHotelPhotoUrl(details?.photoUrl || undefined);
-                setSearchHotelPlaceId(details?.placeId || undefined);
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearchHotelName("");
+                setSearchHotelLat(null);
+                setSearchHotelLng(null);
+                setSearchHotelPhotoUrl(undefined);
+                setSearchHotelPlaceId(undefined);
               }}
-              destinationName={locationName}
-              placeholder="Search for your hotel..."
+              className="text-muted-foreground hover:text-foreground text-xs px-3 h-8"
+            >
+              ล้างข้อมูล
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                handleAdd(
+                  customHotel,
+                  parseInt(searchCheckInDay, 10),
+                  searchCheckInTime,
+                  parseInt(searchCheckOutDay, 10),
+                  searchCheckOutTime
+                );
+              }}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 h-8 gap-1.5 rounded-lg shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              เพิ่มที่พักลงตารางเดินทาง
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Recommendations Carousel list JSX helper
+  const renderRecommendationsList = () => (
+    <div className="relative">
+      {accommodations && accommodations.length > 0 ? (
+        <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-thin">
+          {accommodations.map((hotel, idx) => (
+            <DraggableHotelCard
+              key={hotel?.id || `hotel-opt-${idx}`}
+              hotel={hotel as any}
+              onAdd={handleAdd}
+              daysCount={daysCount}
+              cityName={locationName}
+              checkInDate={checkInStr}
+              checkOutDate={checkOutStr}
             />
+          ))}
+        </div>
+      ) : (
+        <div className="p-6 text-center text-xs text-muted-foreground bg-muted/20 rounded-2xl border border-dashed border-border/60">
+          ไม่พบรายการแนะนำที่พักเพิ่มเติมในขณะนี้
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground mt-2">
+        ลากการ์ดที่พักลงในวันของตารางเดินทาง หรือกด "Add to Itinerary" เพื่อเลือกวันและเวลา Check-in/out ที่ต้องการ
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="animate-slide-up max-w-4xl mx-auto">
+      {hasHotel ? (
+        /* Case 1: Has hotel from Preferences — Warm banner with search button */
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-indigo-200/80 bg-gradient-to-r from-indigo-50/90 via-sky-50/50 to-purple-50/40 dark:from-indigo-950/40 dark:via-sky-950/20 dark:to-purple-950/20 p-5 shadow-sm">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-2xl shrink-0 shadow-inner">
+                  🏨
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-foreground text-base sm:text-lg flex items-center gap-2 flex-wrap">
+                    <span>
+                      พักผ่อนที่{" "}
+                      <span className="text-indigo-600 dark:text-indigo-400 font-extrabold underline decoration-indigo-300 underline-offset-4">
+                        {selectedHotelName || "โรงแรมที่คุณเลือก"}
+                      </span>{" "}
+                      ให้สบายนะครับ 😊🛌
+                    </span>
+                  </h3>
+                  <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 font-medium">
+                    หากต้องการเปลี่ยนหรือแนะนำที่พักอื่นทำได้ที่นี่
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowSearch(!showSearch)}
+                  className="text-xs rounded-xl border-indigo-300 dark:border-indigo-700 bg-white/90 dark:bg-slate-900/90 hover:bg-indigo-50 dark:hover:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold gap-1.5 shadow-2xs h-8 px-3.5"
+                >
+                  <Search className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  {showSearch ? "ซ่อนค้นหา" : "ค้นหา / เปลี่ยนที่พัก"}
+                </Button>
+                {accommodations.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowRecommendations(!showRecommendations)}
+                    className="text-xs text-muted-foreground hover:text-foreground font-medium h-8"
+                  >
+                    {showRecommendations ? "ซ่อนคำแนะนำ" : `ดูคำแนะนำที่พักอื่น (${accommodations.length})`}
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
 
-          {customHotel && (
-            <div className="space-y-4 pt-3 border-t border-primary/15 animate-slide-up">
-              {/* Check-in / Check-out times (Preferences Theme) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="search-checkin-day" className="text-xs font-medium flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-green-500" />
-                    Check-in Date & Time
-                  </Label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <select
-                      id="search-checkin-day"
-                      value={searchCheckInDay}
-                      onChange={(e) => setSearchCheckInDay(e.target.value)}
-                      className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      {Array.from({ length: Math.max(1, daysCount) }, (_, i) => (
-                        <option key={i} value={i}>Day {i + 1}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={searchCheckInTime}
-                      onChange={(e) => setSearchCheckInTime(e.target.value)}
-                      className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      {["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00"].map(t => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+          {/* Manual Search Collapsible Panel */}
+          {showSearch && renderSearchPanel()}
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="search-checkout-day" className="text-xs font-medium flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-amber-500" />
-                    Check-out Date & Time
-                  </Label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <select
-                      id="search-checkout-day"
-                      value={searchCheckOutDay}
-                      onChange={(e) => setSearchCheckOutDay(e.target.value)}
-                      className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      {Array.from({ length: Math.max(1, daysCount) }, (_, i) => (
-                        <option key={i} value={i}>Day {i + 1}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={searchCheckOutTime}
-                      onChange={(e) => setSearchCheckOutTime(e.target.value)}
-                      className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      {["07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00"].map(t => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+          {/* Optional Expanded Recommendations */}
+          {showRecommendations && (
+            <div className="animate-slide-up space-y-2 pt-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  ตัวเลือกที่พักแนะนำเพิ่มเติมใกล้ {locationName}
+                </h4>
               </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setSearchHotelName("");
-                    setSearchHotelLat(null);
-                    setSearchHotelLng(null);
-                    setSearchHotelPhotoUrl(undefined);
-                    setSearchHotelPlaceId(undefined);
-                  }}
-                  className="text-muted-foreground hover:text-foreground text-xs px-3 h-8"
-                >
-                  Clear Selection
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    handleAdd(
-                      customHotel,
-                      parseInt(searchCheckInDay, 10),
-                      searchCheckInTime,
-                      parseInt(searchCheckOutDay, 10),
-                      searchCheckOutTime
-                    );
-                  }}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold px-4 h-8 gap-1.5 rounded-lg shadow-sm"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add Hotel to Itinerary
-                </Button>
-              </div>
+              {renderRecommendationsList()}
             </div>
           )}
         </div>
-      )}
-
-      {accommodations.length === 0 && !showSearch ? (
-        /* Compact, warm Korean oppa Pix banner when accommodation is already set */
-        <div className="rounded-xl border border-indigo-200/60 bg-indigo-50/50 dark:bg-indigo-950/20 px-4 py-2.5 flex items-center justify-between gap-3 text-xs shadow-xs">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 text-sm font-bold shadow-2xs">
-              🏨
-            </div>
-            <div className="min-w-0">
-              <p className="font-semibold text-foreground truncate">
-                {selectedHotelName
-                  ? `คุณมีที่พัก "${selectedHotelName}" เรียบร้อยแล้ว`
-                  : "คุณมีที่พักสำหรับการเดินทางเรียบร้อยแล้ว"}
-              </p>
-              <p className="text-[11px] text-muted-foreground truncate">
-                พักผ่อนให้สบายนะครับ 😊 หากต้องการค้นหาหรือเปลี่ยนที่พักใหม่ กดค้นหาได้ทันที
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowSearch(true)}
-            className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 hover:bg-indigo-100/60 font-semibold shrink-0 h-7 px-3 rounded-lg border border-indigo-200/60 dark:border-indigo-800"
-          >
-            ค้นหา / เปลี่ยนที่พัก
-          </Button>
-        </div>
       ) : (
-        /* Hotel Cards — horizontal scroll */
-        <div className="relative">
-          <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-thin">
-            {accommodations.map((hotel) => (
-              <DraggableHotelCard
-                key={hotel.id}
-                hotel={hotel as any}
-                onAdd={handleAdd}
-                daysCount={daysCount}
-                cityName={locationName}
-                checkInDate={checkInStr}
-                checkOutDate={checkOutStr}
-              />
-            ))}
+        /* Case 2: No hotel selected yet — Show full recommendations list + search bar */
+        <div className="space-y-4">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-3">
+            <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <BedDouble className="w-6 h-6 text-primary" />
+              Accommodation Recommendations near {locationName}
+            </h2>
+            {onRefreshAccommodations && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRefreshAccommodations}
+                disabled={isRefreshing}
+                className="gap-1.5 rounded-xl text-xs font-semibold"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+                {isRefreshing ? "Finding…" : "More Options"}
+              </Button>
+            )}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Drag a hotel card into a day column, or click "Add to Itinerary" to select a specific check-in/out date and time.
+
+          <p className="text-sm text-muted-foreground">
+            ที่พักยังไม่ได้ถูกรวมในตารางเดินทางโดยอัตโนมัติ — คุณสามารถเลือกที่พักเพื่อดูรายละเอียด จอง หรือเพิ่มลงในวันที่ต้องการได้เลยครับ
           </p>
+
+          {/* Fake Search Bar Trigger */}
+          {!showSearch ? (
+            <button
+              onClick={() => setShowSearch(true)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-border bg-card hover:border-primary/50 hover:shadow-md transition-all duration-200 group text-left"
+            >
+              <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-primary/10 group-hover:bg-primary/20 transition-colors shrink-0">
+                <Search className="w-4 h-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground leading-none mb-0.5">ค้นหาที่พักเอง</p>
+                <p className="text-xs text-muted-foreground truncate">Hilton, Marriott, หรือโรงแรมที่คุณจอง...</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {accommodations.length > 0 && (
+                  <span className="text-xs bg-primary/5 border border-primary/20 text-primary px-2.5 py-1 rounded-full font-medium hidden sm:inline-flex">
+                    {accommodations.length} available
+                  </span>
+                )}
+                <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
+                  <Plus className="w-3.5 h-3.5 text-primary-foreground" />
+                </div>
+              </div>
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setShowSearch(false)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-primary/40 bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+                ซ่อนกล่องค้นหา
+              </button>
+              {accommodations.length > 0 && (
+                <span className="text-xs bg-primary/5 border border-primary/20 text-primary px-3 py-1 rounded-full font-medium">
+                  {accommodations.length} options available
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Manual Search Collapsible Panel */}
+          {showSearch && renderSearchPanel()}
+
+          {/* Hotel Cards — horizontal scroll */}
+          {renderRecommendationsList()}
         </div>
       )}
     </div>
@@ -640,3 +697,4 @@ const AIAccommodations = ({
 };
 
 export default AIAccommodations;
+

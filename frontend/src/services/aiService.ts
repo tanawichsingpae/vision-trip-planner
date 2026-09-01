@@ -74,14 +74,14 @@ export async function generateTravelPlan(
   dayClusters?: DayCluster[]
 ): Promise<TravelPlanResponse> {
   const modelId = MODEL_ID_MAP[model];
-  if (model.startsWith("openai")) {
-    return callOpenAI(places, preferences, modelId, dayClusters);
-  } else {
-    return callGemini(places, preferences, modelId, dayClusters);
-  }
+  return callOpenRouterPlan(places, preferences, modelId, dayClusters);
 }
 
-export async function generateMoreSuggestions(locationName: string, existingPlaces: string[], model: AIModelType): Promise<SuggestedPlace[]> {
+export async function generateMoreSuggestions(
+  locationName: string,
+  existingPlaces: string[],
+  model: AIModelType
+): Promise<SuggestedPlace[]> {
   const modelId = MODEL_ID_MAP[model];
   const prompt = `Generate 10 new travel suggestions for ${locationName}. 
   
@@ -96,11 +96,7 @@ export async function generateMoreSuggestions(locationName: string, existingPlac
     "suggestions": [{ "name": "...", "category": "food", "description": "...", "lat": 0, "lng": 0 }]
   }`;
 
-  if (model.startsWith("openai")) {
-    return callOpenAIMoreSuggestions(prompt, modelId);
-  } else {
-    return callGeminiMoreSuggestions(prompt, modelId);
-  }
+  return callOpenRouterMoreSuggestions(prompt, modelId);
 }
 
 export async function generateMoreAccommodations(
@@ -123,11 +119,7 @@ export async function generateMoreAccommodations(
     "accommodations": [{ "name": "...", "category": "hotel", "description": "...", "lat": 0, "lng": 0, "priceLevel": 2 }]
   }`;
 
-  if (model.startsWith("openai")) {
-    return callOpenAIMoreAccommodations(prompt, modelId);
-  } else {
-    return callGeminiMoreAccommodations(prompt, modelId);
-  }
+  return callOpenRouterMoreAccommodations(prompt, modelId);
 }
 
 export async function analyzeImage(
@@ -137,8 +129,7 @@ export async function analyzeImage(
   onProgress?: (step: string) => void
 ): Promise<VisionResult> {
   const modelId = MODEL_ID_MAP[model];
-  const isOpenAI = model.startsWith("openai");
-  console.log(`Starting Retrieval-LLM pipeline (model: ${modelId}, CLIP: ${useClip})...`);
+  console.log(`Starting Retrieval-LLM pipeline (OpenRouter model: ${modelId}, CLIP: ${useClip})...`);
 
   // 2. Get initial candidates from LLM (to narrow down search)
   const base64Image = await fileToBase64(file);
@@ -152,12 +143,7 @@ export async function analyzeImage(
   }
   Do not return markdown or explanations.`;
 
-  let initialGuesses: string[];
-  if (isOpenAI) {
-    initialGuesses = await getInitialGuessesOpenAI(base64Data, file.type, candidatePrompt, modelId);
-  } else {
-    initialGuesses = await getInitialGuessesGemini(base64Data, file.type, candidatePrompt, modelId);
-  }
+  const initialGuesses = await getInitialGuessesOpenRouter(base64Data, file.type, candidatePrompt, modelId);
 
   console.log("Initial guesses from LLM:", initialGuesses);
   onProgress?.("Fetching Google Places candidates...");
@@ -240,12 +226,7 @@ export async function analyzeImage(
     "ai_reasoning": ["...", "..."]
   }`;
 
-  let finalResult: any;
-  if (isOpenAI) {
-    finalResult = await analyzeImageOpenAI(base64Data, file.type, reasoningPrompt, modelId);
-  } else {
-    finalResult = await analyzeImageGemini(base64Data, file.type, reasoningPrompt, modelId);
-  }
+  const finalResult = await analyzeImageOpenRouter(base64Data, file.type, reasoningPrompt, modelId);
 
   return {
     ...finalResult,
@@ -261,23 +242,60 @@ export async function chatWithAssistant(
   locationName: string,
   model: AIModelType,
   itinerary: DayPlan[],
-  preferences: TripPreferences | null
+  preferences: TripPreferences | null,
+  history: Array<{ role: "user" | "assistant"; content: string }> = []
 ): Promise<string> {
   const modelId = MODEL_ID_MAP[model];
-  const systemPrompt = `You are a highly friendly, enthusiastic, and helpful AI travel guide for ${locationName}. 
-You MUST use a conversational, natural, and engaging tone, frequently using cute emojis (like 😊, 🌟, 🗺️, ✈️, 🎒) to make the user feel welcome and excited about their trip.
-DO NOT output raw JSON data as your direct response to the user. Always answer naturally.
+  const systemPrompt = `[Character Concept — Pixinerary]
+ชื่อ: พิกซ์ (Pix)
+ชื่อเต็ม: Pix (มาจาก Picture + Pixinerary เพราะจุดเด่นคือการนำภาพถ่ายมาระบุสถานที่และจัดทริป)
+ฉายา: Your AI Travel Companion
+บทบาท: AI Travel Guide / ผู้ช่วยวางแผนการเดินทางส่วนตัว
+เพศ: ชาย (พูดลงท้ายด้วย "ครับ" เสมอ, แทนตัวเองว่า "ผม" หรือ "พิกซ์", สรรพนามเรียกผู้ใช้ว่า "คุณ")
+อายุภาพลักษณ์: ประมาณ 24–27 ปี
+บุคลิกโดยรวม: หนุ่มเกาหลีอบอุ่น สุภาพ เป็นมิตร ฉลาด เป็นนักเดินทางตัวจริงที่คอยดูแลและคิดเผื่อ
+จุดหมายปลายทางของทริป: ${locationName}
 
-You have access to the user's current travel plan context:
-Preferences: ${preferences ? JSON.stringify(preferences) : "Not provided"}
+🌏 บุคลิกหลัก 5 ด้าน (Core Personality Pillars):
+1. 🤝 Friendly: คุยง่ายเหมือนเพื่อนสนิทที่เชี่ยวชาญเรื่องเที่ยว เป็นกันเองแต่สุภาพ
+2. 🎩 Polite: สุภาพ ให้เกียรติผู้ใช้ ไม่พูดห้วน ลงท้าย "ครับ" อย่างเป็นธรรมชาติ
+3. 🧭 Helpful: พยายามช่วยให้ผู้ใช้ตัดสินใจได้จริง ไม่ตอบกว้างเกินไปและไม่ยัดเยียด
+4. 🧠 Smart: วิเคราะห์ข้อมูล ให้เหตุผลประกอบ (เช่น การจัดโซนเดินทาง เวลาที่เหมาะสม สภาพอากาศ)
+5. ☀️ Warm: อบอุ่น คิดบวก มีพลังที่ดี ทำให้รู้สึกสบายใจเหมือนมีเพื่อนร่วมทริป
+
+❌ ข้อห้ามและลักษณะที่ต้องหลีกเลี่ยงเด็ดขาด:
+- ห้ามพูดเหมือนหุ่นยนต์ หรือเจ้าหน้าที่ทางการ
+- ห้ามสอนหรือทำตัวเป็นผู้เชี่ยวชาญที่ชอบสั่งสอนผู้ใช้
+- ห้ามพูดเวิ่นเว้อยาวเกินไปในทุกคำตอบ — ตอบกระชับ น่าอ่าน เข้าประเด็น
+- ห้ามใช้ศัพท์เทคนิคที่เข้าใจยาก
+- ห้ามยัดสถานที่ท่องเที่ยวจำนวนมากโดยไม่สนใจความต้องการของผู้ใช้
+- ห้ามมั่นใจเกินไปเมื่อข้อมูลไม่แน่นอน หากไม่ชัวร์ให้บอกอย่างจริงใจ เช่น "ผมยังไม่มั่นใจ 100% แต่จากข้อมูลน่าจะเป็น..."
+- ห้ามเรียกผู้ใช้ว่า "คุณลูกค้า" ให้เรียก "คุณ" เท่านั้น
+- ห้ามตอบเป็น JSON ดิบๆ ให้ผู้ใช้ (ตอบเป็นภาษาพูดที่อบอุ่นและเป็นธรรมชาติเสมอ)
+- ห้ามใช้เครื่องหมายดอกจัน '*' หรือ '**' ในข้อความตอบรับเด็ดขาด ให้ใช้การขึ้นบรรทัดใหม่และอีโมจิแทน
+
+📸 ความเชี่ยวชาญด้าน Vision & การมองเห็น (Visual Companion):
+พิกซ์มีความเชี่ยวชาญในการมองภาพถ่ายและวิเคราะห์สถานที่ท่องเที่ยว
+เมื่อผู้ใช้ส่งภาพหรือถามถึงสถานที่จากภาพ ให้พูดอย่างอบอุ่นและมีหลักการวิเคราะห์
+
+บริบททริปปัจจุบันของผู้ใช้:
+Preferences: ${preferences ? JSON.stringify(preferences) : "ยังไม่ได้ระบุ"}
 Current Itinerary: ${JSON.stringify(itinerary)}
 
-When answering, refer to their current plan if relevant and give specific advice.
+🎯 [CRITICAL: Decision-Making & Action Execution Protocol] (กฎเหล็กในการตัดสินใจและแก้ไขข้อมูล):
 
-[Action Protocol - CRITICAL]
-If the user asks you to add, remove, or modify an activity in their itinerary (e.g., "Add a cafe", "Remove the museum", "Change this to day 2"), you MUST edit the itinerary and return the FULLY updated itinerary array.
-To do this, append a JSON code block at the VERY END of your message using exactly this format:
+พิกซ์ต้องเป็นที่ปรึกษาการเดินทางที่รอบคอบ "ไม่ด่วนแก้ไขแผนโดยพลการ" หากคำขอยังมีความคลุมเครือ ไม่ระบุวัน/เวลา หรือเป็นการขอคำแนะนำ ให้ปฏิบัติตามเกณฑ์ดังนี้อย่างเคร่งครัด:
 
+1️⃣ [คำสั่งที่แก้ไขได้ทันที - DIRECT EXECUTION]:
+เกิดขึ้นเมื่อผู้ใช้ระบุคำสั่งที่ "ชัดเจน เจาะจง และมีข้อมูลครบถ้วน" หรือ "ผู้ใช้ตอบยืนยันข้อเสนอที่พิกซ์เพิ่งถามไป" เช่น:
+- สั่งระบุวันและเวลา/ลำดับชัดเจน เช่น "ลบกิจกรรมที่ 2 ในวันที่ 1 ออก", "ย้ายวัดพระแก้วไปใส่วันที่ 2 เวลา 10:00 น."
+- สั่งเปลี่ยนงบประมาณ เช่น "ปรับงบเป็น 50,000 บาท"
+- สั่งเปลี่ยนโรงแรมชัดเจน เช่น "เปลี่ยนโรงแรมเป็น Marriott Hotel"
+- สั่งเที่ยวบินชัดเจน เช่น "ใส่เที่ยวบิน TG682"
+- ผู้ใช้ตอบรับยืนยันข้อเสนอเดิมของพิกซ์ เช่น "ตกลงครับ", "เอาตามนั้นเลย", "โอเคใส่ในวันที่ 1 ได้เลย", "ลบออกเลยครับ"
+
+👉 สิ่งที่ต้องทำในข้อ 1️⃣:
+ตอบรับอย่างสุภาพและเป็นมิตร แจ้งสรุปสิ่งที่ได้ปรับปรุงเรียบร้อยแล้ว และแนบ JSON code block ที่บรรทัดสุดท้ายเสมอ เพื่อให้ระบบอัปเดตหน้าจอทันที โดยใช้รูปแบบ:
 \`\`\`json
 {
   "action": "UPDATE_ITINERARY",
@@ -289,192 +307,62 @@ To do this, append a JSON code block at the VERY END of your message using exact
         { "id": "...", "time": "09:00", "title": "...", "description": "...", "type": "attraction", "lat": 1.23, "lng": 4.56 }
       ]
     }
-  ]
+  ],
+  "updated_preferences": { "budget": "...", "pace": "..." },
+  "updated_hotel": { "hotelName": "..." },
+  "updated_flight": { "flightCode": "...", "originIata": "..." }
 }
 \`\`\`
+- ใส่เฉพาะ field ที่มีการเปลี่ยนแปลง
+- "updated_itinerary" ต้องเป็น array เต็มของทุกวันรวมส่วนที่แก้ไขแล้ว
+- คงค่า "id", "lat", "lng" เดิมไว้สำหรับสถานที่เดิม หากเป็นสถานที่ใหม่ให้สร้าง id เช่น "act-new-123"
 
-- Only include this JSON block if you are making a modification to the itinerary.
-- "updated_itinerary" MUST be the complete array of all days with all activities, including your modifications.
-- Preserve existing "id", "lat", and "lng" values for activities you do not modify. For new activities, make up a unique "id" (e.g., "act-new-123").`;
+2️⃣ [คำขอที่ต้อง "ถามเพื่อความแน่ใจ / เสนอแนะก่อนแก้ไข" - CLARIFY & CONFIRM FIRST]:
+⚠️ ในกรณีต่อไปนี้ ห้ามแนบ JSON code block เด็ดขาด! ให้ตอบเป็นข้อความพูดคุย แนะนำ และถามความเห็นชอบของผู้ใช้ก่อน:
 
-  if (model.startsWith("openai")) {
-    return chatOpenAI(userMessage, systemPrompt, modelId);
-  } else {
-    return chatGemini(userMessage, systemPrompt, modelId);
-  }
-}
+ก. การขอเพิ่มสถานที่โดยไม่ระบุวัน/เวลา/ตำแหน่ง (Incomplete Place Addition):
+- เช่น "อยากไปวัดพระแก้ว", "เพิ่ม Tokyo Tower ให้หน่อย", "อยากแวะกินราเมงข้อสอบ"
+👉 วิธีการตอบ: วิเคราะห์ตาราง Current Itinerary แล้ว "เสนอแนะวันและช่วงเวลาที่เหมาะสมที่สุด" (โดยพิจารณาจากสถานที่ใกล้เคียงในวันนั้นเพื่อให้เดินทางสะดวก ไม่ย้อนไปมา) จากนั้นถามยืนยันกับผู้ใช้ เช่น:
+"ยินดีเลยครับ! ถ้าดูจากตารางเดินทางปัจจุบัน ผมแนะนำให้เพิ่ม [ชื่อสถานที่] ลงใน [วันที่ X] เวลาประมาณ [XX:XX] (เพราะอยู่ใกล้กับ [สถานที่เดิมในวันนั้น] พอดี ทำให้เดินทางสะดวกต่อเนื่องครับ) คุณสะดวกให้ผมบันทึกลงใน [วันที่ X] ตามนี้เลยไหมครับ หรืออยากจัดลงในวันอื่นแทนดีครับ?"
 
-// ==========================================
-// INTERNAL - OPENAI
-// ==========================================
+ข. การขอคำแนะนำสถานที่ / ร้านอาหาร / คาเฟ่ (Recommendations):
+- เช่น "แนะนำคาเฟ่บรรยากาศดีหน่อย", "มีร้านอาหารเด็ดๆ ไหม", "มีที่เที่ยวแนวธรรมชาติแถวนี้ไหม"
+👉 วิธีการตอบ: เสนอตัวเลือกสถานที่จริง 2-3 แห่ง พร้อมจุดเด่นสั้นๆ และช่วงเวลาที่น่าไป จากนั้นถามผู้ใช้ว่าชอบที่ไหนเป็นพิเศษ และต้องการให้เพิ่มลงในแผนวันไหนก่อนที่จะทำการเพิ่มจริง
 
-async function callOpenAI(
-  places: string[],
-  preferences: TripPreferences,
-  modelId: string,
-  dayClusters?: DayCluster[]
-): Promise<TravelPlanResponse> {
-  const startFmt = preferences.startDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-  const endFmt = preferences.endDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-  const monthName = preferences.startDate.toLocaleDateString("en-GB", { month: "long" });
-  const month = preferences.startDate.getMonth() + 1;
-  const season = month >= 3 && month <= 5 ? "Spring" : month >= 6 && month <= 8 ? "Summer" : month >= 9 && month <= 11 ? "Autumn" : "Winter";
+ค. การขอปรับแผนแบบกว้างๆ หรือเปลี่ยนความเร็ว/สไตล์ (Vague Modifications):
+- เช่น "อยากปรับแผนให้ชิลขึ้น", "ช่วยลดกิจกรรมลงหน่อย", "ช่วยปรับแผนวันที่ 2 ให้หน่อย", "เปลี่ยนแผนเป็น 2 วัน"
+👉 วิธีการตอบ: เสนอแนวทางแก้ไขที่เป็นรูปธรรมก่อน (เช่น เสนอว่าควรตัดกิจกรรมใดออกเพื่อเพิ่มเวลาพักผ่อน หรือรวมกิจกรรมอย่างไร) แล้วถามผู้ใช้ว่าเห็นด้วยกับแนวทางนี้หรือไม่ก่อนลงมือแก้ไขจริง
 
-  const spatialConstraintsText = dayClusters && dayClusters.length > 0
-    ? `\nSPATIAL CLUSTER & DIRECTIONAL CONSTRAINTS (MANDATORY TO FOLLOW):
-The locations have been partitioned into ${dayClusters.length} spatial daily clusters with Macro-TSP progression.
-${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
-- Centroid: Lat ${c.centroid?.lat.toFixed(4) || "N/A"}, Lng ${c.centroid?.lng.toFixed(4) || "N/A"}${c.radiusKm ? ` (Max Radius: ${c.radiusKm.toFixed(1)} km)` : ""}
-- Suggested Anchors: ${c.pois.map(p => p.name).slice(0, 4).join(", ")}
-- Rule for Day ${c.day}: Keep ALL activities for Day ${c.day} strictly clustered in this specific geographic zone. DO NOT jump to another district. Progress smoothly along an open linear or curved path from morning to evening.`).join("\n")}\n`
-    : "";
+ง. การขอลบสถานที่แบบกว้างๆ (Vague Deletions):
+- เช่น "ลบสถานที่แพงๆ ออก", "เอาที่เที่ยวที่ต้องเดินทางไกลออก"
+👉 วิธีการตอบ: ระบุสถานที่ในแผนปัจจุบันที่เข้าเกณฑ์ แล้วถามยืนยันว่าต้องการให้ลบสถานที่เหล่านั้นออกใช่หรือไม่`;
 
-  const prompt = `Generate a ${preferences.days}-day travel itinerary and additional suggestions for a trip covering these locations: ${places.join(", ")}.
-  
-  Trip Dates: ${startFmt} to ${endFmt} (${preferences.days} days in ${monthName} – ${season})
-  ${spatialConstraintsText}
-  Traveler Profile:
-  - Type: ${preferences.travelerType}
-  - Budget: ${preferences.budget}
-  - Preferred Activities: ${preferences.activities.join(", ")}
-  - Travel Pace: ${preferences.pace}
-  
-  Requirements:
-  - Incorporate all locations mentioned.
-  - Distribute days across locations logically.
-  - Suggest activities matching the traveler profile, pace, AND the season/month (e.g., avoid water activities in winter, recommend seasonal festivals, adjust for weather).
-  - COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every activity and suggestion based on real Google Maps data. DO NOT return 0 or fictional coordinates.
-  - Use ONLY real, geocodable place names for activity "title".
-  - DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll") or descriptive sentences in the "title".
-  - Place any descriptive details or actions in the "description" field instead.
-  
-  Return the response strictly in JSON format:
-  {
-    "itinerary": [{
-        "day": 1,
-        "date": "Day 1 - ...",
-        "activities": [{ 
-          "time": "09:00", 
-          "title": "...", 
-          "description": "...", 
-          "type": "attraction", (MUST be one of: attraction, food, nature, culture, activity, shopping, nightlife, relax, transport, rest)
-          "lat": 0,
-          "lng": 0
-        }]
-    }],
-    "suggestions": [{ "name": "...", "category": "food", (MUST be one of: attraction, food, nature, culture, activity, shopping, nightlife, relax) "description": "...", "lat": 0, "lng": 0 }],
-    "accommodations": [{ "name": "...", "category": "hotel", "description": "...", "lat": 0, "lng": 0, "priceLevel": 2 }],
-    "typicalWeather": {
-      "month": "${monthName}",
-      "avgHighC": 0,
-      "avgLowC": 0,
-      "tempRange": "e.g. 15°C – 25°C",
-      "description": "e.g. Warm and dry with occasional afternoon showers",
-      "rainChance": "e.g. Low (10%)",
-      "humidity": "e.g. Moderate (60%)",
-      "tips": "e.g. Pack light layers; evenings can be cool"
+  // Build message sequence for multi-turn conversation
+  const messagesPayload: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    { role: "system", content: systemPrompt },
+  ];
+
+  // Include recent conversation turns (up to last 10 messages)
+  if (history && history.length > 0) {
+    const recentHistory = history.slice(-10);
+    for (const h of recentHistory) {
+      messagesPayload.push({
+        role: h.role,
+        content: h.content,
+      });
     }
-  }`;
-
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [{ role: "user", content: prompt }]
-    }),
-  });
-
-  const text = data.text;
-  return await formatResponse(JSON.parse(text));
-}
-
-async function analyzeImageOpenAI(base64: string, mimeType: string, prompt: string, modelId: string): Promise<VisionResult> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
-          ],
-        }
-      ]
-    }),
-  });
-
-  const raw = data.text?.trim() ?? "";
-
-  // GPT-4o sometimes returns a refusal ("I'm sorry...") instead of JSON
-  // Detect it early and throw a clear error
-  if (!raw.startsWith("{") && !raw.startsWith("[")) {
-    console.warn("GPT-4o returned non-JSON (possible refusal):", raw.substring(0, 120));
-    throw new Error(`AI declined to analyze this image. Try a different image or switch to Gemini.`);
   }
 
-  // Strip markdown JSON fence if present
-  const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
-  return JSON.parse(cleaned);
-}
+  messagesPayload.push({ role: "user", content: userMessage });
 
-async function chatOpenAI(userMessage: string, systemPrompt: string, modelId: string): Promise<string> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage }
-      ],
-      expect_json: false
-    }),
-  });
-
-  return data.text;
-}
-
-async function callOpenAIMoreSuggestions(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [{ role: "user", content: prompt }]
-    }),
-  });
-
-  const text = data.text;
-  const result = JSON.parse(text);
-  const response = await formatResponse({ itinerary: [], suggestions: result.suggestions || [] });
-  return response.suggestions;
-}
-
-async function callOpenAIMoreAccommodations(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [{ role: "user", content: prompt }]
-    }),
-  });
-
-  const text = data.text;
-  const result = JSON.parse(text);
-  const response = await formatResponse({ itinerary: [], suggestions: [], accommodations: result.accommodations || [] });
-  return response.accommodations;
+  return chatOpenRouter(messagesPayload, modelId);
 }
 
 // ==========================================
-// INTERNAL - GEMINI
+// INTERNAL - OPENROUTER
 // ==========================================
 
-async function callGemini(
+async function callOpenRouterPlan(
   places: string[],
   preferences: TripPreferences,
   modelId: string,
@@ -509,7 +397,8 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
   - Incorporate all locations mentioned.
   - Distribute days across locations logically.
   - Suggest activities matching the traveler profile, pace, AND the season/month (e.g., avoid water activities in winter, recommend seasonal festivals, adjust for weather).
-  - COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every activity and suggestion based on real Google Maps data. DO NOT return 0 or fictional coordinates.
+  - COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every activity, suggestion, and accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
+  - ACCOMMODATIONS RULE (MANDATORY): You MUST provide at least 5 to 8 diverse, real accommodations/hotels (luxury, boutique, mid-range, budget) located in or near the trip destinations. Include real hotel names with priceLevel from 1 (budget) to 4 (luxury).
   - Use ONLY real, geocodable place names for activity "title".
   - DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll") or descriptive sentences in the "title".
   - Place any descriptive details or actions in the "description" field instead.
@@ -523,13 +412,15 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
           "time": "09:00", 
           "title": "...", 
           "description": "...", 
-          "type": "attraction", (MUST be one of: attraction, food, nature, culture, activity, shopping, nightlife, relax, transport, rest)
+          "type": "attraction",
           "lat": 0,
           "lng": 0
         }]
     }],
-    "suggestions": [{ "name": "...", "category": "food", (MUST be one of: attraction, food, nature, culture, activity, shopping, nightlife, relax) "description": "...", "lat": 0, "lng": 0 }],
-    "accommodations": [{ "name": "...", "category": "hotel", "description": "...", "lat": 0, "lng": 0, "priceLevel": 2 }],
+    "suggestions": [{ "name": "...", "category": "food", "description": "...", "lat": 0, "lng": 0 }],
+    "accommodations": [
+      { "name": "...", "category": "hotel", "description": "...", "lat": 0, "lng": 0, "priceLevel": 2 }
+    ],
     "typicalWeather": {
       "month": "${monthName}",
       "avgHighC": 0,
@@ -542,12 +433,13 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
     }
   }`;
 
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: modelId,
-      prompt: prompt
+      messages: [{ role: "user", content: prompt }],
+      expect_json: true,
     }),
   });
 
@@ -555,29 +447,46 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
   return await formatResponse(JSON.parse(text));
 }
 
-async function analyzeImageGemini(base64: string, mimeType: string, prompt: string, modelId: string): Promise<VisionResult> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
+async function analyzeImageOpenRouter(base64: string, mimeType: string, prompt: string, modelId: string): Promise<VisionResult> {
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: modelId,
-      prompt: prompt,
-      image_base64: base64,
-      mime_type: mimeType
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
+          ],
+        }
+      ],
+      expect_json: true,
     }),
   });
 
-  const text = data.text;
-  return JSON.parse(text);
+  const raw = data.text?.trim() ?? "";
+
+  if (!raw.startsWith("{") && !raw.startsWith("[")) {
+    console.warn("OpenRouter model returned non-JSON (possible refusal):", raw.substring(0, 120));
+    throw new Error(`AI declined to analyze this image. Try a different image or switch model.`);
+  }
+
+  const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+  return JSON.parse(cleaned);
 }
 
-async function chatGemini(userMessage: string, systemPrompt: string, modelId: string): Promise<string> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
+async function chatOpenRouter(
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  modelId: string
+): Promise<string> {
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: modelId,
-      prompt: systemPrompt + "\n\nUser: " + userMessage,
+      messages,
       expect_json: false
     }),
   });
@@ -585,11 +494,15 @@ async function chatGemini(userMessage: string, systemPrompt: string, modelId: st
   return data.text;
 }
 
-async function callGeminiMoreSuggestions(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
+async function callOpenRouterMoreSuggestions(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: modelId, prompt }),
+    body: JSON.stringify({
+      model: modelId,
+      messages: [{ role: "user", content: prompt }],
+      expect_json: true,
+    }),
   });
 
   const text = data.text;
@@ -598,11 +511,15 @@ async function callGeminiMoreSuggestions(prompt: string, modelId: string): Promi
   return response.suggestions;
 }
 
-async function callGeminiMoreAccommodations(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
+async function callOpenRouterMoreAccommodations(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: modelId, prompt }),
+    body: JSON.stringify({
+      model: modelId,
+      messages: [{ role: "user", content: prompt }],
+      expect_json: true,
+    }),
   });
 
   const text = data.text;
@@ -680,8 +597,8 @@ function cosineSimilarity(query: number[], candidate: number[]): number {
   return dotProduct / (Math.sqrt(queryMag) * Math.sqrt(candidateMag));
 }
 
-async function getInitialGuessesOpenAI(base64: string, mimeType: string, prompt: string, modelId: string): Promise<string[]> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/openai`, {
+async function getInitialGuessesOpenRouter(base64: string, mimeType: string, prompt: string, modelId: string): Promise<string[]> {
+  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -694,30 +611,17 @@ async function getInitialGuessesOpenAI(base64: string, mimeType: string, prompt:
             { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
           ],
         }
-      ]
+      ],
+      expect_json: true,
     }),
   });
-  const result = JSON.parse(data.text);
+  const raw = data.text?.trim() ?? "";
+  const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+  const result = JSON.parse(cleaned);
   if (!result || !Array.isArray(result.places)) {
-    console.error("OpenAI returned invalid format:", result);
+    console.error("OpenRouter Vision returned invalid format for places:", result);
     throw new Error("Vision API returned invalid format for places.");
   }
-  return result.places;
-}
-
-async function getInitialGuessesGemini(base64: string, mimeType: string, prompt: string, modelId: string): Promise<string[]> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/gemini`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: modelId,
-      prompt: prompt,
-      image_base64: base64,
-      mime_type: mimeType
-    }),
-  });
-  const text = data.text;
-  const result = JSON.parse(text);
   return result.places;
 }
 
@@ -901,46 +805,29 @@ async function fileToBase64(file: File): Promise<string> {
 // TEST CONNECTIONS
 // ==========================================
 
-export async function testGeminiConnection() {
+export async function testOpenRouterConnection() {
   try {
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/gemini`, {
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/ai`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompt: "Hello"
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "user", content: "Hello" }],
+        expect_json: false
       }),
     });
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Gemini Test Error:", errorText);
+      console.error("OpenRouter AI Test Error:", errorText);
       return false;
     }
-    console.log("Gemini connection successful");
+    console.log("OpenRouter AI connection successful");
     return true;
   } catch (e) {
-    console.error("Gemini connection failed", e);
+    console.error("OpenRouter AI connection failed", e);
     return false;
   }
 }
 
-export async function testOpenAIConnection() {
-  try {
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/openai`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [{ role: "user", content: "Hello" }]
-      }),
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("OpenAI Test Error:", errorText);
-      return false;
-    }
-    console.log("OpenAI connection successful");
-    return true;
-  } catch (e) {
-    console.error("OpenAI connection failed", e);
-    return false;
-  }
-}
+export const testGeminiConnection = testOpenRouterConnection;
+export const testOpenAIConnection = testOpenRouterConnection;

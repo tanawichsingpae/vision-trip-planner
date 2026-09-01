@@ -31,6 +31,9 @@ import {
   Search,
   BedDouble,
   Clock,
+  ChevronLeft,
+  ArrowLeft,
+  Sparkles,
 } from "lucide-react";
 import { type DateRange } from "react-day-picker";
 import { format, differenceInDays } from "date-fns";
@@ -76,7 +79,13 @@ function getSuggestedBudgetRange(destination: string, days: number, travelStyle:
   return `฿${totalMin.toLocaleString()} - ฿${totalMax.toLocaleString()} THB`;
 }
 
-const TripPreferencesForm = ({ onSubmit, destinationName = "" }: TripPreferencesFormProps) => {
+export interface TripPreferencesFormProps {
+  onSubmit: (preferences: TripPreferences) => void;
+  destinationName?: string;
+  onBack?: () => void;
+}
+
+const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPreferencesFormProps) => {
   const today = new Date();
   const defaultStart = new Date(today);
   defaultStart.setDate(today.getDate() + 1);
@@ -641,13 +650,25 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "" }: TripPreferences
         </div>
       </div>
 
-      <div className="pt-6">
+      <div className="pt-6 flex flex-col sm:flex-row items-center gap-3">
+        {onBack && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onBack}
+            className="w-full sm:w-auto h-12 px-6 rounded-xl border-border hover:bg-muted font-semibold flex items-center justify-center gap-2"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            ย้อนกลับไปหน้าผลวิเคราะห์ภาพ
+          </Button>
+        )}
         <Button
           type="submit"
           disabled={!canSubmit}
-          className="w-full text-lg h-12 travel-gradient text-white font-bold shadow-lg disabled:opacity-50"
+          className="flex-1 w-full text-base sm:text-lg h-12 travel-gradient text-white font-bold shadow-lg disabled:opacity-50 rounded-xl flex items-center justify-center gap-2"
         >
-          Generate Personalized Itinerary
+          <Sparkles className="w-5 h-5" />
+          สร้างแผนการเดินทางด้วย AI (Generate Itinerary)
         </Button>
       </div>
     </form>

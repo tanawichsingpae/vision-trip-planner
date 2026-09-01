@@ -1085,9 +1085,75 @@ export function alignSemanticDirection(activities: Activity[]): Activity[] {
 export function assignDeterministicTimeSlots(activities: Activity[], pace: string = "Moderate"): Activity[] {
   if (activities.length === 0) return [];
 
-  const count = activities.length;
+  const hotelCheckIn = activities.find(a => a.type === "hotel" && a.title.toLowerCase().includes("check in"));
+  const hotelCheckOut = activities.find(a => a.type === "hotel" && a.title.toLowerCase().includes("check out"));
+  const regularActivities = activities.filter(a => a !== hotelCheckIn && a !== hotelCheckOut);
+  const regCount = regularActivities.length;
 
-  // Time slot templates based on number of activities
+  if (hotelCheckIn && !hotelCheckOut) {
+    // Check-in Day: e.g. 15:00 check-in
+    const checkInTime = hotelCheckIn.time || "15:00";
+    const [cHour] = checkInTime.split(":").map(Number);
+    const beforeCount = Math.min(2, Math.max(0, Math.floor(regCount / 2)));
+    const afterCount = regCount - beforeCount;
+
+    const beforeTimes = beforeCount === 1 ? ["10:30"] : beforeCount === 2 ? ["09:30", "12:30"] : [];
+    const afterTimes = afterCount === 1 
+      ? ["17:30"] 
+      : afterCount === 2 
+      ? ["17:00", "19:30"] 
+      : afterCount === 3 
+      ? ["16:30", "18:30", "20:30"] 
+      : afterCount === 4
+      ? ["16:15", "17:45", "19:15", "20:45"]
+      : Array.from({ length: afterCount }, (_, i) => `${Math.min(22, (cHour || 15) + 1 + Math.floor(i * 1.5))}:00`);
+
+    const assignedRegular = regularActivities.map((act, idx) => {
+      if (idx < beforeCount) {
+        return { ...act, time: beforeTimes[idx] || "10:00" };
+      } else {
+        const afterIdx = idx - beforeCount;
+        return { ...act, time: afterTimes[afterIdx] || "17:30" };
+      }
+    });
+
+    const all = [...assignedRegular, hotelCheckIn];
+    return all.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
+  }
+
+  if (hotelCheckOut && !hotelCheckIn) {
+    // Check-out Day: e.g. 11:00 check-out
+    const checkOutTime = hotelCheckOut.time || "11:00";
+    const [cHour] = checkOutTime.split(":").map(Number);
+    const beforeCount = Math.min(1, Math.max(0, Math.floor(regCount / 3)));
+    const afterCount = regCount - beforeCount;
+
+    const beforeTimes = beforeCount === 1 ? ["09:00"] : [];
+    const afterTimes = afterCount === 1
+      ? ["13:00"]
+      : afterCount === 2
+      ? ["12:30", "16:00"]
+      : afterCount === 3
+      ? ["12:30", "15:30", "18:30"]
+      : afterCount === 4
+      ? ["12:00", "14:30", "17:00", "19:30"]
+      : Array.from({ length: afterCount }, (_, i) => `${Math.min(22, (cHour || 11) + 1 + Math.floor(i * 1.5))}:00`);
+
+    const assignedRegular = regularActivities.map((act, idx) => {
+      if (idx < beforeCount) {
+        return { ...act, time: beforeTimes[idx] || "09:00" };
+      } else {
+        const afterIdx = idx - beforeCount;
+        return { ...act, time: afterTimes[afterIdx] || "13:00" };
+      }
+    });
+
+    const all = [...assignedRegular, hotelCheckOut];
+    return all.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
+  }
+
+  // Standard case (regular day or day with both / neither)
+  const count = regularActivities.length;
   const TIME_TEMPLATES: Record<number, string[]> = {
     1: ["10:00"],
     2: ["10:00", "15:00"],
@@ -1107,16 +1173,16 @@ export function assignDeterministicTimeSlots(activities: Activity[], pace: strin
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   });
 
-  return activities.map((act, index) => {
-    // Preserve hotel checkin (around 15:00) and checkout (around 11:00) if explicitly set
-    if (act.type === "hotel" && act.time) {
-      return act;
-    }
-    return {
-      ...act,
-      time: defaultTimes[index] || act.time || "10:00",
-    };
-  });
+  const assignedRegular = regularActivities.map((act, index) => ({
+    ...act,
+    time: defaultTimes[index] || act.time || "10:00",
+  }));
+
+  const all = [...assignedRegular];
+  if (hotelCheckIn) all.push(hotelCheckIn);
+  if (hotelCheckOut) all.push(hotelCheckOut);
+
+  return all.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
 }
 
 /**
@@ -1208,16 +1274,10 @@ export function optimizeDayActivities(
   // 5. Final geometric uncrossing pass to guarantee ZERO self-intersections
   optimized = untangleIntersectingEdges(optimized);
 
-  // 6. Assign Chronological Time Slots matching the optimized spatial order
-  optimized = assignDeterministicTimeSlots(optimized, pace);
+  // 6. Pass all activities (including hotel check-in/out) to assign clean chronological time slots & auto-sort
+  const allToSchedule = [...optimized];
+  if (hotelCheckIn) allToSchedule.push(hotelCheckIn);
+  if (hotelCheckOut) allToSchedule.push(hotelCheckOut);
 
-  // 7. Re-insert Hotel Check-in / Check-out if present
-  if (hotelCheckIn) {
-    optimized.unshift(hotelCheckIn);
-  }
-  if (hotelCheckOut) {
-    optimized.push(hotelCheckOut);
-  }
-
-  return optimized;
+  return assignDeterministicTimeSlots(allToSchedule, pace);
 }
