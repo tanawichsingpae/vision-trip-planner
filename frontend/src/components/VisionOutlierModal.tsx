@@ -20,9 +20,13 @@ import {
   Sparkles,
   Info,
   ChevronRight,
-  Filter
+  Filter,
+  Check,
+  Trash2,
+  ArrowRightLeft,
+  MapPin
 } from "lucide-react";
-import { type VisionResult } from "@/services/aiService";
+import { type VisionResult, type ImageCandidate } from "@/services/aiService";
 
 export type OutlierCategory =
   | "NON_TRAVEL"
@@ -43,7 +47,10 @@ export interface OutlierItem {
   majorityCountry?: string;
   photoUrl?: string | null;
   originalResult: VisionResult;
+  top_candidates?: ImageCandidate[];
+  initial_candidates?: ImageCandidate[];
   canRestore: boolean;
+  isExcursion?: boolean;
 }
 
 interface VisionOutlierModalProps {
@@ -52,6 +59,8 @@ interface VisionOutlierModalProps {
   outliers: OutlierItem[];
   keptLocations: VisionResult[];
   onRestoreLocation: (outlierId: string) => void;
+  onDiscardOutlier?: (outlierId: string) => void;
+  onSwitchCandidate?: (outlierId: string, candidate: ImageCandidate) => void;
   onConfirmProceed?: () => void;
 }
 
@@ -83,7 +92,7 @@ const CATEGORY_CONFIG: Record<
     iconBg: "bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400",
   },
   DISTANCE_EXCEEDED: {
-    label: "ระยะทางห่างเกิน 100 กม.",
+    label: "ระยะทางห่างเกิน 70 กม.",
     icon: Navigation,
     badgeStyle: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
     iconBg: "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400",
@@ -102,6 +111,8 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
   outliers,
   keptLocations,
   onRestoreLocation,
+  onDiscardOutlier,
+  onSwitchCandidate,
   onConfirmProceed,
 }) => {
   const [activeTab, setActiveTab] = useState<"outliers" | "kept">("outliers");
@@ -137,13 +148,13 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
             </div>
             <div>
               <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                รายงานการคัดกรอง Vision AI Outliers
+                ตรวจสอบและคัดกรองสถานที่ (Vision AI Verification)
                 <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
-                  AI Audit
+                  Interactive Check
                 </Badge>
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                ระบบคัดกรองภาพสถานที่ท่องเที่ยวเพื่อป้องกันเส้นทางเดินทางออกนอกพื้นที่หรือข้อมูลที่ไม่ถูกต้อง
+                ตรวจสอบสถานที่ที่ถูกระบุ ยืนยันความถูกต้อง สลับเป็นสถานที่ทางเลือก หรือนำออกจากแผนเดินทาง
               </DialogDescription>
             </div>
           </div>
@@ -158,7 +169,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
             </div>
             <div className="flex flex-col items-center justify-center p-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
               <span className="text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> คัดเลือกแล้ว
+                <CheckCircle2 className="w-3 h-3" /> ผ่านเกณฑ์แล้ว
               </span>
               <span className="text-base font-bold text-emerald-700 dark:text-emerald-300">
                 {keptLocations.length}
@@ -166,7 +177,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
             </div>
             <div className="flex flex-col items-center justify-center p-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
               <span className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> ตัด Outlier
+                <AlertTriangle className="w-3 h-3" /> รอการยืนยัน
               </span>
               <span className="text-base font-bold text-amber-700 dark:text-amber-300">
                 {outliers.length}
@@ -185,7 +196,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
               }`}
             >
               <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-              สถานที่ที่ถูกตัดออก ({outliers.length})
+              สถานที่ที่ต้องตรวจสอบ ({outliers.length})
             </button>
             <button
               onClick={() => setActiveTab("kept")}
@@ -207,9 +218,9 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
             outliers.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
                 <CheckCircle2 className="w-12 h-12 text-emerald-500 mb-3 animate-bounce" />
-                <p className="font-semibold text-foreground">ไม่พบสถานที่ที่เป็น Outlier!</p>
+                <p className="font-semibold text-foreground">ไม่พบสถานที่ที่ต้องตรวจสอบเพิ่มเติม!</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  ทุกสถานที่ที่คุณอัปโหลดมีความสอดคล้องและผ่านเกณฑ์การคัดกรองทั้งหมด
+                  ทุกสถานที่ที่คุณอัปโหลดผ่านเกณฑ์และพร้อมสำหรับการวางแผนการเดินทาง
                 </p>
               </div>
             ) : (
@@ -217,92 +228,138 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
                 const config = CATEGORY_CONFIG[item.category];
                 const CategoryIcon = config.icon;
                 const photoUrl = getCandidatePhoto(item);
+                const altCandidates = (item.top_candidates || item.originalResult.top_candidates || [])
+                  .filter((c) => c.name.toLowerCase() !== item.place.toLowerCase())
+                  .slice(0, 2);
 
                 return (
                   <div
                     key={item.id}
-                    className="flex flex-col md:flex-row gap-4 p-4 rounded-2xl bg-muted/30 border border-border/60 hover:border-amber-500/30 transition-all hover:bg-muted/50 group relative overflow-hidden"
+                    className="flex flex-col gap-3 p-4 rounded-2xl bg-muted/30 border border-border/60 hover:border-amber-500/40 transition-all hover:bg-muted/50 group relative overflow-hidden"
                   >
-                    {/* Visual Photo Thumbnail if available */}
-                    {photoUrl ? (
-                      <div className="w-full md:w-24 h-24 rounded-xl overflow-hidden bg-muted flex-shrink-0 relative border border-border/50">
-                        <img
-                          src={photoUrl}
-                          alt={item.place}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        />
-                        <div className="absolute inset-0 bg-black/20" />
-                      </div>
-                    ) : (
-                      <div className={`w-full md:w-20 h-20 rounded-xl ${config.iconBg} flex items-center justify-center flex-shrink-0`}>
-                        <CategoryIcon className="w-8 h-8" />
-                      </div>
-                    )}
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      {/* Photo Thumbnail */}
+                      {photoUrl ? (
+                        <div className="w-full sm:w-24 h-24 rounded-xl overflow-hidden bg-muted flex-shrink-0 relative border border-border/50">
+                          <img
+                            src={photoUrl}
+                            alt={item.place}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                          <div className="absolute inset-0 bg-black/20" />
+                        </div>
+                      ) : (
+                        <div className={`w-full sm:w-20 h-20 rounded-xl ${config.iconBg} flex items-center justify-center flex-shrink-0`}>
+                          <CategoryIcon className="w-8 h-8" />
+                        </div>
+                      )}
 
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 flex-wrap">
-                        <div>
-                          <h4 className="font-bold text-foreground text-base leading-tight flex items-center gap-1.5">
-                            {item.place}
-                            {item.country && (
-                              <span className="text-xs font-normal text-muted-foreground">
-                                ({item.country})
-                              </span>
-                            )}
-                          </h4>
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div>
+                            <h4 className="font-bold text-foreground text-base leading-tight flex items-center gap-1.5">
+                              {item.place}
+                              {item.country && (
+                                <span className="text-xs font-normal text-muted-foreground">
+                                  ({item.country})
+                                </span>
+                              )}
+                            </h4>
+                          </div>
+
+                          {/* Category Badge */}
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${config.badgeStyle}`}
+                          >
+                            <CategoryIcon className="w-3 h-3" />
+                            {config.label}
+                          </span>
                         </div>
 
-                        {/* Category Badge */}
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${config.badgeStyle}`}
-                        >
-                          <CategoryIcon className="w-3 h-3" />
-                          {config.label}
-                        </span>
-                      </div>
+                        {/* Detail Reason */}
+                        <p className="text-xs text-muted-foreground mt-2 leading-relaxed bg-background/50 p-2.5 rounded-xl border border-border/40">
+                          <Info className="w-3.5 h-3.5 inline-block text-amber-500 mr-1.5 -mt-0.5" />
+                          {item.reasonDescription}
+                        </p>
 
-                      {/* Detail Reason */}
-                      <p className="text-xs text-muted-foreground mt-2 leading-relaxed bg-background/50 p-2.5 rounded-xl border border-border/40">
-                        <Info className="w-3.5 h-3.5 inline-block text-amber-500 mr-1.5 -mt-0.5" />
-                        {item.reasonDescription}
-                      </p>
-
-                      {/* Metrics tags */}
-                      <div className="flex items-center gap-2 mt-2 flex-wrap text-[10px]">
-                        {item.confidence !== undefined && item.confidence > 0 && (
-                          <span className="px-2 py-0.5 rounded-md bg-background border border-border/60 text-muted-foreground font-mono">
-                            Confidence: {(item.confidence * 100).toFixed(0)}%
-                          </span>
-                        )}
-                        {item.distanceKm !== undefined && (
-                          <span className="px-2 py-0.5 rounded-md bg-background border border-border/60 text-muted-foreground font-mono">
-                            Distance: {Math.round(item.distanceKm)} km away
-                          </span>
-                        )}
-                        {item.majorityCountry && (
-                          <span className="px-2 py-0.5 rounded-md bg-background border border-border/60 text-muted-foreground">
-                            Majority: {item.majorityCountry}
-                          </span>
-                        )}
+                        {/* Metrics tags */}
+                        <div className="flex items-center gap-2 mt-2 flex-wrap text-[10px]">
+                          {item.confidence !== undefined && item.confidence > 0 && (
+                            <span className="px-2 py-0.5 rounded-md bg-background border border-border/60 text-muted-foreground font-mono">
+                              Match: {(item.confidence * 100).toFixed(0)}%
+                            </span>
+                          )}
+                          {item.distanceKm !== undefined && (
+                            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-semibold">
+                              📍 ห่างจากกลุ่มหลัก {item.distanceKm} กม.
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Restore Button */}
-                    {item.canRestore && (
-                      <div className="flex items-center justify-end md:justify-center border-t md:border-t-0 md:border-l border-border/40 pt-2 md:pt-0 md:pl-3">
+                    {/* Question & Actions Bar */}
+                    <div className="pt-3 mt-1 border-t border-border/40 flex flex-col gap-2">
+                      <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        สถานที่นี้ถูกต้องตามภาพของคุณหรือไม่?
+                      </p>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Option 1: Confirm & Keep */}
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => onRestoreLocation(item.id)}
-                          className="h-9 px-3 rounded-xl border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold transition-all gap-1.5 whitespace-nowrap"
-                          title="กดเพื่อนำสถานที่นี้กลับเข้าสู่แผนเดินทาง"
+                          className="h-8 px-3 rounded-xl bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-semibold gap-1.5"
                         >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          กู้คืนสถานที่
+                          <Check className="w-3.5 h-3.5" />
+                          ถูกต้องแล้ว ยืนยันใช้ต่อ
                         </Button>
+
+                        {/* Option 2: Discard / Remove */}
+                        {onDiscardOutlier && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onDiscardOutlier(item.id)}
+                            className="h-8 px-3 rounded-xl border-red-500/30 hover:bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-semibold gap-1.5"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            ไม่ใช่ ตัดออก
+                          </Button>
+                        )}
                       </div>
-                    )}
+
+                      {/* Option 3: Alternative Candidate Switcher */}
+                      {altCandidates.length > 0 && onSwitchCandidate && (
+                        <div className="mt-1.5 pt-2 border-t border-border/30">
+                          <p className="text-[11px] text-muted-foreground mb-1.5">
+                            หรือสลับเป็นตัวเลือกอื่นที่ AI ตรวจพบ:
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {altCandidates.map((cand, cIdx) => (
+                              <Button
+                                key={cIdx}
+                                variant="outline"
+                                size="sm"
+                                onClick={() => onSwitchCandidate(item.id, cand)}
+                                className="h-8 px-2.5 rounded-xl border-border bg-background/80 hover:bg-primary/10 hover:border-primary/30 text-foreground text-xs gap-1.5"
+                              >
+                                <ArrowRightLeft className="w-3 h-3 text-primary" />
+                                <span>{cand.name}</span>
+                                {cand.similarity > 0 && (
+                                  <span className="text-[10px] text-primary font-bold">
+                                    {(cand.similarity * 100).toFixed(0)}%
+                                  </span>
+                                )}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })
@@ -318,31 +375,43 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
                 </p>
               </div>
             ) : (
-              keptLocations.map((loc, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 hover:bg-emerald-500/10 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-xs">
-                      {idx + 1}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-foreground text-sm">{loc.place}</h4>
-                      <p className="text-xs text-muted-foreground">{loc.country} • {loc.type}</p>
-                    </div>
-                  </div>
+              keptLocations.map((loc, idx) => {
+                const isExcursion = (loc as any).isExcursion;
+                const distanceKm = (loc as any).distanceKm;
 
-                  <div className="flex items-center gap-2">
-                    {loc.confidence !== undefined && (
-                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
-                        Match {(loc.confidence * 100).toFixed(0)}%
-                      </span>
-                    )}
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                return (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 hover:bg-emerald-500/10 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-xs">
+                        {idx + 1}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-foreground text-sm">{loc.place}</h4>
+                          {isExcursion && (
+                            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 text-[10px] py-0 px-2">
+                              🚗 จังหวัดใกล้เคียง ({distanceKm ? `${distanceKm} กม.` : ""})
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">{loc.country} • {loc.type}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {loc.confidence !== undefined && (
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+                          Match {(loc.confidence * 100).toFixed(0)}%
+                        </span>
+                      )}
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )
           )}
         </div>
@@ -351,7 +420,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
         <DialogFooter className="p-4 border-t border-border/40 bg-muted/20 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-[11px] text-muted-foreground flex items-center gap-1">
             <Sparkles className="w-3.5 h-3.5 text-primary" />
-            คุณสามารถกู้คืนสถานที่ที่ถูกตัดได้ตลอดเวลาก่อนดำเนินการวางแผน
+            คุณสามารถกู้คืนหรือสลับสถานที่ได้ตลอดเวลาก่อนดำเนินการวางแผน
           </p>
 
           <Button

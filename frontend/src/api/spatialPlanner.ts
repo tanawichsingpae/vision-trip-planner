@@ -28,13 +28,13 @@ export interface DayCluster {
  */
 export function haversineDistance(a: Coordinates, b: Coordinates): number {
   const R = 6371; // Earth radius in km
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
   const dLng = ((b.lng - a.lng) * Math.PI) / 180;
   const sin2 =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos((a.lat * Math.PI) / 180) *
-      Math.cos((b.lng - a.lng) * Math.PI) / 180 *
-      Math.sin(dLng / 2) ** 2;
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.asin(Math.sqrt(sin2));
 }
 
@@ -1019,40 +1019,107 @@ export function untangleIntersectingEdges(activities: Activity[]): Activity[] {
   return [...route, ...nonGeoActs];
 }
 
-/**
- * 2-Opt TSP Algorithm with Monotonic Directional Sweeping & Anti-Looping
- */
-export function twoOptRouteOptimization(
-  activities: Activity[],
-  startCoord?: Coordinates
-): Activity[] {
-  const validActs = activities.filter(a => a.lat !== undefined && a.lng !== undefined && !isNaN(a.lat) && !isNaN(a.lng));
-  if (validActs.length <= 2) return [...activities];
+export interface MicroCluster {
+  id: string;
+  activities: Activity[];
+  centroid: Coordinates;
+}
 
-  // 1. Determine Start Anchor (S)
+/**
+ * Groups nearby activities within proximity threshold (1.8 km) into atomic Micro-Clusters (Pairs/Triplets).
+ * Guarantees that nearby spots remain together and are never split apart into zig-zags.
+ */
+export function groupNearbyPairsAndMicroClusters(
+  activities: Activity[],
+  proximityRadiusKm: number = 1.8
+): MicroCluster[] {
+  const geoActs = activities.filter(a => a.lat !== undefined && a.lng !== undefined && !isNaN(a.lat) && !isNaN(a.lng));
+  if (geoActs.length === 0) {
+    return activities.map((a, i) => ({ id: `c-${i}`, activities: [a], centroid: { lat: 0, lng: 0 } }));
+  }
+
+  const clusters: MicroCluster[] = [];
+  const assigned = new Set<number>();
+
+  for (let i = 0; i < geoActs.length; i++) {
+    if (assigned.has(i)) continue;
+
+    const clusterActs = [geoActs[i]];
+    assigned.add(i);
+
+    let added = true;
+    while (added) {
+      added = false;
+      for (let j = 0; j < geoActs.length; j++) {
+        if (assigned.has(j)) continue;
+        const candidate = geoActs[j];
+        const isNear = clusterActs.some(a =>
+          haversineDistance({ lat: a.lat!, lng: a.lng! }, { lat: candidate.lat!, lng: candidate.lng! }) <= proximityRadiusKm
+        );
+        if (isNear) {
+          clusterActs.push(candidate);
+          assigned.add(j);
+          added = true;
+        }
+      }
+    }
+
+    const avgLat = clusterActs.reduce((acc, a) => acc + a.lat!, 0) / clusterActs.length;
+    const avgLng = clusterActs.reduce((acc, a) => acc + a.lng!, 0) / clusterActs.length;
+    clusters.push({
+      id: `mc-${clusters.length}`,
+      activities: clusterActs,
+      centroid: { lat: avgLat, lng: avgLng },
+    });
+  }
+
+  const nonGeoActs = activities.filter(a => !a.lat || !a.lng || isNaN(a.lat) || isNaN(a.lng));
+  if (nonGeoActs.length > 0) {
+    clusters.push({
+      id: `mc-nongeo`,
+      activities: nonGeoActs,
+      centroid: { lat: 0, lng: 0 },
+    });
+  }
+
+  return clusters;
+}
+
+/**
+ * Sequences Micro-Clusters along an open linear / arc trajectory away from the morning start anchor.
+ * Guarantees that the route never loops back to the morning start point.
+ */
+export function orderMicroClustersOpenProgression(
+  clusters: MicroCluster[],
+  startCoord?: Coordinates
+): MicroCluster[] {
+  const geoClusters = clusters.filter(c => c.centroid.lat !== 0 && c.centroid.lng !== 0);
+  if (geoClusters.length <= 1) return clusters;
+
+  // 1. Determine Start Cluster
   let startIdx = 0;
   if (startCoord) {
     let minD = Infinity;
-    validActs.forEach((act, idx) => {
-      const d = haversineDistance(startCoord, { lat: act.lat!, lng: act.lng! });
+    geoClusters.forEach((c, idx) => {
+      const d = haversineDistance(startCoord, c.centroid);
       if (d < minD) {
         minD = d;
         startIdx = idx;
       }
     });
   } else {
-    const morningIdx = validActs.findIndex(a => isMorningActivity(a));
+    const morningIdx = geoClusters.findIndex(c => c.activities.some(a => isMorningActivity(a)));
     if (morningIdx !== -1) startIdx = morningIdx;
   }
 
-  const startAnchor = validActs[startIdx];
+  const startCluster = geoClusters[startIdx];
 
-  // 2. Determine End Anchor (E)
+  // 2. Determine End Cluster (Evening / furthest point)
   let endIdx = -1;
   let maxEveningDist = -1;
-  validActs.forEach((act, idx) => {
-    if (idx !== startIdx && isEveningActivity(act)) {
-      const d = haversineDistance({ lat: startAnchor.lat!, lng: startAnchor.lng! }, { lat: act.lat!, lng: act.lng! });
+  geoClusters.forEach((c, idx) => {
+    if (idx !== startIdx && c.activities.some(a => isEveningActivity(a))) {
+      const d = haversineDistance(startCluster.centroid, c.centroid);
       if (d > maxEveningDist) {
         maxEveningDist = d;
         endIdx = idx;
@@ -1061,54 +1128,134 @@ export function twoOptRouteOptimization(
   });
 
   if (endIdx === -1) {
-    let maxD = -1;
-    validActs.forEach((act, idx) => {
+    let maxDist = -1;
+    geoClusters.forEach((c, idx) => {
       if (idx !== startIdx) {
-        const d = haversineDistance({ lat: startAnchor.lat!, lng: startAnchor.lng! }, { lat: act.lat!, lng: act.lng! });
-        if (d > maxD) {
-          maxD = d;
+        const d = haversineDistance(startCluster.centroid, c.centroid);
+        if (d > maxDist) {
+          maxDist = d;
           endIdx = idx;
         }
       }
     });
   }
 
-  const endAnchor = endIdx !== -1 ? validActs[endIdx] : validActs[(startIdx + 1) % validActs.length];
+  const endCluster = endIdx !== -1 ? geoClusters[endIdx] : geoClusters[(startIdx + 1) % geoClusters.length];
 
   // 3. Monotonic Directional Vector & Projection
-  const vLat = endAnchor.lat! - startAnchor.lat!;
-  const vLng = endAnchor.lng! - startAnchor.lng!;
+  const vLat = endCluster.centroid.lat - startCluster.centroid.lat;
+  const vLng = endCluster.centroid.lng - startCluster.centroid.lng;
   const vMagSq = vLat * vLat + vLng * vLng;
 
-  let sortedRoute: Activity[];
+  let sortedClusters: MicroCluster[];
   if (vMagSq > 1e-8) {
-    sortedRoute = [...validActs].sort((a, b) => {
-      const tA = ((a.lat! - startAnchor.lat!) * vLat + (a.lng! - startAnchor.lng!) * vLng) / vMagSq;
-      const tB = ((b.lat! - startAnchor.lat!) * vLat + (b.lng! - startAnchor.lng!) * vLng) / vMagSq;
+    sortedClusters = [...geoClusters].sort((a, b) => {
+      const tA = ((a.centroid.lat - startCluster.centroid.lat) * vLat + (a.centroid.lng - startCluster.centroid.lng) * vLng) / vMagSq;
+      const tB = ((b.centroid.lat - startCluster.centroid.lat) * vLat + (b.centroid.lng - startCluster.centroid.lng) * vLng) / vMagSq;
       return tA - tB;
     });
   } else {
-    const unvisited = [...validActs];
+    const unvisited = [...geoClusters];
     let curr = unvisited.splice(startIdx, 1)[0];
-    sortedRoute = [curr];
+    sortedClusters = [curr];
     while (unvisited.length > 0) {
       let nIdx = 0;
       let minD = Infinity;
-      unvisited.forEach((act, idx) => {
-        const d = haversineDistance({ lat: curr.lat!, lng: curr.lng! }, { lat: act.lat!, lng: act.lng! });
+      unvisited.forEach((c, idx) => {
+        const d = haversineDistance(curr.centroid, c.centroid);
         if (d < minD) {
           minD = d;
           nIdx = idx;
         }
       });
       curr = unvisited.splice(nIdx, 1)[0];
-      sortedRoute.push(curr);
+      sortedClusters.push(curr);
     }
   }
 
-  let route = sortedRoute;
+  // 4. Anti-Looping Validation: Ensure the last cluster is furthest, never returning back to start
+  if (sortedClusters.length >= 3) {
+    const firstC = sortedClusters[0].centroid;
+    const lastC = sortedClusters[sortedClusters.length - 1].centroid;
+    const dStartEnd = haversineDistance(firstC, lastC);
 
-  // 4. 2-Opt Edge Swapping on Open Path
+    let maxExcursion = 0;
+    let furthestIdx = 0;
+    sortedClusters.forEach((c, idx) => {
+      const d = haversineDistance(firstC, c.centroid);
+      if (d > maxExcursion) {
+        maxExcursion = d;
+        furthestIdx = idx;
+      }
+    });
+
+    if (maxExcursion > 2.0 && dStartEnd < 0.4 * maxExcursion && furthestIdx !== sortedClusters.length - 1) {
+      const beforeFurthest = sortedClusters.slice(0, furthestIdx + 1);
+      const afterFurthest = sortedClusters.slice(furthestIdx + 1);
+      sortedClusters = [...beforeFurthest, ...afterFurthest.reverse()];
+    }
+  }
+
+  const nonGeo = clusters.filter(c => c.centroid.lat === 0 && c.centroid.lng === 0);
+  return [...sortedClusters, ...nonGeo];
+}
+
+/**
+ * Orders activities within a single Micro-Cluster smoothly
+ */
+export function orderActivitiesWithinMicroCluster(
+  cluster: MicroCluster,
+  prevCentroid?: Coordinates
+): Activity[] {
+  const acts = cluster.activities;
+  if (acts.length <= 1) return acts;
+
+  if (prevCentroid && prevCentroid.lat !== 0 && prevCentroid.lng !== 0) {
+    return [...acts].sort((a, b) => {
+      const distA = haversineDistance({ lat: a.lat || 0, lng: a.lng || 0 }, prevCentroid);
+      const distB = haversineDistance({ lat: b.lat || 0, lng: b.lng || 0 }, prevCentroid);
+      return distA - distB;
+    });
+  }
+
+  const getSemanticPriority = (a: Activity): number => {
+    if (isMorningActivity(a)) return 1;
+    if (isFoodActivity(a) && !isEveningActivity(a)) return 2;
+    if (a.type === "attraction" || a.type === "culture") return 3;
+    if (a.type === "shopping" || a.type === "nature") return 4;
+    if (isSunsetSpot(a)) return 5;
+    if (isEveningActivity(a)) return 6;
+    return 3;
+  };
+
+  return [...acts].sort((a, b) => getSemanticPriority(a) - getSemanticPriority(b));
+}
+
+/**
+ * 2-Opt TSP Algorithm with Pair-Preserving Micro-Clustering & Anti-Looping Open Progression
+ */
+export function twoOptRouteOptimization(
+  activities: Activity[],
+  startCoord?: Coordinates
+): Activity[] {
+  const validActs = activities.filter(a => a.lat !== undefined && a.lng !== undefined && !isNaN(a.lat) && !isNaN(a.lng));
+  if (validActs.length <= 2) return [...activities];
+
+  // 1. Group nearby places into Micro-Clusters (Pairs/Triplets) within 1.8 km
+  const clusters = groupNearbyPairsAndMicroClusters(validActs, 1.8);
+
+  // 2. Order Micro-Clusters along an open progression vector (Anti-Looping)
+  const orderedClusters = orderMicroClustersOpenProgression(clusters, startCoord);
+
+  // 3. Order activities inside each cluster and flatten
+  const flattened: Activity[] = [];
+  for (let i = 0; i < orderedClusters.length; i++) {
+    const prevC = i > 0 ? orderedClusters[i - 1].centroid : startCoord;
+    const orderedActs = orderActivitiesWithinMicroCluster(orderedClusters[i], prevC);
+    flattened.push(...orderedActs);
+  }
+
+  // 4. Fine-grained 2-Opt Edge Swapping on Open Path (preserving start anchor at index 0)
   const calculateRouteDistance = (r: Activity[]): number => {
     let d = 0;
     for (let k = 0; k < r.length - 1; k++) {
@@ -1117,22 +1264,39 @@ export function twoOptRouteOptimization(
     return d;
   };
 
+  let route = flattened;
   let improved = true;
   let iterations = 0;
-  const maxIterations = 50;
+  const maxIterations = 30;
 
   while (improved && iterations < maxIterations) {
     improved = false;
     iterations++;
     const bestDist = calculateRouteDistance(route);
 
-    for (let i = 0; i < route.length - 2; i++) {
+    // Keep start anchor (index 0) fixed to morning starting location
+    for (let i = 1; i < route.length - 2; i++) {
       for (let j = i + 1; j < route.length; j++) {
         const candidate = [
           ...route.slice(0, i),
           ...route.slice(i, j + 1).reverse(),
           ...route.slice(j + 1),
         ];
+
+        // Reject if candidate causes an anti-loop violation
+        const pFirst = { lat: candidate[0].lat!, lng: candidate[0].lng! };
+        const pLast = { lat: candidate[candidate.length - 1].lat!, lng: candidate[candidate.length - 1].lng! };
+        const dCandidateStartEnd = haversineDistance(pFirst, pLast);
+
+        let maxExcursion = 0;
+        candidate.forEach(act => {
+          const d = haversineDistance(pFirst, { lat: act.lat!, lng: act.lng! });
+          if (d > maxExcursion) maxExcursion = d;
+        });
+
+        if (maxExcursion > 2.0 && dCandidateStartEnd < 0.35 * maxExcursion) {
+          continue;
+        }
 
         const candidateDist = calculateRouteDistance(candidate);
         if (candidateDist < bestDist - 0.0005) {
@@ -1145,30 +1309,7 @@ export function twoOptRouteOptimization(
     }
   }
 
-  // 5. Anti-Looping Guard
-  if (route.length >= 3) {
-    const pFirst = { lat: route[0].lat!, lng: route[0].lng! };
-    const pLast = { lat: route[route.length - 1].lat!, lng: route[route.length - 1].lng! };
-    const dStartEnd = haversineDistance(pFirst, pLast);
-
-    let maxExcursion = 0;
-    let furthestIdx = 0;
-    route.forEach((act, idx) => {
-      const d = haversineDistance(pFirst, { lat: act.lat!, lng: act.lng! });
-      if (d > maxExcursion) {
-        maxExcursion = d;
-        furthestIdx = idx;
-      }
-    });
-
-    if (maxExcursion > 2.5 && dStartEnd < 0.35 * maxExcursion && furthestIdx !== route.length - 1) {
-      const beforeFurthest = route.slice(0, furthestIdx + 1);
-      const afterFurthest = route.slice(furthestIdx + 1);
-      route = [...beforeFurthest, ...afterFurthest.reverse()];
-    }
-  }
-
-  const nonGeoActs = activities.filter(a => !a.lat || !a.lng || a.lat === 0 || a.lng === 0);
+  const nonGeoActs = activities.filter(a => !a.lat || !a.lng || isNaN(a.lat) || isNaN(a.lng));
   return [...route, ...nonGeoActs];
 }
 
@@ -1198,6 +1339,7 @@ export function alignSemanticDirection(activities: Activity[]): Activity[] {
 
 /**
  * Enforces NO CONSECUTIVE MEALS by interleaving non-food activities between food spots
+ * while maintaining relative spatial progression.
  */
 export function preventConsecutiveMeals(activities: Activity[]): Activity[] {
   if (activities.length <= 2) return activities;
@@ -1210,14 +1352,15 @@ export function preventConsecutiveMeals(activities: Activity[]): Activity[] {
     else nonFoods.push(a);
   });
 
-  if (foods.length <= 1) return [...activities];
+  if (foods.length <= 1 || nonFoods.length === 0) return [...activities];
 
   const result: Activity[] = [];
   let f = 0;
   let n = 0;
 
-  // If foods >= nonFoods, start with food unless we have ample nonFoods
-  let nextShouldBeFood = foods.length >= nonFoods.length;
+  // Decide if route should start with non-food (sightseeing) or food
+  const startWithFood = foods.length > nonFoods.length;
+  let nextShouldBeFood = startWithFood;
 
   while (f < foods.length || n < nonFoods.length) {
     if (nextShouldBeFood && f < foods.length) {

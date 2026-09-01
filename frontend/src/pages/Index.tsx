@@ -282,13 +282,79 @@ const Index = () => {
 
     setDetectedLocations(prev => {
       if (!prev.some(l => l.place.toLowerCase() === restoredItem.originalResult.place.toLowerCase())) {
-        return [...prev, restoredItem.originalResult];
+        return [
+          ...prev,
+          {
+            ...restoredItem.originalResult,
+            isExcursion: restoredItem.distanceKm ? restoredItem.distanceKm > 35 : false,
+            distanceKm: restoredItem.distanceKm,
+          },
+        ];
       }
       return prev;
     });
 
     toast.success(`กู้คืน "${restoredItem.place}" กลับเข้าสู่รายการวางแผนแล้ว ✨`);
   }, [outliers]);
+
+  const handleDiscardOutlier = useCallback((outlierId: string) => {
+    const outlier = outliers.find(o => o.id === outlierId);
+    setOutliers(prev => prev.filter(o => o.id !== outlierId));
+    if (outlier) {
+      toast.info(`ตัดสถานที่ "${outlier.place}" ออกจากรายการแล้ว`);
+    }
+  }, [outliers]);
+
+  const handleSwitchCandidateFromOutlier = useCallback((outlierId: string, candidate: any) => {
+    const outlierIndex = outliers.findIndex(o => o.id === outlierId);
+    if (outlierIndex === -1) return;
+
+    const item = outliers[outlierIndex];
+    setOutliers(prev => prev.filter(o => o.id !== outlierId));
+
+    const updatedResult: VisionResult = {
+      ...item.originalResult,
+      place: candidate.name,
+      confidence: candidate.similarity || item.confidence || 0.8,
+    };
+
+    setDetectedLocations(prev => {
+      if (!prev.some(l => l.place.toLowerCase() === candidate.name.toLowerCase())) {
+        return [...prev, updatedResult];
+      }
+      return prev;
+    });
+
+    toast.success(`สลับเป็น "${candidate.name}" เรียบร้อยแล้ว ✨`);
+  }, [outliers]);
+
+  const handleSwitchCandidateFromLocation = useCallback((index: number, candidate: any) => {
+    setDetectedLocations(prev => {
+      const copy = [...prev];
+      if (copy[index]) {
+        copy[index] = {
+          ...copy[index],
+          place: candidate.name,
+          confidence: candidate.similarity || copy[index].confidence || 0.8,
+        };
+      }
+      return copy;
+    });
+    toast.success(`สลับเป็น "${candidate.name}" เรียบร้อยแล้ว ✨`);
+  }, []);
+
+  const handleRemoveLocation = useCallback((index: number) => {
+    setDetectedLocations(prev => {
+      if (prev.length <= 1) {
+        toast.warning("ต้องมีสถานที่อย่างน้อย 1 แห่งสำหรับการวางแผน");
+        return prev;
+      }
+      const removed = prev[index];
+      const next = prev.filter((_, idx) => idx !== index);
+      toast.info(`ลบ "${removed.place}" ออกจากรายการแล้ว`);
+      return next;
+    });
+  }, []);
 
   const handleImagesUploaded = useCallback(async (files: File[]) => {
     setOverlayType("vision");
@@ -302,9 +368,22 @@ const Index = () => {
         files.map(file => analyzeImage(file, model, useClip, setLoadingStep))
       );
 
+      // Pre-geocode identified locations to compute accurate geo-distances
+      setLoadingStep("Geocoding & Calculating Distances...");
+      const geoResults = await Promise.all(
+        results.map(async (r) => {
+          try {
+            const coords = await getCoordinates(r.place, undefined, r.country);
+            return { ...r, lat: coords.lat, lng: coords.lng };
+          } catch {
+            return r;
+          }
+        })
+      );
+
       setLoadingStep("Filtering & Checking Outliers...");
-      // Filter outliers (country mismatch, low confidence, non-travel, duplicates)
-      const { kept, outliers: detectedOutliers } = detectVisionOutliers(results, useClip);
+      // Filter outliers (country mismatch, distance > 70 km, low confidence, non-travel, duplicates)
+      const { kept, outliers: detectedOutliers } = detectVisionOutliers(geoResults, useClip, 70, 35);
 
       setDetectedLocations(kept);
       setOutliers(detectedOutliers);
@@ -314,14 +393,14 @@ const Index = () => {
 
       if (detectedOutliers.length > 0) {
         toast.warning(
-          `Vision AI คัดกรองสถานที่นอกเกณฑ์ ${detectedOutliers.length} รายการ`,
+          `Vision AI ตรวจพบ Outlier หรือสถานที่ที่ต้องยืนยัน ${detectedOutliers.length} รายการ`,
           {
-            description: "คุณสามารถเปิดดูรายงานและกู้คืนสถานที่ได้ตลอดเวลา",
+            description: "คุณสามารถเปิดดูรายงาน สลับสถานที่ หรือยืนยันได้",
             action: {
-              label: "ดูรายงาน Outlier",
+              label: "ตรวจสอบ Outlier",
               onClick: () => setIsOutlierModalOpen(true),
             },
-            duration: 6000,
+            duration: 7000,
           }
         );
       }
@@ -1431,6 +1510,8 @@ const Index = () => {
                 useClip={useClip}
                 outliersCount={outliers.length}
                 onOpenOutliersReport={() => setIsOutlierModalOpen(true)}
+                onRemoveLocation={handleRemoveLocation}
+                onSwitchCandidate={handleSwitchCandidateFromLocation}
               />
 
               {/* Navigation Actions between Vision AI and Preferences */}
@@ -1505,6 +1586,8 @@ const Index = () => {
             outliers={outliers}
             keptLocations={detectedLocations}
             onRestoreLocation={handleRestoreLocation}
+            onDiscardOutlier={handleDiscardOutlier}
+            onSwitchCandidate={handleSwitchCandidateFromOutlier}
           />
 
           {/* ── STEP 3: Travel Itinerary & Interactive Dashboard ── */}

@@ -152,6 +152,32 @@ describe("Anti-Looping & Open Progression Route Optimization", () => {
     expect(first.id).toBe("start");
     expect(last.id).not.toBe("loop_back");
   });
+
+  it("should preserve nearby pairs and never split them into a zig-zag route", () => {
+    // 2 spots in West (Old Town: Grand Palace & Wat Pho, 400m apart)
+    // 2 spots in East (Siam: Siam Paragon & CentralWorld, 500m apart)
+    const scrambledPairs: Activity[] = [
+      { id: "west1", title: "Grand Palace (West)", type: "culture", lat: 13.7500, lng: 100.4913, description: "" },
+      { id: "east1", title: "Siam Paragon (East)", type: "shopping", lat: 13.7462, lng: 100.5347, description: "" },
+      { id: "west2", title: "Wat Pho (West - 400m from Grand Palace)", type: "culture", lat: 13.7465, lng: 100.4930, description: "" },
+      { id: "east2", title: "CentralWorld (East - 500m from Paragon)", type: "shopping", lat: 13.7466, lng: 100.5393, description: "" },
+    ];
+
+    const optimized = twoOptRouteOptimization(scrambledPairs, { lat: 13.7500, lng: 100.4850 });
+    const ids = optimized.map(a => a.id);
+
+    // Verify West spots are grouped together consecutively, and East spots are grouped together
+    const west1Idx = ids.indexOf("west1");
+    const west2Idx = ids.indexOf("west2");
+    const east1Idx = ids.indexOf("east1");
+    const east2Idx = ids.indexOf("east2");
+
+    expect(Math.abs(west1Idx - west2Idx)).toBe(1); // West pair is consecutive!
+    expect(Math.abs(east1Idx - east2Idx)).toBe(1); // East pair is consecutive!
+
+    // Starting from West, West pair must come before East pair
+    expect(Math.min(west1Idx, west2Idx)).toBeLessThan(Math.min(east1Idx, east2Idx));
+  });
 });
 
 describe("Cross-Day Spatial Rebalancing", () => {
