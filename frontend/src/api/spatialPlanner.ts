@@ -223,7 +223,7 @@ export function sequenceDayClusters(
   let currentCluster = unvisited.splice(firstIdx, 1)[0];
   sequenced.push(currentCluster);
 
-  // Greedily chain remaining clusters
+  // Greedily chain remaining clusters to form a continuous corridor
   while (unvisited.length > 0) {
     const ref = currentCluster.centroid!;
     let nearestIdx = 0;
@@ -318,7 +318,6 @@ export function mapPlaceTypeToCategory(types: string[]): "attraction" | "food" |
 
 /**
  * Multi-Criteria Decision Making (MCDM) POI Scoring
- * Score = w1*Rating + w2*Popularity + w3*PreferenceMatch + w4*DistancePenalty + StochasticBonus
  */
 export function scorePOIs(
   pois: POICandidate[],
@@ -350,10 +349,8 @@ export function scorePOIs(
     const dist = haversineDistance(poi, centerCoords);
     const distancePenalty = Math.max(0, 1 - dist / maxRadius);
 
-    // Controlled stochastic variation for diversity (±10%)
     const stochasticBonus = Math.random() * 0.1;
 
-    // MCDM weights
     const wRating = 0.3;
     const wPopularity = 0.2;
     const wPref = 0.3;
@@ -508,6 +505,13 @@ export function parseTimeToMinutes(timeStr?: string): number | null {
   return hours * 60 + minutes;
 }
 
+export function formatMinutesToTime(minutes: number): string {
+  const m = Math.max(0, Math.min(23 * 60 + 59, Math.round(minutes)));
+  const h = Math.floor(m / 60);
+  const mins = m % 60;
+  return `${String(h).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
 export function parseOpeningHours(
   weekdayText: string[] | null | undefined,
   dayOfWeek: number // 0=Sunday, 1=Monday, ..., 6=Saturday
@@ -520,10 +524,10 @@ export function parseOpeningHours(
   const dayEntry = weekdayText.find(line => line.toLowerCase().startsWith(targetDayName.toLowerCase()));
   if (!dayEntry) return null;
 
-  if (dayEntry.toLowerCase().includes("open 24 hours")) {
+  if (dayEntry.toLowerCase().includes("open 24 hours") || dayEntry.toLowerCase().includes("เปิด 24 ชั่วโมง")) {
     return { openMinutes: 0, closeMinutes: 24 * 60 };
   }
-  if (dayEntry.toLowerCase().includes("closed")) {
+  if (dayEntry.toLowerCase().includes("closed") || dayEntry.toLowerCase().includes("ปิด")) {
     return { openMinutes: -1, closeMinutes: -1 };
   }
 
@@ -560,21 +564,43 @@ export function parseOpeningHours(
 }
 
 export function isZoneOrArea(activity: ActivityItem): boolean {
-  if (activity.openingHours && activity.openingHours.length > 0) return false;
-  const title = activity.title.toLowerCase();
-  const type = activity.type.toLowerCase();
+  if (activity.openingHours && activity.openingHours.length > 0) {
+    const hasClosedOrSpecificHours = activity.openingHours.some(h => !h.toLowerCase().includes("open 24 hours"));
+    if (hasClosedOrSpecificHours) return false;
+  }
+  const title = (activity.title || "").toLowerCase();
+  const type = (activity.type || "").toLowerCase();
 
   if (title.includes("street") || title.includes("road") || title.includes("district") || 
       title.includes("square") || title.includes("area") || title.includes("bazaar") ||
-      title.includes("market") || title.includes("quarter") || title.includes("old town")) {
+      title.includes("quarter") || title.includes("old town") || title.includes("ถนน") ||
+      title.includes("ย่าน") || title.includes("จัตุรัส")) {
     return true;
   }
 
-  if (type === "nightlife" || type === "food" || type === "shopping" || type === "transport" || type === "hotel") {
+  if (type === "transport" || type === "hotel") {
     return true;
   }
 
   return false;
+}
+
+/**
+ * Identifies if an activity is best suited for golden hour / sunset (e.g. viewpoints, rooftop, beach, deck)
+ */
+export function isSunsetSpot(act: Activity | ActivityItem): boolean {
+  const t = ((act.title || "") + " " + ((act as any).description || "") + " " + (act.type || "")).toLowerCase();
+  return (
+    t.includes("sunset") ||
+    t.includes("viewpoint") ||
+    t.includes("observation deck") ||
+    t.includes("tower") ||
+    t.includes("rooftop") ||
+    t.includes("skyline") ||
+    t.includes("พระอาทิตย์ตก") ||
+    t.includes("จุดชมวิว") ||
+    t.includes("ดาดฟ้า")
+  );
 }
 
 /**
@@ -605,6 +631,10 @@ export interface ItineraryCoherence {
   warnings: string[];
 }
 
+/**
+ * Calculates Coherence Score based on strict spatial, time, opening hours, lunch, anti-consecutive meal,
+ * and long commute limitation constraints.
+ */
 export function calculateCoherenceScore(
   itinerary: DayPlanItem[],
   pace: string = "Moderate",
@@ -615,8 +645,44 @@ export function calculateCoherenceScore(
   const dailyDistanceKm: number[] = [];
   const warnings: string[] = [];
   let schedulingPenalty = 0;
+  let spatialPenalty = 0;
 
   const visitedTitles = new Set<string>();
+
+  // 1. Cross-Day Proximity & Overlap Check
+  const dayCentroids: { day: number; lat: number; lng: number; pois: ActivityItem[] }[] = [];
+
+  itinerary.forEach((day) => {
+    const valid = day.activities.filter(a => a.lat && a.lng && a.type !== "hotel");
+    if (valid.length > 0) {
+      const avgLat = valid.reduce((acc, a) => acc + a.lat!, 0) / valid.length;
+      const avgLng = valid.reduce((acc, a) => acc + a.lng!, 0) / valid.length;
+      dayCentroids.push({ day: day.day, lat: avgLat, lng: avgLng, pois: valid });
+    }
+  });
+
+  for (let i = 0; i < dayCentroids.length; i++) {
+    for (let j = i + 1; j < dayCentroids.length; j++) {
+      const dayA = dayCentroids[i];
+      const dayB = dayCentroids[j];
+
+      for (const pA of dayA.pois) {
+        for (const pB of dayB.pois) {
+          const d = haversineDistance(
+            { lat: pA.lat!, lng: pA.lng! },
+            { lat: pB.lat!, lng: pB.lng! }
+          );
+          if (d < 1.5 && pA.title.toLowerCase() !== pB.title.toLowerCase()) {
+            warnings.push(
+              `Day ${dayA.day} and Day ${dayB.day} both visit nearby spots in the same neighborhood ("${pA.title}" and "${pB.title}", ${d.toFixed(1)} km apart). Group them on the same day.`
+            );
+            spatialPenalty += 8;
+            break;
+          }
+        }
+      }
+    }
+  }
 
   itinerary.forEach((day, dayIdx) => {
     let dayDist = 0;
@@ -632,12 +698,36 @@ export function calculateCoherenceScore(
 
     let hasLunch = false;
     let hasDinner = false;
+    let longCommutePairs = 0;
+
+    const validGeoActs = activities.filter(a => a.lat && a.lng && a.type !== "hotel");
+
+    // Circular Loop Check
+    if (validGeoActs.length >= 3) {
+      const firstAct = validGeoActs[0];
+      const lastAct = validGeoActs[validGeoActs.length - 1];
+      const startEndDist = haversineDistance(
+        { lat: firstAct.lat!, lng: firstAct.lng! },
+        { lat: lastAct.lat!, lng: lastAct.lng! }
+      );
+
+      let maxExcursion = 0;
+      validGeoActs.forEach(a => {
+        const d = haversineDistance({ lat: firstAct.lat!, lng: firstAct.lng! }, { lat: a.lat!, lng: a.lng! });
+        if (d > maxExcursion) maxExcursion = d;
+      });
+
+      if (maxExcursion > 3.0 && startEndDist < 0.35 * maxExcursion) {
+        warnings.push(`Day ${day.day}: Travel route forms a closed circular loop. Progress along a linear or open arc path instead.`);
+        spatialPenalty += 8;
+      }
+    }
 
     for (let i = 0; i < activities.length; i++) {
       const act = activities[i];
       const actTimeMin = parseTimeToMinutes(act.time);
 
-      // Rule 6: Duplicate Places Check (excluding hotel)
+      // Duplicate Places Check
       if (act.type !== "hotel") {
         const cleanTitle = act.title.trim().toLowerCase();
         if (visitedTitles.has(cleanTitle)) {
@@ -648,14 +738,14 @@ export function calculateCoherenceScore(
         }
       }
 
-      // Rule 2: Opening Hours Check (excluding zones/areas)
+      // Opening Hours Check
       if (actTimeMin !== null && !isZoneOrArea(act)) {
         const hours = parseOpeningHours(act.openingHours, dayOfWeek);
         if (hours) {
           if (hours.openMinutes === -1) {
-            warnings.push(`Day ${day.day}: "${act.title}" may be closed on this day.`);
+            warnings.push(`Day ${day.day}: "${act.title}" is closed on this day.`);
             schedulingPenalty += 15;
-          } else if (actTimeMin < hours.openMinutes || actTimeMin > hours.closeMinutes) {
+          } else if (actTimeMin < hours.openMinutes || actTimeMin > hours.closeMinutes - 20) {
             const openFormatted = `${Math.floor(hours.openMinutes / 60)}:${(hours.openMinutes % 60).toString().padStart(2, '0')}`;
             const closeFormatted = `${Math.floor(hours.closeMinutes / 60)}:${(hours.closeMinutes % 60).toString().padStart(2, '0')}`;
             warnings.push(`Day ${day.day}: "${act.title}" at ${act.time} is outside operating hours (${openFormatted} - ${closeFormatted}).`);
@@ -664,13 +754,13 @@ export function calculateCoherenceScore(
         }
       }
 
-      // Rule 3: Meal Time Slot Detection
+      // Meal Time Slot Detection
       if (act.type === "food" && actTimeMin !== null) {
-        if (actTimeMin >= 11 * 60 && actTimeMin <= 14 * 60 + 30) hasLunch = true;
-        if (actTimeMin >= 17 * 60 && actTimeMin <= 21 * 60 + 30) hasDinner = true;
+        if (actTimeMin >= 11 * 60 + 30 && actTimeMin <= 14 * 60) hasLunch = true;
+        if (actTimeMin >= 17 * 60 + 30 && actTimeMin <= 21 * 60 + 30) hasDinner = true;
       }
 
-      // Rule 4: Daily Flow Pattern
+      // Daily Flow Pattern
       if (actTimeMin !== null) {
         if (act.type === "nightlife" && actTimeMin < 17 * 60) {
           warnings.push(`Day ${day.day}: Nightlife spot "${act.title}" is scheduled too early (${act.time}).`);
@@ -682,34 +772,29 @@ export function calculateCoherenceScore(
         }
       }
 
-      // Rule 7: Daily Operating Window
-      if (actTimeMin !== null && act.type !== "hotel") {
-        if (actTimeMin < 7 * 60) {
-          warnings.push(`Day ${day.day}: "${act.title}" is scheduled very early (${act.time}).`);
-          schedulingPenalty += 5;
-        } else if (actTimeMin > 23 * 60) {
-          warnings.push(`Day ${day.day}: "${act.title}" is scheduled very late (${act.time}).`);
-          schedulingPenalty += 5;
-        }
-      }
-
-      // Consecutive Activity Checks (i and i+1)
+      // Consecutive Activity Checks
       if (i < activities.length - 1) {
         const nextAct = activities[i + 1];
         const nextTimeMin = parseTimeToMinutes(nextAct.time);
 
-        // Distance & Backtracking
+        // No Consecutive Meals Check
+        if (act.type === "food" && nextAct.type === "food") {
+          warnings.push(`Day ${day.day}: Consecutive dining spots ("${act.title}" and "${nextAct.title}") without an activity in between.`);
+          schedulingPenalty += 8;
+        }
+
+        // Distance & Long Commute Check
         if (act.lat && act.lng && nextAct.lat && nextAct.lng) {
           const d = haversineDistance(
             { lat: act.lat, lng: act.lng },
             { lat: nextAct.lat, lng: nextAct.lng }
           );
           dayDist += d;
-          if (d > 40) {
-            warnings.push(`Day ${day.day}: Large travel distance (${d.toFixed(1)} km) between "${act.title}" and "${nextAct.title}".`);
+          if (d >= 25) {
+            longCommutePairs++;
           }
 
-          // Rule 1: Anti-Backtracking Check (3 points: i, i+1, i+2)
+          // Anti-Backtracking Check
           if (i < activities.length - 2) {
             const next2Act = activities[i + 2];
             if (next2Act.lat && next2Act.lng) {
@@ -719,13 +804,13 @@ export function calculateCoherenceScore(
               );
               if (d_i_i2 < d * 0.4 && d > 5) {
                 warnings.push(`Day ${day.day}: Route backtracks near "${act.title}" after visiting "${nextAct.title}".`);
-                schedulingPenalty += 8;
+                spatialPenalty += 8;
               }
             }
           }
         }
 
-        // Rule 5 & 8: Buffer Time & Minimum Dwell Time
+        // Buffer Time & Dwell Time
         if (actTimeMin !== null && nextTimeMin !== null) {
           const gap = nextTimeMin - actTimeMin;
           if (gap < 30 && gap >= 0) {
@@ -739,14 +824,14 @@ export function calculateCoherenceScore(
       }
     }
 
-    // Meal Warnings for the day
-    if (!hasLunch && activities.length >= 3) {
-      warnings.push(`Day ${day.day}: No dedicated lunch spot between 11:00-14:30.`);
-      schedulingPenalty += 5;
+    if (longCommutePairs > 1) {
+      warnings.push(`Day ${day.day}: Contains ${longCommutePairs} long-distance transit legs (>45 min / 25 km). Limit to at most 1 long trip per day.`);
+      spatialPenalty += 10;
     }
-    if (!hasDinner && activities.length >= 3) {
-      warnings.push(`Day ${day.day}: No dedicated dinner spot between 17:00-21:30.`);
-      schedulingPenalty += 5;
+
+    if (!hasLunch && activities.length >= 3) {
+      warnings.push(`Day ${day.day}: Missing dedicated lunch spot between 11:30-14:00.`);
+      schedulingPenalty += 6;
     }
 
     dailyDistanceKm.push(dayDist);
@@ -754,7 +839,8 @@ export function calculateCoherenceScore(
   });
 
   const avgDailyDist = dailyDistanceKm.length > 0 ? totalDist / dailyDistanceKm.length : 0;
-  const spatialScore = Math.max(0, Math.min(100, 100 - Math.max(0, avgDailyDist - 12) * 2.5));
+  const baseSpatialScore = Math.max(0, Math.min(100, 100 - Math.max(0, avgDailyDist - 12) * 2.5 - spatialPenalty));
+  const spatialScore = Math.max(0, baseSpatialScore);
 
   let totalDiversity = 0;
   itinerary.forEach(day => {
@@ -789,12 +875,6 @@ export function calculateCoherenceScore(
   const paceDiff = Math.abs(avgActivitiesPerDay - idealPace);
   const paceScore = Math.max(0, Math.min(100, 100 - paceDiff * 20));
 
-  if (avgActivitiesPerDay < idealPace - 1.5) {
-    warnings.push(`Itinerary is lighter than your preferred ${pace} pace.`);
-  } else if (avgActivitiesPerDay > idealPace + 1.5) {
-    warnings.push(`Itinerary is quite packed for your preferred ${pace} pace.`);
-  }
-
   const schedulingScore = Math.max(0, Math.min(100, 100 - schedulingPenalty));
 
   const totalScore = Math.round(
@@ -816,10 +896,10 @@ export function calculateCoherenceScore(
 }
 
 /**
- * Checks if an activity is inherently an evening/night activity (dinner, night market, bar, evening stroll)
+ * Checks if an activity is inherently an evening/night activity
  */
-export function isEveningActivity(act: Activity): boolean {
-  const t = (act.title + " " + act.description + " " + (act.type || "")).toLowerCase();
+export function isEveningActivity(act: Activity | ActivityItem): boolean {
+  const t = ((act.title || "") + " " + ((act as any).description || "") + " " + (act.type || "")).toLowerCase();
   return (
     t.includes("dinner") ||
     t.includes("night") ||
@@ -838,10 +918,10 @@ export function isEveningActivity(act: Activity): boolean {
 }
 
 /**
- * Checks if an activity is a morning/daytime attraction (temple, museum, park, breakfast)
+ * Checks if an activity is a morning/daytime attraction
  */
-export function isMorningActivity(act: Activity): boolean {
-  const t = (act.title + " " + act.description + " " + (act.type || "")).toLowerCase();
+export function isMorningActivity(act: Activity | ActivityItem): boolean {
+  const t = ((act.title || "") + " " + ((act as any).description || "") + " " + (act.type || "")).toLowerCase();
   return (
     t.includes("breakfast") ||
     t.includes("morning") ||
@@ -856,6 +936,25 @@ export function isMorningActivity(act: Activity): boolean {
     t.includes("ตอนเช้า") ||
     t.includes("อาหารเช้า") ||
     act.type === "culture"
+  );
+}
+
+/**
+ * Checks if an activity is a food/dining activity
+ */
+export function isFoodActivity(act: Activity | ActivityItem): boolean {
+  const t = ((act.title || "") + " " + ((act as any).description || "") + " " + (act.type || "")).toLowerCase();
+  return (
+    act.type === "food" ||
+    t.includes("lunch") ||
+    t.includes("dinner") ||
+    t.includes("restaurant") ||
+    t.includes("dining") ||
+    t.includes("cafe") ||
+    t.includes("อาหาร") ||
+    t.includes("มื้อ") ||
+    t.includes("ร้านอาหาร") ||
+    t.includes("ทานอาหาร")
   );
 }
 
@@ -906,7 +1005,6 @@ export function untangleIntersectingEdges(activities: Activity[]): Activity[] {
         const p4 = { lat: route[j + 1].lat!, lng: route[j + 1].lng! };
 
         if (doSegmentsIntersect(p1, p2, p3, p4)) {
-          // Reverse subsegment between i+1 and j to uncross the segments
           const sub = route.slice(i + 1, j + 1).reverse();
           route = [...route.slice(0, i + 1), ...sub, ...route.slice(j + 1)];
           changed = true;
@@ -922,8 +1020,7 @@ export function untangleIntersectingEdges(activities: Activity[]): Activity[] {
 }
 
 /**
- * 2-Opt TSP Algorithm with Monotonic Directional Sweeping
- * Guarantees a smooth linear or curved travel progression without zig-zagging or self-intersections.
+ * 2-Opt TSP Algorithm with Monotonic Directional Sweeping & Anti-Looping
  */
 export function twoOptRouteOptimization(
   activities: Activity[],
@@ -950,7 +1047,7 @@ export function twoOptRouteOptimization(
 
   const startAnchor = validActs[startIdx];
 
-  // 2. Determine End Anchor (E): prefer evening activity furthest from start, or POI with max distance
+  // 2. Determine End Anchor (E)
   let endIdx = -1;
   let maxEveningDist = -1;
   validActs.forEach((act, idx) => {
@@ -985,14 +1082,12 @@ export function twoOptRouteOptimization(
 
   let sortedRoute: Activity[];
   if (vMagSq > 1e-8) {
-    // Project all points along the vector from startAnchor to endAnchor
     sortedRoute = [...validActs].sort((a, b) => {
       const tA = ((a.lat! - startAnchor.lat!) * vLat + (a.lng! - startAnchor.lng!) * vLng) / vMagSq;
       const tB = ((b.lat! - startAnchor.lat!) * vLat + (b.lng! - startAnchor.lng!) * vLng) / vMagSq;
       return tA - tB;
     });
   } else {
-    // Fallback to Nearest Neighbor if points are closely co-located
     const unvisited = [...validActs];
     let curr = unvisited.splice(startIdx, 1)[0];
     sortedRoute = [curr];
@@ -1050,6 +1145,29 @@ export function twoOptRouteOptimization(
     }
   }
 
+  // 5. Anti-Looping Guard
+  if (route.length >= 3) {
+    const pFirst = { lat: route[0].lat!, lng: route[0].lng! };
+    const pLast = { lat: route[route.length - 1].lat!, lng: route[route.length - 1].lng! };
+    const dStartEnd = haversineDistance(pFirst, pLast);
+
+    let maxExcursion = 0;
+    let furthestIdx = 0;
+    route.forEach((act, idx) => {
+      const d = haversineDistance(pFirst, { lat: act.lat!, lng: act.lng! });
+      if (d > maxExcursion) {
+        maxExcursion = d;
+        furthestIdx = idx;
+      }
+    });
+
+    if (maxExcursion > 2.5 && dStartEnd < 0.35 * maxExcursion && furthestIdx !== route.length - 1) {
+      const beforeFurthest = route.slice(0, furthestIdx + 1);
+      const afterFurthest = route.slice(furthestIdx + 1);
+      route = [...beforeFurthest, ...afterFurthest.reverse()];
+    }
+  }
+
   const nonGeoActs = activities.filter(a => !a.lat || !a.lng || a.lat === 0 || a.lng === 0);
   return [...route, ...nonGeoActs];
 }
@@ -1065,7 +1183,6 @@ export function alignSemanticDirection(activities: Activity[]): Activity[] {
 
   let shouldReverse = false;
 
-  // If first spot is a night/dinner spot and last spot is a morning/day spot, reverse!
   if (isEveningActivity(first) && !isEveningActivity(last)) {
     shouldReverse = true;
   } else if (!isMorningActivity(first) && isMorningActivity(last)) {
@@ -1080,9 +1197,68 @@ export function alignSemanticDirection(activities: Activity[]): Activity[] {
 }
 
 /**
- * Assigns clean, non-overlapping, chronological time slots to the optimized sequence of activities
+ * Enforces NO CONSECUTIVE MEALS by interleaving non-food activities between food spots
  */
-export function assignDeterministicTimeSlots(activities: Activity[], pace: string = "Moderate"): Activity[] {
+export function preventConsecutiveMeals(activities: Activity[]): Activity[] {
+  if (activities.length <= 2) return activities;
+
+  const foods: Activity[] = [];
+  const nonFoods: Activity[] = [];
+
+  activities.forEach(a => {
+    if (isFoodActivity(a)) foods.push(a);
+    else nonFoods.push(a);
+  });
+
+  if (foods.length <= 1) return [...activities];
+
+  const result: Activity[] = [];
+  let f = 0;
+  let n = 0;
+
+  // If foods >= nonFoods, start with food unless we have ample nonFoods
+  let nextShouldBeFood = foods.length >= nonFoods.length;
+
+  while (f < foods.length || n < nonFoods.length) {
+    if (nextShouldBeFood && f < foods.length) {
+      result.push(foods[f++]);
+      nextShouldBeFood = false;
+    } else if (n < nonFoods.length) {
+      result.push(nonFoods[n++]);
+      nextShouldBeFood = f < foods.length;
+    } else if (f < foods.length) {
+      result.push(foods[f++]);
+      nextShouldBeFood = false;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Standard Dwell Time Estimates by Activity Type (in minutes)
+ */
+function getEstimatedDwellMinutes(act: Activity): number {
+  const type = act.type;
+  if (type === "activity") return 120; // 2 hours for activities / theme parks
+  if (type === "culture") return 90;   // 1.5 hours for museums / temples
+  if (type === "food") return 75;      // 1 hour 15 min for meals
+  if (type === "shopping") return 90;  // 1.5 hours for shopping
+  if (type === "nature") return 75;    // 1 hour 15 min for parks
+  if (type === "relax") return 90;     // 1.5 hours for spa
+  if (type === "nightlife") return 120;// 2 hours for nightlife / bars
+  return 60; // 1 hour default
+}
+
+/**
+ * Assigns clean, non-overlapping, chronological time slots with opening hours adherence,
+ * mandatory lunch window (11:30 - 13:30), sunset/golden hour anchor, and realistic dwell times.
+ */
+export function assignDeterministicTimeSlots(
+  activities: Activity[],
+  pace: string = "Moderate",
+  dayOfWeek?: number
+): Activity[] {
   if (activities.length === 0) return [];
 
   const hotelCheckIn = activities.find(a => a.type === "hotel" && a.title.toLowerCase().includes("check in"));
@@ -1090,154 +1266,117 @@ export function assignDeterministicTimeSlots(activities: Activity[], pace: strin
   const regularActivities = activities.filter(a => a !== hotelCheckIn && a !== hotelCheckOut);
   const regCount = regularActivities.length;
 
-  if (hotelCheckIn && !hotelCheckOut) {
-    // Check-in Day: e.g. 15:00 check-in
-    const checkInTime = hotelCheckIn.time || "15:00";
-    const [cHour] = checkInTime.split(":").map(Number);
-    const beforeCount = Math.min(2, Math.max(0, Math.floor(regCount / 2)));
-    const afterCount = regCount - beforeCount;
-
-    const beforeTimes = beforeCount === 1 ? ["10:30"] : beforeCount === 2 ? ["09:30", "12:30"] : [];
-    const afterTimes = afterCount === 1 
-      ? ["17:30"] 
-      : afterCount === 2 
-      ? ["17:00", "19:30"] 
-      : afterCount === 3 
-      ? ["16:30", "18:30", "20:30"] 
-      : afterCount === 4
-      ? ["16:15", "17:45", "19:15", "20:45"]
-      : Array.from({ length: afterCount }, (_, i) => `${Math.min(22, (cHour || 15) + 1 + Math.floor(i * 1.5))}:00`);
-
-    const assignedRegular = regularActivities.map((act, idx) => {
-      if (idx < beforeCount) {
-        return { ...act, time: beforeTimes[idx] || "10:00" };
-      } else {
-        const afterIdx = idx - beforeCount;
-        return { ...act, time: afterTimes[afterIdx] || "17:30" };
-      }
-    });
-
-    const all = [...assignedRegular, hotelCheckIn];
-    return all.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
+  if (regCount === 0) {
+    const res = [];
+    if (hotelCheckIn) res.push(hotelCheckIn);
+    if (hotelCheckOut) res.push(hotelCheckOut);
+    return res;
   }
 
-  if (hotelCheckOut && !hotelCheckIn) {
-    // Check-out Day: e.g. 11:00 check-out
-    const checkOutTime = hotelCheckOut.time || "11:00";
-    const [cHour] = checkOutTime.split(":").map(Number);
-    const beforeCount = Math.min(1, Math.max(0, Math.floor(regCount / 3)));
-    const afterCount = regCount - beforeCount;
+  let currentMinutes = 9 * 60; // Start at 09:00 AM by default
+  const assignedRegular: Activity[] = [];
 
-    const beforeTimes = beforeCount === 1 ? ["09:00"] : [];
-    const afterTimes = afterCount === 1
-      ? ["13:00"]
-      : afterCount === 2
-      ? ["12:30", "16:00"]
-      : afterCount === 3
-      ? ["12:30", "15:30", "18:30"]
-      : afterCount === 4
-      ? ["12:00", "14:30", "17:00", "19:30"]
-      : Array.from({ length: afterCount }, (_, i) => `${Math.min(22, (cHour || 11) + 1 + Math.floor(i * 1.5))}:00`);
-
-    const assignedRegular = regularActivities.map((act, idx) => {
-      if (idx < beforeCount) {
-        return { ...act, time: beforeTimes[idx] || "09:00" };
-      } else {
-        const afterIdx = idx - beforeCount;
-        return { ...act, time: afterTimes[afterIdx] || "13:00" };
-      }
-    });
-
-    const all = [...assignedRegular, hotelCheckOut];
-    return all.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
+  let lunchIdx = regularActivities.findIndex(a => isFoodActivity(a) && !isEveningActivity(a));
+  if (lunchIdx === -1 && regCount >= 3) {
+    lunchIdx = Math.min(2, Math.floor(regCount / 2));
   }
 
-  // Standard case (regular day or day with both / neither)
-  const count = regularActivities.length;
-  const TIME_TEMPLATES: Record<number, string[]> = {
-    1: ["10:00"],
-    2: ["10:00", "15:00"],
-    3: ["09:30", "13:00", "18:00"],
-    4: ["09:00", "12:00", "15:00", "18:30"],
-    5: ["09:00", "11:00", "12:45", "15:30", "18:30"],
-    6: ["08:30", "10:30", "12:30", "14:45", "17:15", "19:30"],
-    7: ["08:30", "10:15", "12:00", "13:45", "15:30", "17:30", "19:30"],
-    8: ["08:00", "09:30", "11:00", "12:30", "14:00", "15:45", "17:30", "19:30"],
-  };
+  regularActivities.forEach((act, index) => {
+    let actTimeMinutes: number;
 
-  const defaultTimes = TIME_TEMPLATES[count] || Array.from({ length: count }, (_, i) => {
-    const startHour = 9;
-    const interval = Math.max(1.5, 10 / (count - 1 || 1));
-    const h = Math.floor(startHour + i * interval);
-    const m = Math.round(((startHour + i * interval) % 1) * 60);
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    if (index === lunchIdx || (isFoodActivity(act) && !isEveningActivity(act) && currentMinutes < 14 * 60)) {
+      actTimeMinutes = Math.max(11 * 60 + 30, Math.min(13 * 60, currentMinutes));
+      if (actTimeMinutes < 11 * 60 + 30) actTimeMinutes = 12 * 60;
+    } else if (isSunsetSpot(act)) {
+      actTimeMinutes = Math.max(17 * 60, currentMinutes);
+    } else if (isEveningActivity(act)) {
+      actTimeMinutes = Math.max(18 * 60 + 30, currentMinutes);
+    } else {
+      actTimeMinutes = currentMinutes;
+    }
+
+    // Check Google Maps opening hours constraints
+    if (dayOfWeek !== undefined && act.openingHours && act.openingHours.length > 0 && !isZoneOrArea(act)) {
+      const hours = parseOpeningHours(act.openingHours, dayOfWeek);
+      if (hours && hours.openMinutes !== -1) {
+        if (actTimeMinutes < hours.openMinutes) {
+          actTimeMinutes = hours.openMinutes;
+        } else if (actTimeMinutes > hours.closeMinutes - 45 && hours.closeMinutes > hours.openMinutes) {
+          actTimeMinutes = Math.max(hours.openMinutes, hours.closeMinutes - 60);
+        }
+      }
+    }
+
+    const dwellTime = getEstimatedDwellMinutes(act);
+    const transitBuffer = 20;
+    currentMinutes = actTimeMinutes + dwellTime + transitBuffer;
+
+    assignedRegular.push({
+      ...act,
+      time: formatMinutesToTime(actTimeMinutes),
+    });
   });
 
-  const assignedRegular = regularActivities.map((act, index) => ({
-    ...act,
-    time: defaultTimes[index] || act.time || "10:00",
-  }));
-
   const all = [...assignedRegular];
-  if (hotelCheckIn) all.push(hotelCheckIn);
-  if (hotelCheckOut) all.push(hotelCheckOut);
+  if (hotelCheckIn) all.push({ ...hotelCheckIn, time: hotelCheckIn.time || "15:00" });
+  if (hotelCheckOut) all.push({ ...hotelCheckOut, time: hotelCheckOut.time || "11:00" });
 
   return all.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
 }
 
 /**
- * Checks if an activity is a food/dining activity
+ * Cross-Day Spatial Rebalancing
  */
-export function isFoodActivity(act: Activity): boolean {
-  const t = (act.title + " " + act.description + " " + (act.type || "")).toLowerCase();
-  return (
-    act.type === "food" ||
-    t.includes("lunch") ||
-    t.includes("dinner") ||
-    t.includes("restaurant") ||
-    t.includes("dining") ||
-    t.includes("cafe") ||
-    t.includes("อาหาร") ||
-    t.includes("มื้อ") ||
-    t.includes("ร้านอาหาร") ||
-    t.includes("ทานอาหาร")
-  );
-}
+export function rebalanceCrossDayPOIs<T extends { day: number; activities: Activity[] }>(
+  days: T[],
+  proximityThresholdKm: number = 2.5
+): T[] {
+  if (days.length <= 1) return days;
 
-/**
- * Enforces NO CONSECUTIVE MEALS by locally interleaving non-food activities between food spots
- */
-export function preventConsecutiveMeals(activities: Activity[]): Activity[] {
-  if (activities.length <= 2) return activities;
+  const result = days.map(d => ({ ...d, activities: [...d.activities] }));
 
-  const result = [...activities];
+  let changed = true;
+  let iterations = 0;
 
-  for (let i = 0; i < result.length - 1; i++) {
-    if (isFoodActivity(result[i]) && isFoodActivity(result[i + 1])) {
-      // Find the closest non-food activity to preserve local spatial linearity
-      let targetIdx = -1;
-      if (i + 2 < result.length && !isFoodActivity(result[i + 2])) {
-        targetIdx = i + 2;
-      } else if (i - 1 >= 0 && !isFoodActivity(result[i - 1])) {
-        targetIdx = i - 1;
-      } else {
-        let minOffset = Infinity;
-        result.forEach((act, idx) => {
-          if (!isFoodActivity(act)) {
-            const offset = Math.abs(idx - i);
-            if (offset < minOffset) {
-              minOffset = offset;
-              targetIdx = idx;
-            }
+  while (changed && iterations < 5) {
+    changed = false;
+    iterations++;
+
+    const centroids = result.map(d => {
+      const valid = d.activities.filter(a => a.lat && a.lng && a.type !== "hotel");
+      if (valid.length === 0) return { lat: 0, lng: 0, count: 0 };
+      const avgLat = valid.reduce((acc, a) => acc + a.lat!, 0) / valid.length;
+      const avgLng = valid.reduce((acc, a) => acc + a.lng!, 0) / valid.length;
+      return { lat: avgLat, lng: avgLng, count: valid.length };
+    });
+
+    for (let dayA = 0; dayA < result.length; dayA++) {
+      for (let dayB = 0; dayB < result.length; dayB++) {
+        if (dayA === dayB) continue;
+
+        const dayBActs = result[dayB].activities;
+        for (let i = 0; i < dayBActs.length; i++) {
+          const act = dayBActs[i];
+          if (act.type === "hotel" || !act.lat || !act.lng) continue;
+
+          const distToCentroidB = haversineDistance({ lat: act.lat, lng: act.lng }, centroids[dayB]);
+          const distToCentroidA = haversineDistance({ lat: act.lat, lng: act.lng }, centroids[dayA]);
+
+          if (
+            distToCentroidA < proximityThresholdKm &&
+            distToCentroidB > distToCentroidA + 2.5 &&
+            result[dayB].activities.length > 3 &&
+            result[dayA].activities.length < 7
+          ) {
+            const [moved] = result[dayB].activities.splice(i, 1);
+            result[dayA].activities.push(moved);
+            changed = true;
+            break;
           }
-        });
+        }
+        if (changed) break;
       }
-
-      if (targetIdx !== -1 && targetIdx !== i && targetIdx !== i + 1) {
-        const temp = result[i + 1];
-        result[i + 1] = result[targetIdx];
-        result[targetIdx] = temp;
-      }
+      if (changed) break;
     }
   }
 
@@ -1250,34 +1389,34 @@ export function preventConsecutiveMeals(activities: Activity[]): Activity[] {
 export function optimizeDayActivities(
   activities: Activity[],
   pace: string = "Moderate",
-  hotelOrStartCoord?: Coordinates
+  hotelOrStartCoord?: Coordinates,
+  dayOfWeek?: number
 ): Activity[] {
   if (activities.length <= 1) return activities;
 
-  // Separate hotel activities (check-in / check-out) so they don't get scrambled
   const hotelCheckIn = activities.find(a => a.type === "hotel" && a.title.toLowerCase().includes("check in"));
   const hotelCheckOut = activities.find(a => a.type === "hotel" && a.title.toLowerCase().includes("check out"));
   const regularActivities = activities.filter(a => a !== hotelCheckIn && a !== hotelCheckOut);
 
-  // 1. Run Monotonic Projection & Open-Path 2-Opt Route Optimization (No zigzags, no loops)
+  // 1. Run Monotonic Projection & Open-Path 2-Opt Route Optimization
   let optimized = twoOptRouteOptimization(regularActivities, hotelOrStartCoord);
 
   // 2. Untangle any geometric line-segment intersections
   optimized = untangleIntersectingEdges(optimized);
 
-  // 3. Align Semantic Direction (Morning landmarks -> Evening dining/night markets)
+  // 3. Align Semantic Direction
   optimized = alignSemanticDirection(optimized);
 
-  // 4. Prevent consecutive meals with local adjacency preservation
+  // 4. Prevent consecutive meals
   optimized = preventConsecutiveMeals(optimized);
 
-  // 5. Final geometric uncrossing pass to guarantee ZERO self-intersections
+  // 5. Final geometric uncrossing pass
   optimized = untangleIntersectingEdges(optimized);
 
-  // 6. Pass all activities (including hotel check-in/out) to assign clean chronological time slots & auto-sort
+  // 6. Pass all activities to assign clean chronological time slots & auto-sort
   const allToSchedule = [...optimized];
   if (hotelCheckIn) allToSchedule.push(hotelCheckIn);
   if (hotelCheckOut) allToSchedule.push(hotelCheckOut);
 
-  return assignDeterministicTimeSlots(allToSchedule, pace);
+  return assignDeterministicTimeSlots(allToSchedule, pace, dayOfWeek);
 }

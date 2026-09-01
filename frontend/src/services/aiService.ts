@@ -393,15 +393,27 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
   - Preferred Activities: ${preferences.activities.join(", ")}
   - Travel Pace: ${preferences.pace}
   
-  Requirements:
-  - Incorporate all locations mentioned.
-  - Distribute days across locations logically.
-  - Suggest activities matching the traveler profile, pace, AND the season/month (e.g., avoid water activities in winter, recommend seasonal festivals, adjust for weather).
-  - COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every activity, suggestion, and accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
-  - ACCOMMODATIONS RULE (MANDATORY): You MUST provide at least 5 to 8 diverse, real accommodations/hotels (luxury, boutique, mid-range, budget) located in or near the trip destinations. Include real hotel names with priceLevel from 1 (budget) to 4 (luxury).
-  - Use ONLY real, geocodable place names for activity "title".
-  - DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll") or descriptive sentences in the "title".
-  - Place any descriptive details or actions in the "description" field instead.
+  CRITICAL ITINERARY PLANNING RULES (MANDATORY):
+  1. LINEAR / ARC PROGRESSION (NO CIRCULAR LOOPS):
+     - Each day's travel route MUST progress smoothly forward along an open linear or curved path (e.g., North to South, West to East, or along a transit corridor).
+     - DO NOT make the route a closed loop where the last tourist spot curves back to the morning starting area.
+  2. STRICT GEOGRAPHIC DISTRICT GROUPING (NO REVISITING SAME DISTRICT ACROSS DAYS):
+     - Group all places within the same neighborhood/district (within ~2.5-3.5 km) into the SAME day.
+     - NEVER scatter places from the same district across different days (e.g., avoid visiting Shibuya on Day 1 and returning to Harajuku on Day 3).
+  3. MANDATORY MIDDAY LUNCH (11:30 - 13:30):
+     - EVERY single day MUST include a dedicated lunch restaurant/food activity in the midday slot (11:30 - 13:30).
+  4. STRICTLY NO CONSECUTIVE RESTAURANTS:
+     - DO NOT schedule back-to-back restaurants or cafes in the same day without a sightseeing or cultural activity in between.
+     - Structure per day: Morning Sightseeing -> Lunch (11:30-13:30) -> Afternoon Attraction -> Sunset/Dinner (18:00-20:00) -> Evening Stroll/Nightlife.
+  5. LONG COMMUTE LIMITATION:
+     - Limit travel segments taking >40-60 minutes (>25-30 km) to at most ONE pair per day (e.g., one day-trip excursion out and return). Intermediate activities must remain tightly clustered.
+  6. REAL-WORLD TIMING & OPERATING HOURS:
+     - Respect real operating hours for all landmarks, museums, and temples.
+     - Place observation decks/viewpoints/sunset spots at 17:00 - 18:30 (Golden Hour).
+     - Place night markets, evening cruises, and nightlife after 18:30.
+  7. COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every activity, suggestion, and accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
+  8. ACCOMMODATIONS RULE (MANDATORY): You MUST provide at least 5 to 8 diverse, real accommodations/hotels (luxury, boutique, mid-range, budget) located in or near the trip destinations. Include real hotel names with priceLevel from 1 (budget) to 4 (luxury).
+  9. Use ONLY real, geocodable place names for activity "title". DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll") in the "title". Place descriptions in the "description" field.
   
   Return the response strictly in JSON format matching this schema:
   {

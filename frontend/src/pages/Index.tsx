@@ -57,7 +57,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getCoordinates, distanceMetres } from "@/api/geocode";
 import { getNearbyAttractions, fetchPlaceDetails, fetchPlaceDetailsByPlaceId } from "@/api/places";
-import { gatherCandidatePOIs, kMeansCluster, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
+import { gatherCandidatePOIs, kMeansCluster, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, rebalanceCrossDayPOIs, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
 import { generateTravelPlan, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
 import { getEnvironmentData, type EnvironmentData } from "@/services/environmentService";
 import { toast } from "sonner";
@@ -554,18 +554,26 @@ const Index = () => {
         };
       }
 
-      // Apply Neuro-Symbolic 2-Opt TSP & Semantic Anti-Backtracking Route Optimization with Start Anchor
+      // Apply Cross-Day Spatial Rebalancing (prevent visiting same neighborhood on multiple days)
+      const rebalancedItinerary = rebalanceCrossDayPOIs(enrichedItinerary);
+
+      // Apply Neuro-Symbolic 2-Opt TSP, Opening Hours constraint, and Anti-Looping Route Optimization
       const hotelLoc = prefs.hasHotel === "yes" && prefs.hotelLat && prefs.hotelLng
         ? { lat: prefs.hotelLat, lng: prefs.hotelLng }
         : coords;
 
-      const sortedEnrichedItinerary = enrichedItinerary.map((day, dIdx) => {
-        const prevDayLastAct = dIdx > 0 ? enrichedItinerary[dIdx - 1]?.activities.slice(-1)[0] : undefined;
+      const sortedEnrichedItinerary = rebalancedItinerary.map((day, dIdx) => {
+        const prevDayLastAct = dIdx > 0 ? rebalancedItinerary[dIdx - 1]?.activities.slice(-1)[0] : undefined;
         const dayStart = dIdx === 0
           ? hotelLoc
           : (prevDayLastAct?.lat && prevDayLastAct?.lng ? { lat: prevDayLastAct.lat, lng: prevDayLastAct.lng } : hotelLoc);
 
-        const optimizedDay = optimizeDayActivities(day.activities, prefs.pace, dayStart);
+        // Calculate day of week for opening hours fitting
+        const dayDate = new Date(prefs.startDate);
+        dayDate.setDate(dayDate.getDate() + dIdx);
+        const dayOfWeek = dayDate.getDay();
+
+        const optimizedDay = optimizeDayActivities(day.activities, prefs.pace, dayStart, dayOfWeek);
         return {
           ...day,
           activities: [...optimizedDay].sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"))
