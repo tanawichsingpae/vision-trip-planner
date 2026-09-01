@@ -9,6 +9,8 @@ import { getFlightTrends, type FlightTrend } from "@/services/flightService";
 import { GoogleFlightsCalendarWidget } from "@/components/GoogleFlightsCalendarWidget";
 import { AirportSelectCombobox } from "@/components/AirportSelectCombobox";
 import { HotelSelectCombobox } from "@/components/HotelSelectCombobox";
+import { FlightStatusPanel } from "@/components/FlightInfoDashboard";
+import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Info } from "lucide-react";
 import {
@@ -284,20 +286,35 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
 
         {/* Conditional: flight code or origin airport */}
         {hasFlight === "yes" && (
-          <div className="space-y-2 animate-slide-up">
+          <div className="space-y-3 animate-slide-up">
             <Label htmlFor="flight-code" className="text-sm font-medium flex items-center gap-1.5">
               <Plane className="w-3.5 h-3.5 text-primary" />
-              Flight number (Optional)
+              หมายเลขเที่ยวบิน (Flight Number) (Optional)
             </Label>
             <Input
               id="flight-code"
-              placeholder="e.g. TG682, XJ600"
+              placeholder="เช่น TG682, XJ600, NH848"
               value={flightCode}
-              onChange={(e) => setFlightCode(e.target.value)}
-              className="uppercase placeholder:normal-case"
+              onChange={(e) => setFlightCode(e.target.value.toUpperCase())}
+              className="uppercase font-semibold tracking-wider placeholder:normal-case placeholder:font-normal"
               maxLength={8}
             />
-            <p className="text-xs text-muted-foreground">We'll show live status + arrival time to plan your first day.</p>
+            <p className="text-xs text-muted-foreground">ระบบจะติดตามสถานะสดและเวลาเดินทางมาถึง เพื่อจัดสรรเวลาในวันแรกของทริปให้อัตโนมัติ</p>
+
+            {flightCode.trim().length >= 2 && (
+              <div className="p-4 rounded-2xl bg-card border border-border/80 shadow-xs space-y-3 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                    <Plane className="w-3.5 h-3.5 text-primary" />
+                    สถานะเที่ยวบินแบบเรียลไทม์ (Live Flight Tracking)
+                  </span>
+                  <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                    Live Status
+                  </Badge>
+                </div>
+                <FlightStatusPanel flightCode={flightCode.trim()} />
+              </div>
+            )}
           </div>
         )}
 

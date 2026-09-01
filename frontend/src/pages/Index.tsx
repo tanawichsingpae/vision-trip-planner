@@ -1982,7 +1982,7 @@ const Index = () => {
             }}
             onUpdateFlight={(flightCode) => {
               setPreferences((prev) => (prev ? { ...prev, hasFlight: "yes", flightCode } : null));
-              toast.success(`อัปเดตเที่ยวบิน: ${flightCode}`);
+              toast.success(`อัปเดตเที่ยวบิน ${flightCode} เรียบร้อยแล้ว ขอให้ถึงที่หมายโดยสวัสดิภาพ ✨✈️`);
             }}
             messages={chatMessages}
             onUpdateMessages={setChatMessages}

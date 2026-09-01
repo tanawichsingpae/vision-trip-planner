@@ -16,11 +16,14 @@ import {
   ChevronUp,
   Search,
   Trash2,
+  Heart,
+  Sparkles,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import { AirportSelectCombobox } from "@/components/AirportSelectCombobox";
 import {
   getFlightStatus,
@@ -52,7 +55,7 @@ interface FlightInfoDashboardProps {
 
 // ─── Status Panel (AviationStack) ─────────────────────────────────────────────
 
-const FlightStatusPanel = ({
+export const FlightStatusPanel = ({
   flightCode,
   onArrivalTimeResolved,
 }: {
@@ -180,6 +183,24 @@ const FlightStatusPanel = ({
             <PlaneTakeoff className="w-3 h-3" /> Dep. Terminal {status.departure.terminal}
           </div>
         )}
+      </div>
+
+      {/* Warm Safe Travel Care Banner */}
+      <div className="relative overflow-hidden rounded-2xl p-3.5 bg-gradient-to-r from-primary/10 via-emerald-500/10 to-primary/5 border border-primary/20 text-foreground shadow-2xs animate-fade-in">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-primary/15 text-primary flex items-center justify-center shrink-0 shadow-inner">
+            <Heart className="w-4 h-4 text-primary fill-primary/20" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-primary flex items-center gap-1.5">
+              <span>ขอให้ถึงที่หมายโดยสวัสดิภาพ</span>
+              <span className="text-xs">✈️✨</span>
+            </p>
+            <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+              ขอให้เป็นเที่ยวบินที่ราบรื่น ปลอดภัย และมีความสุขตลอดการเดินทางนะครับ
+            </p>
+          </div>
+        </div>
       </div>
 
       <Button
@@ -592,6 +613,7 @@ const FlightInfoDashboard = ({
       originIata: undefined,
     });
     setIsOpen(true);
+    toast.success(`บันทึกเที่ยวบิน ${cleanCode} เรียบร้อยแล้ว ขอให้ถึงที่หมายโดยสวัสดิภาพ ✨✈️`);
   };
 
   const handleSearchSubmit = (e?: React.FormEvent) => {
