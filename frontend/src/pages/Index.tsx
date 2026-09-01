@@ -13,6 +13,10 @@ import {
   MapPin,
   Eye,
   SlidersHorizontal,
+  Bookmark,
+  Compass,
+  FolderHeart,
+  Plus,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import html2pdf from "html2pdf.js";
@@ -48,7 +52,7 @@ import MapSection from "@/components/MapSection";
 import AISuggestedPlaces, { type SuggestedPlace, SuggestionDragOverlay } from "@/components/AISuggestedPlaces";
 import AIAccommodations, { HotelDragOverlay } from "@/components/AIAccommodations";
 import FlightInfoDashboard from "@/components/FlightInfoDashboard";
-import ChatBot from "@/components/ChatBot";
+import ChatBot, { type Message as ChatMessage } from "@/components/ChatBot";
 import AnalyzingOverlay from "@/components/AnalyzingOverlay";
 import StepIndicator from "@/components/StepIndicator";
 import WeatherWidget from "@/components/WeatherWidget";
@@ -67,6 +71,8 @@ import { useAI, AI_MODEL_OPTIONS } from "@/context/AIProviderContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { VisionOutlierModal, type OutlierItem } from "@/components/VisionOutlierModal";
 import { detectVisionOutliers } from "@/utils/outlierDetector";
+import { SavedTripsModal } from "@/components/SavedTripsModal";
+import { saveTrip, type TripRecord } from "@/services/tripService";
 
 
 // Mock initial data
@@ -242,6 +248,44 @@ const UserMenu = () => {
     </div>
   );
 };
+
+// ─── Convert uploaded File to durable base64 thumbnail for permanent DB storage ──
+function fileToBase64Thumbnail(file: File, maxWidth = 480): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
+        } else {
+          resolve(e.target?.result as string);
+        }
+      };
+      img.onerror = () => resolve(e.target?.result as string);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => {
+      try {
+        resolve(URL.createObjectURL(file));
+      } catch {
+        resolve("");
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
 // ──────────────────────────────────────────────────────────────────────────────
 
 const Index = () => {
@@ -271,6 +315,13 @@ const Index = () => {
   const [outliers, setOutliers] = useState<OutlierItem[]>([]);
   const [isOutlierModalOpen, setIsOutlierModalOpen] = useState<boolean>(false);
 
+  // ── Saved Trips & Chat Persistence ──
+  const [currentTripId, setCurrentTripId] = useState<string | null>(null);
+  const [currentTripTitle, setCurrentTripTitle] = useState<string | null>(null);
+  const [isSavedTripsModalOpen, setIsSavedTripsModalOpen] = useState<boolean>(false);
+  const [isSavingTrip, setIsSavingTrip] = useState<boolean>(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+
   useEffect(() => {
     if (itinerary.length > 0) {
       const pace = preferences?.pace || "Moderate";
@@ -278,6 +329,90 @@ const Index = () => {
       setCoherenceResult(score);
     }
   }, [itinerary, preferences?.pace, tripStartDate]);
+
+  const handleSaveCurrentTrip = useCallback(async () => {
+    if (!itinerary || itinerary.length === 0) {
+      toast.warning("ไม่มีข้อมูลตารางการเดินทางให้บันทึก");
+      return;
+    }
+
+    setIsSavingTrip(true);
+    try {
+      const destination = detectedLocations[0]?.place || (preferences ? "Travel Destination" : "ทริปท่องเที่ยว");
+      const saved = await saveTrip({
+        id: currentTripId || undefined,
+        title: currentTripTitle || undefined,
+        destination,
+        preferences,
+        itinerary,
+        chat_messages: chatMessages,
+        detected_locations: detectedLocations,
+        suggestions,
+        accommodations,
+        coherence_score: coherenceResult,
+        environment_data: environmentData,
+      });
+
+      setCurrentTripId(saved.id);
+      setCurrentTripTitle(saved.title);
+      toast.success(`บันทึก "${saved.title}" ลงฐานข้อมูลเรียบร้อยแล้ว ✨`);
+    } catch (err: any) {
+      console.error("Save trip error:", err);
+      toast.error(err.message || "เกิดข้อผิดพลาดในการบันทึกทริป");
+    } finally {
+      setIsSavingTrip(false);
+    }
+  }, [
+    currentTripId,
+    currentTripTitle,
+    detectedLocations,
+    preferences,
+    itinerary,
+    chatMessages,
+    suggestions,
+    accommodations,
+    coherenceResult,
+    environmentData,
+  ]);
+
+  const handleSelectTrip = useCallback((trip: TripRecord) => {
+    setCurrentTripId(trip.id);
+    setCurrentTripTitle(trip.title);
+    setItinerary(trip.itinerary || []);
+    setMapItinerary(trip.itinerary || []);
+    setPreferences(trip.preferences || null);
+    setDetectedLocations(trip.detected_locations || []);
+    setSuggestions(trip.suggestions || []);
+    setAccommodations(trip.accommodations || []);
+    setChatMessages(trip.chat_messages || []);
+    setCoherenceResult(trip.coherence_score || null);
+    if (trip.preferences?.startDate) {
+      setTripStartDate(new Date(trip.preferences.startDate));
+    }
+    if (trip.environment_data) {
+      setEnvironmentData(trip.environment_data);
+    }
+    setStep(3);
+    setMaxUnlockedStep(3);
+    window.scrollTo({ top: 200, behavior: "smooth" });
+    toast.success(`โหลดข้อมูลทริป "${trip.title}" สำเร็จ ✨`);
+  }, []);
+
+  const handleNewTrip = useCallback(() => {
+    setCurrentTripId(null);
+    setCurrentTripTitle(null);
+    setItinerary(MOCK_ITINERARY);
+    setMapItinerary(MOCK_ITINERARY);
+    setPreferences(null);
+    setDetectedLocations([]);
+    setSuggestions([]);
+    setAccommodations([]);
+    setChatMessages([]);
+    setCoherenceResult(null);
+    setStep(0);
+    setMaxUnlockedStep(0);
+    toast.info("เริ่มต้นสร้างทริปใหม่แล้ว");
+  }, []);
 
   const { model, setModel, provider } = useAI();
 
@@ -298,6 +433,7 @@ const Index = () => {
           ...prev,
           {
             ...restoredItem.originalResult,
+            uploadedImageUrl: restoredItem.originalResult.uploadedImageUrl || restoredItem.photoUrl || undefined,
             isExcursion: restoredItem.distanceKm ? restoredItem.distanceKm > 35 : false,
             distanceKm: restoredItem.distanceKm,
           },
@@ -328,6 +464,7 @@ const Index = () => {
       ...item.originalResult,
       place: candidate.name,
       confidence: candidate.similarity || item.confidence || 0.8,
+      uploadedImageUrl: item.originalResult.uploadedImageUrl || item.photoUrl || undefined,
     };
 
     setDetectedLocations(prev => {
@@ -381,9 +518,9 @@ const Index = () => {
           const res = await analyzeImage(file, model, useClip, setLoadingStep);
           let uploadedImageUrl: string | undefined = undefined;
           try {
-            uploadedImageUrl = URL.createObjectURL(file);
+            uploadedImageUrl = await fileToBase64Thumbnail(file);
           } catch {
-            // fallback
+            uploadedImageUrl = URL.createObjectURL(file);
           }
           return {
             ...res,
@@ -1459,6 +1596,16 @@ const Index = () => {
                 </Select>
               </div>
 
+              {/* My Saved Trips Button */}
+              <button
+                onClick={() => setIsSavedTripsModalOpen(true)}
+                className="flex items-center gap-1.5 bg-background/10 hover:bg-white/20 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-primary-foreground/30 text-primary-foreground text-sm font-medium transition-all shadow-xs"
+                title="ดูประวัติทริปและการสนทนาที่บันทึกไว้"
+              >
+                <Compass className="w-4 h-4 text-travel-sand" />
+                <span className="hidden sm:inline">My Trips</span>
+              </button>
+
               {/* User session: avatar + display name + logout */}
               <UserMenu />
             </div>
@@ -1626,25 +1773,49 @@ const Index = () => {
             >
               {/* Top Navigation Bar for Itinerary view */}
               <div className="flex flex-wrap items-center justify-between gap-3 mb-8 p-3 rounded-2xl bg-muted/40 border border-border/80">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setStep(2)}
-                  className="rounded-xl border-border/80 text-foreground hover:bg-background font-medium text-xs flex items-center gap-2 shadow-2xs transition-colors"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Edit Preferences</span>
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setStep(2)}
+                    className="rounded-xl border-border/80 text-foreground hover:bg-background font-medium text-xs flex items-center gap-2 shadow-2xs transition-colors"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Edit Preferences</span>
+                  </Button>
 
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setStep(1)}
-                  className="text-muted-foreground hover:text-foreground text-xs font-medium flex items-center gap-1.5 rounded-xl transition-colors"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>View Photos ({detectedLocations.length})</span>
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setStep(1)}
+                    className="text-muted-foreground hover:text-foreground text-xs font-medium flex items-center gap-1.5 rounded-xl transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>View Photos ({detectedLocations.length})</span>
+                  </Button>
+                </div>
+
+                {/* Save Trip Button & Status */}
+                <div className="flex items-center gap-2">
+                  {currentTripTitle && (
+                    <span className="text-xs text-muted-foreground font-medium hidden md:inline px-2 py-1 rounded-lg bg-background/60 border border-border/40">
+                      📍 {currentTripTitle}
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={handleSaveCurrentTrip}
+                    disabled={isSavingTrip}
+                    className="rounded-xl travel-gradient text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm hover:opacity-95 transition-all"
+                  >
+                    {isSavingTrip ? (
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Bookmark className="w-3.5 h-3.5" />
+                    )}
+                    <span>{currentTripId ? "อัปเดตการบันทึก" : "บันทึกทริปนี้"}</span>
+                  </Button>
+                </div>
               </div>
 
               <section className="mb-12">
@@ -1761,6 +1932,8 @@ const Index = () => {
               setPreferences((prev) => (prev ? { ...prev, hasFlight: "yes", flightCode } : null));
               toast.success(`อัปเดตเที่ยวบิน: ${flightCode}`);
             }}
+            messages={chatMessages}
+            onUpdateMessages={setChatMessages}
           />
 
           {/* Floating Export PDF Button */}
@@ -1778,6 +1951,15 @@ const Index = () => {
           </button>
         </>
       )}
+
+      {/* Saved Trips & Chat History Modal */}
+      <SavedTripsModal
+        isOpen={isSavedTripsModalOpen}
+        onClose={() => setIsSavedTripsModalOpen(false)}
+        onSelectTrip={handleSelectTrip}
+        onNewTrip={handleNewTrip}
+        currentTripId={currentTripId}
+      />
 
       <footer className="border-t border-border py-6 text-center text-sm text-muted-foreground">
         <p>Pixinerary – Image-Based AI Travel Planning System • Research Project Prototype</p>

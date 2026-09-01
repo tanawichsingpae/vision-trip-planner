@@ -7,7 +7,7 @@ import { chatWithAssistant, type TripPreferences, fetchPlacePhoto } from "@/serv
 import { type DayPlan, type Activity } from "@/components/TravelItinerary";
 import { fetchPlaceDetails } from "@/api/places";
 
-interface Message {
+export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -31,6 +31,8 @@ interface ChatBotProps {
   onUpdatePreferences?: (prefs: Partial<TripPreferences>) => void;
   onUpdateHotel?: (hotelName: string) => void;
   onUpdateFlight?: (flightCode: string) => void;
+  messages?: Message[];
+  onUpdateMessages?: (messages: Message[]) => void;
 }
 
 const ChatBot = ({
@@ -42,15 +44,35 @@ const ChatBot = ({
   onUpdatePreferences,
   onUpdateHotel,
   onUpdateFlight,
+  messages: externalMessages,
+  onUpdateMessages,
 }: ChatBotProps) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      role: "assistant",
-      content: `สวัสดีครับ! พิกซ์ (Pix) เองครับ 😊 Your AI Travel Companion สำหรับทริป ${locationName} ✈️📸\n\nไม่ว่าจะอยากปรับตารางเดินทาง สลับโรงแรม เปลี่ยนงบประมาณ หรือส่องสถานที่จากรูปถ่าย พิกซ์พร้อมช่วยคิดช่วยจัดให้เสมอ บอกผมได้เลยนะครับ!`,
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (externalMessages && externalMessages.length > 0) return externalMessages;
+    return [
+      {
+        id: "1",
+        role: "assistant",
+        content: `สวัสดีครับ! พิกซ์ (Pix) เองครับ 😊 Your AI Travel Companion สำหรับทริป ${locationName} ✈️📸\n\nไม่ว่าจะอยากปรับตารางเดินทาง สลับโรงแรม เปลี่ยนงบประมาณ หรือส่องสถานที่จากรูปถ่าย พิกซ์พร้อมช่วยคิดช่วยจัดให้เสมอ บอกผมได้เลยนะครับ!`,
+      },
+    ];
+  });
+
+  // Synchronize when externalMessages changes
+  useEffect(() => {
+    if (externalMessages && externalMessages.length > 0) {
+      setMessages(externalMessages);
+    }
+  }, [externalMessages]);
+
+  const updateAndNotifyMessages = (updater: (prev: Message[]) => Message[]) => {
+    setMessages((prev) => {
+      const next = updater(prev);
+      onUpdateMessages?.(next);
+      return next;
+    });
+  };
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
 
@@ -260,7 +282,7 @@ const ChatBot = ({
   const sendMessage = async (text: string) => {
     if (!text.trim()) return;
     const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: text };
-    setMessages((prev) => [...prev, userMsg]);
+    updateAndNotifyMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
 
@@ -380,7 +402,7 @@ const ChatBot = ({
         }
       }
 
-      setMessages((prev) => [
+      updateAndNotifyMessages((prev) => [
         ...prev,
         {
           id: `a-${Date.now()}`,
@@ -391,7 +413,7 @@ const ChatBot = ({
       ]);
     } catch (error) {
       console.error("Chat error:", error);
-      setMessages((prev) => [
+      updateAndNotifyMessages((prev) => [
         ...prev,
         {
           id: `e-${Date.now()}`,
