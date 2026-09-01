@@ -12,18 +12,180 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   actionSummary?: string;
+  suggestedQuickActions?: string[];
   aiModel?: string;
   ai_model?: string;
   timestamp?: number;
 }
 
-const quickActions = [
-  "แนะนำคาเฟ่บรรยากาศดีเพิ่มหน่อย",
-  "ปรับงบประมาณเป็น 50,000 บาท",
-  "สลับไปพักโรงแรม Marriott",
-  "เปลี่ยนแผนเป็น 2 วัน",
-  "ลบสถานที่ท่องเที่ยวราคาแพงออก",
-];
+export function inferContextualQuickActions(
+  content: string,
+  actionSummary?: string,
+  locationName: string = "ทริปนี้",
+  itinerary: DayPlan[] = [],
+  preferences?: TripPreferences | null
+): string[] {
+  const raw = content || "";
+  const text = raw.toLowerCase();
+
+  // ── 1. Extract Specific Quoted Entities or Place Names from Bot Message ──
+  const quoteMatches = Array.from(raw.matchAll(/["'“「]([^"'”」\n]{2,30})["'”」]/g))
+    .map((m) => m[1].trim())
+    .filter((name) => name.length > 1 && !["action", "json", "updated_itinerary", "suggested_quick_actions"].includes(name.toLowerCase()));
+
+  // Extract Day Number if mentioned (e.g. วันที่ 1, วันที่ 2)
+  const dayMatch = raw.match(/วันที่\s*(\d+)/i);
+  const mentionedDay = dayMatch ? `วันที่ ${dayMatch[1]}` : "";
+
+  // ── 2. Extract Numbered / Bulleted Options from Bot Message ──
+  const listMatches = Array.from(raw.matchAll(/(?:^|\n)\s*(?:[1-4]\.|\d+\)|\-\s*|\•\s*|ข้อ\s*[1-4]\s*[:\.]?)\s*([^\n:—–(]{2,35})/g))
+    .map((m) => m[1].replace(/^[\*\-\s]+/, "").trim())
+    .filter((item) => item.length >= 2 && !item.startsWith("http"));
+
+  // ── A. If Bot Proposed / Asked Confirmation for Specific Places ──
+  if (quoteMatches.length > 0 && (text.includes("ไหมครับ") || text.includes("ดีไหม") || text.includes("สะดวกไหม") || text.includes("ใช่ไหม") || text.includes("แนะนำให้เพิ่ม") || text.includes("บันทึก"))) {
+    const primaryPlace = quoteMatches[0];
+    const targetDayText = mentionedDay ? `ลงใน${mentionedDay}` : "ลงในแผน";
+    return [
+      `ตกลง เพิ่ม "${primaryPlace}" ${targetDayText}เลยครับ`,
+      `ขอเปลี่ยน "${primaryPlace}" ไปวันอื่นแทนครับ`,
+      `ขอตัวเลือกสถานที่อื่นใกล้ๆ แทนครับ`,
+      "ขอยกเลิกก่อนครับ ยังไม่เพิ่ม",
+    ];
+  }
+
+  // ── B. If Bot Gave a Numbered Choice / List of Recommendations ──
+  if (listMatches.length >= 2) {
+    const opt1 = listMatches[0].slice(0, 22);
+    const opt2 = listMatches[1].slice(0, 22);
+    const result = [
+      `เลือกข้อ 1 (${opt1}) ครับ`,
+      `เลือกข้อ 2 (${opt2}) ครับ`,
+    ];
+    if (listMatches[2]) {
+      result.push(`เลือกข้อ 3 (${listMatches[2].slice(0, 22)}) ครับ`);
+    } else {
+      result.push("ขอตัวเลือกอื่นเพิ่มเติมครับ");
+    }
+    result.push("ช่วยจัดเวลาลงในแผนให้ด้วยครับ");
+    return result.slice(0, 4);
+  }
+
+  // ── C. If Bot Asked Specific Preference Questions ──
+  // Budget Question
+  if (text.includes("งบ") || text.includes("ราคา") || text.includes("budget") || text.includes("ค่าใช้จ่าย")) {
+    return [
+      "งบประมาณ 20,000 - 30,000 บาทครับ",
+      "ขอแบบประหยัด คุ้มค่าครับ",
+      "ไม่จำกัดงบ ขอแบบพรีเมียมครับ",
+      "ช่วยคำนวณงบประมาณตามแผนปัจจุบันให้หน่อย",
+    ];
+  }
+
+  // Pace / Travel Style Question
+  if (text.includes("ชิล") || text.includes("จังหวะ") || text.includes("กี่วัน") || text.includes("สไตล์") || text.includes("แน่น") || text.includes("ผ่อนคลาย") || text.includes("pace")) {
+    return [
+      "ขอแบบชิลๆ เน้นพักผ่อนสบายๆ ไม่เร่งรีบครับ",
+      "ขอแบบปานกลาง เดินทางกำลังดีครับ",
+      "เน้นเที่ยวแน่นๆ เก็บครบทุกไฮไลท์ครับ",
+      "ขอเวลาแวะถ่ายรูปเยอะๆ ครับ",
+    ];
+  }
+
+  // Day / Time Slot Question
+  if (text.includes("วันไหน") || text.includes("กี่โมง") || text.includes("ช่วงเวลา") || text.includes("เช้าหรือบ่าย") || text.includes("วันใด")) {
+    return [
+      "จัดลงในวันที่ 1 เลยครับ",
+      "จัดลงในวันที่ 2 แทนครับ",
+      "ขอเป็นช่วงบ่ายหรือเย็นครับ",
+      "ช่วยเลือกวันที่เดินทางสะดวกที่สุดให้เลยครับ",
+    ];
+  }
+
+  // ── D. If Bot Asked a General Confirmation / Opinion Question ──
+  if (
+    text.includes("ไหมครับ") ||
+    text.includes("ดีไหม") ||
+    text.includes("สะดวกไหม") ||
+    text.includes("ใช่ไหมครับ") ||
+    text.includes("เห็นด้วยไหม") ||
+    text.includes("ต้องการให้ผม") ||
+    text.includes("สะดวกให้ผม")
+  ) {
+    if (text.includes("ลบ") || text.includes("ตัดออก")) {
+      return [
+        "ยืนยันลบรายการนี้ออกได้เลยครับ",
+        "ยังไม่ขอลบครับ เก็บไว้ก่อน",
+        "ช่วยหาที่เที่ยวอื่นมาแทนที่นี้หน่อยครับ",
+        "ขอยกเลิกก่อนครับ",
+      ];
+    }
+    return [
+      "ตกลงตามนี้เลยครับ บันทึกได้เลย",
+      "ขอปรับเปลี่ยนเวลาหรือวันแทนครับ",
+      "ช่วยแนะนำตัวเลือกอื่นเพิ่มเติมหน่อยครับ",
+      "ขอยกเลิกก่อนครับ ยังไม่เพิ่ม",
+    ];
+  }
+
+  // ── E. If Bot Just Updated Itinerary / Executed Action ──
+  if (actionSummary || text.includes("อัปเดต") || text.includes("เรียบร้อยแล้ว") || text.includes("ปรับแผนให้แล้ว") || text.includes("บันทึกแล้ว")) {
+    return [
+      "ตารางเดินทางลงตัวมากครับ ขอบคุณครับ",
+      "ช่วยแนะนำร้านอาหารใกล้ๆ แผนวันนี้",
+      "อยากปรับเวลาให้ยืดหยุ่นขึ้นอีกหน่อย",
+      "ช่วยเช็คการเดินทางระหว่างแต่ละสถานที่",
+    ];
+  }
+
+  // ── F. Cafe & Restaurant Topics ──
+  if (text.includes("คาเฟ่") || text.includes("ร้านอาหาร") || text.includes("ของกิน") || text.includes("เมนู") || text.includes("ราเมง") || text.includes("กาแฟ") || text.includes("อาหาร")) {
+    return [
+      "แนะนำร้านอาหารท้องถิ่นชื่อดังครับ",
+      "ขอคาเฟ่ถ่ายรูปสวย บรรยากาศดีครับ",
+      "ช่วยจัดเวลาแวะทานลงในแผนวันแรกเลยครับ",
+      "มีร้านอาหารมื้อค่ำวิวสวยแนะนำไหมครับ",
+    ];
+  }
+
+  // ── G. Hotels & Accommodations ──
+  if (text.includes("โรงแรม") || text.includes("ที่พัก") || text.includes("hotel") || text.includes("resort") || text.includes("ห้องพัก")) {
+    return [
+      "สลับไปพักโรงแรมที่แนะนำเลยครับ",
+      "ขอโรงแรมราคาประหยัดใกล้สถานีรถไฟ",
+      "แนะนำโรงแรมวิวสวยบรรยากาศดี",
+      "ช่วยดูรายละเอียดการเดินทางไปโรงแรม",
+    ];
+  }
+
+  // ── H. Weather & Season ──
+  if (text.includes("อากาศ") || text.includes("ฝน") || text.includes("แดด") || text.includes("อุณหภูมิ") || text.includes("ฤดู") || text.includes("พยากรณ์")) {
+    return [
+      "ช่วยปรับแผนเป็นสถานที่ในร่มหากฝนตก",
+      "ควรเตรียมตัวและแต่งกายอย่างไร",
+      "เช็คสภาพอากาศวันที่ 2 ให้หน่อยครับ",
+      "แนะนำกิจกรรมช่วงแดดร่มลมตก",
+    ];
+  }
+
+  // ── I. Flight & Transport ──
+  if (text.includes("เที่ยวบิน") || text.includes("สนามบิน") || text.includes("flight") || text.includes("รถไฟ") || text.includes("การเดินทาง") || text.includes("ตั๋ว")) {
+    return [
+      "แนะนำการเดินทางระหว่างแต่ละสถานที่",
+      "เช็คเวลาเดินทางไปสนามบินวันกลับ",
+      "มีพาสรถไฟหรือบัตรโดยสารแนะนำไหม",
+      "จัดเวลาวันแรกให้พอดีกับเวลาเครื่องลง",
+    ];
+  }
+
+  // ── J. Default Starters for Destination ──
+  return [
+    `แนะนำร้านอาหารเด็ดใน ${locationName}`,
+    "ช่วยปรับแผนให้ชิลขึ้นหน่อย",
+    "แนะนำจุดถ่ายรูปไฮไลท์ที่ไม่ควรพลาด",
+    "ช่วยตรวจสอบงบประมาณของทริปนี้",
+  ];
+}
 
 interface ChatBotProps {
   locationName: string;
@@ -58,7 +220,8 @@ const ChatBot = ({
       {
         id: "1",
         role: "assistant",
-        content: `สวัสดีครับ! พิกซ์ (Pix) เองครับ 😊 Your AI Travel Companion สำหรับทริป ${locationName} ✈️📸\n\nไม่ว่าจะอยากปรับตารางเดินทาง สลับโรงแรม เปลี่ยนงบประมาณ หรือส่องสถานที่จากรูปถ่าย พิกซ์พร้อมช่วยคิดช่วยจัดให้เสมอ บอกผมได้เลยนะครับ!`,
+        content: `สวัสดีครับ! พิกซ์ (Pix) เองครับ 😊 Your AI Travel Companion สำหรับทริป ${locationName} ✈️📸\n\nไม่ว่าคุณอยากจะปรับตารางเดินทาง สลับโรงแรม เปลี่ยนงบประมาณ หรือส่องสถานที่จากรูปถ่าย พิกซ์พร้อมช่วยคุณคิดช่วยจัดให้เสมอ บอกผมได้เลยนะครับ!`,
+        suggestedQuickActions: inferContextualQuickActions("", "", locationName, itinerary, preferences),
         aiModel: model,
         timestamp: Date.now(),
       },
@@ -234,10 +397,17 @@ const ChatBot = ({
       }
     }
 
-    // 2. Fallback: Find raw JSON starting at '{' with '"action"' or '"updated_itinerary"'
+    // 2. Fallback: Find raw JSON starting at '{' with action or suggested_quick_actions
     if (!jsonString) {
       const firstBrace = responseText.indexOf("{");
-      if (firstBrace !== -1 && (responseText.includes('"action"') || responseText.includes('"updated_itinerary"'))) {
+      if (
+        firstBrace !== -1 &&
+        (responseText.includes('"action"') ||
+          responseText.includes('"updated_itinerary"') ||
+          responseText.includes('"suggested_quick_actions"') ||
+          responseText.includes('"quick_actions"') ||
+          responseText.includes('"quick_replies"'))
+      ) {
         jsonString = responseText.slice(firstBrace).trim();
         cleanText = responseText.slice(0, firstBrace).trim();
       }
@@ -407,6 +577,18 @@ const ChatBot = ({
         }
       }
 
+      // Resolve contextual quick actions for the new response
+      let suggestedActions: string[] = [];
+      if (actionData?.suggested_quick_actions && Array.isArray(actionData.suggested_quick_actions) && actionData.suggested_quick_actions.length > 0) {
+        suggestedActions = actionData.suggested_quick_actions;
+      } else if (actionData?.quick_actions && Array.isArray(actionData.quick_actions) && actionData.quick_actions.length > 0) {
+        suggestedActions = actionData.quick_actions;
+      } else if (actionData?.quick_replies && Array.isArray(actionData.quick_replies) && actionData.quick_replies.length > 0) {
+        suggestedActions = actionData.quick_replies;
+      } else {
+        suggestedActions = inferContextualQuickActions(response, actionSummaryText, locationName, itinerary, preferences);
+      }
+
       updateAndNotifyMessages((prev) => [
         ...prev,
         {
@@ -414,6 +596,7 @@ const ChatBot = ({
           role: "assistant",
           content: response,
           actionSummary: actionSummaryText,
+          suggestedQuickActions: suggestedActions,
           aiModel: model,
           timestamp: Date.now(),
         },
@@ -426,6 +609,11 @@ const ChatBot = ({
           id: `e-${Date.now()}`,
           role: "assistant",
           content: "ขออภัยครับ ระบบเชื่อมต่อขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้งนะครับ",
+          suggestedQuickActions: [
+            "ลองใหม่อีกครั้งครับ",
+            "ช่วยแนะนำสถานที่ยอดนิยม",
+            "ตรวจสอบตารางการเดินทาง",
+          ],
           aiModel: model,
           timestamp: Date.now(),
         },
@@ -435,25 +623,18 @@ const ChatBot = ({
     }
   };
 
-  // Check if last message was from assistant asking for confirmation or choices
-  const lastMessage = messages[messages.length - 1];
-  const isPendingConfirmation =
-    lastMessage?.role === "assistant" &&
-    !lastMessage.actionSummary &&
-    (lastMessage.content.includes("ไหมครับ") ||
-      lastMessage.content.includes("ดีครับ") ||
-      lastMessage.content.includes("ใช่ไหมครับ") ||
-      lastMessage.content.includes("เห็นด้วยไหม") ||
-      lastMessage.content.includes("สะดวกให้ผม") ||
-      lastMessage.content.includes("หรืออยาก") ||
-      lastMessage.content.includes("?"));
-
-  const confirmationChips = [
-    "ตกลงครับ บันทึกลงในแผนเลย",
-    "ขอเลือกเป็นวันอื่นแทนครับ",
-    "แนะนำตัวเลือกอื่นเพิ่มเติมหน่อยครับ",
-    "ขอยกเลิกก่อนครับ ยังไม่เพิ่ม",
-  ];
+  // Find the last assistant message and its dynamic quick actions
+  const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant");
+  const activeQuickActions =
+    lastAssistantMessage?.suggestedQuickActions && lastAssistantMessage.suggestedQuickActions.length > 0
+      ? lastAssistantMessage.suggestedQuickActions
+      : inferContextualQuickActions(
+          lastAssistantMessage?.content || "",
+          lastAssistantMessage?.actionSummary,
+          locationName,
+          itinerary,
+          preferences
+        );
 
   if (!isOpen) {
     return (
@@ -636,43 +817,30 @@ const ChatBot = ({
         <div ref={bottomRef} />
       </div>
 
-      {/* Quick Actions / Confirmation Section */}
-      <div className="px-4 py-2 border-t border-border/60 bg-muted/30">
-        {isPendingConfirmation ? (
-          <div>
-            <p className="text-[11px] font-semibold text-primary uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-primary" />
-              คำตอบด่วนเพื่อยืนยัน (Quick Confirmation)
+      {/* Dynamic Contextual Quick Actions Section */}
+      {activeQuickActions && activeQuickActions.length > 0 && (
+        <div className="px-4 py-2.5 border-t border-border/60 bg-muted/30 transition-all">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[11px] font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5 select-none">
+              <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
+              คำสั่งด่วนที่แนะนำ (Quick Actions)
             </p>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {confirmationChips.map((chip) => (
-                <button
-                  key={chip}
-                  onClick={() => sendMessage(chip)}
-                  className="shrink-0 px-3 py-1.5 rounded-full border border-primary/40 bg-primary/10 hover:bg-primary hover:text-white text-xs text-primary transition-all font-medium shadow-2xs"
-                >
-                  {chip}
-                </button>
-              ))}
-            </div>
+            <span className="text-[10px] text-muted-foreground/70 font-medium">เดาตามบริบทสนทนา</span>
           </div>
-        ) : (
-          <div>
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">คำสั่งด่วนที่แนะนำ (Quick Actions)</p>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {quickActions.map((action) => (
-                <button
-                  key={action}
-                  onClick={() => sendMessage(action)}
-                  className="shrink-0 px-3 py-1.5 rounded-full border border-border/80 bg-background/80 hover:bg-primary/10 hover:border-primary/50 text-xs text-foreground hover:text-primary transition-all font-medium shadow-2xs"
-                >
-                  {action}
-                </button>
-              ))}
-            </div>
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {activeQuickActions.map((action, idx) => (
+              <button
+                key={`${action}-${idx}`}
+                onClick={() => sendMessage(action)}
+                className="shrink-0 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 hover:bg-primary hover:text-white dark:hover:text-primary-foreground text-xs text-foreground hover:border-primary transition-all font-medium shadow-2xs hover:scale-105 active:scale-95 flex items-center gap-1.5 group"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-primary group-hover:bg-white transition-colors" />
+                <span>{action}</span>
+              </button>
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Input Area */}
       <div className="p-3 border-t border-border bg-card shrink-0">
