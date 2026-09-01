@@ -708,10 +708,11 @@ const AddActivityPopover = ({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const placesServiceRef = useRef<google.maps.places.PlacesService | null>(null);
 
-  const times = [
-    "07:00", "08:00", "09:00", "10:00", "11:00", "12:00",
-    "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"
-  ];
+  const times = Array.from({ length: 48 }, (_, i) => {
+    const hours = Math.floor(i / 2).toString().padStart(2, "0");
+    const minutes = i % 2 === 0 ? "00" : "30";
+    return `${hours}:${minutes}`;
+  });
 
   // Preload Google Places Service
   useEffect(() => {

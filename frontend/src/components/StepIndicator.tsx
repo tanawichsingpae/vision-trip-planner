@@ -1,11 +1,10 @@
-import { Check, Upload, Eye, MapPin, SlidersHorizontal, MessageSquare } from "lucide-react";
+import { Check, Upload, Eye, MapPin, SlidersHorizontal } from "lucide-react";
 
 const steps = [
   { icon: Upload, label: "Upload" },
   { icon: Eye, label: "Vision AI" },
   { icon: SlidersHorizontal, label: "Preferences" },
   { icon: MapPin, label: "Itinerary" },
-  { icon: MessageSquare, label: "Customize" },
 ];
 
 interface StepIndicatorProps {

@@ -74,10 +74,14 @@ function getSuggestedBudgetRange(destination: string, days: number, travelStyle:
   }
 
   const totalMin = baseMin * days;
-  const totalMax = baseMax * days;
-
   return `฿${totalMin.toLocaleString()} - ฿${totalMax.toLocaleString()} THB`;
 }
+
+export const TIME_OPTIONS_24H = Array.from({ length: 48 }, (_, i) => {
+  const hours = Math.floor(i / 2).toString().padStart(2, "0");
+  const minutes = i % 2 === 0 ? "00" : "30";
+  return `${hours}:${minutes}`;
+});
 
 export interface TripPreferencesFormProps {
   onSubmit: (preferences: TripPreferences) => void;
@@ -421,7 +425,7 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
                   onChange={(e) => setHotelCheckInTime(e.target.value)}
                   className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 >
-                  {["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00"].map(t => (
+                  {TIME_OPTIONS_24H.map(t => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
@@ -437,7 +441,7 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
                   onChange={(e) => setHotelCheckOutTime(e.target.value)}
                   className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 >
-                  {["07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00"].map(t => (
+                  {TIME_OPTIONS_24H.map(t => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>

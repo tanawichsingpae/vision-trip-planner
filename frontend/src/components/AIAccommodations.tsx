@@ -10,6 +10,12 @@ import { type SuggestedPlace } from "@/components/AISuggestedPlaces";
 import { buildBookingUrl, buildAgodaUrl } from "@/lib/hotelUrl";
 import { HotelSelectCombobox } from "@/components/HotelSelectCombobox";
 
+export const TIME_OPTIONS_24H = Array.from({ length: 48 }, (_, i) => {
+  const hours = Math.floor(i / 2).toString().padStart(2, "0");
+  const minutes = i % 2 === 0 ? "00" : "30";
+  return `${hours}:${minutes}`;
+});
+
 // ─────────────────────────────────────────
 // Draggable Hotel Card
 // ─────────────────────────────────────────
@@ -29,8 +35,8 @@ const DraggableHotelCard = ({ hotel, onAdd, daysCount, cityName = "", checkInDat
   const [checkOutTime, setCheckOutTime] = useState<string>("11:00");
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
 
-  const checkInTimes = ["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00"];
-  const checkOutTimes = ["07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00"];
+  const checkInTimes = TIME_OPTIONS_24H;
+  const checkOutTimes = TIME_OPTIONS_24H;
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `hotel-suggestion-${hotel.id}`,
@@ -450,7 +456,7 @@ const AIAccommodations = ({
                   onChange={(e) => setSearchCheckInTime(e.target.value)}
                   className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 >
-                  {["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00"].map(t => (
+                  {TIME_OPTIONS_24H.map(t => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
@@ -478,7 +484,7 @@ const AIAccommodations = ({
                   onChange={(e) => setSearchCheckOutTime(e.target.value)}
                   className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                 >
-                  {["07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00"].map(t => (
+                  {TIME_OPTIONS_24H.map(t => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>

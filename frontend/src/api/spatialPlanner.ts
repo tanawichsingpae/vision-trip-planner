@@ -1379,23 +1379,32 @@ export function preventConsecutiveMeals(activities: Activity[]): Activity[] {
 }
 
 /**
- * Standard Dwell Time Estimates by Activity Type (in minutes)
+ * Standard Dwell Time Estimates by Activity Type and Travel Pace (in minutes)
  */
-function getEstimatedDwellMinutes(act: Activity): number {
+function getEstimatedDwellMinutes(act: Activity, pace: string = "Moderate"): number {
   const type = act.type;
-  if (type === "activity") return 120; // 2 hours for activities / theme parks
-  if (type === "culture") return 90;   // 1.5 hours for museums / temples
-  if (type === "food") return 75;      // 1 hour 15 min for meals
-  if (type === "shopping") return 90;  // 1.5 hours for shopping
-  if (type === "nature") return 75;    // 1 hour 15 min for parks
-  if (type === "relax") return 90;     // 1.5 hours for spa
-  if (type === "nightlife") return 120;// 2 hours for nightlife / bars
-  return 60; // 1 hour default
+  let baseMinutes = 60;
+
+  if (type === "activity") baseMinutes = 120; // 2 hours for theme parks / activities
+  else if (type === "culture") baseMinutes = 90; // 1.5 hours for museums / temples
+  else if (type === "food") baseMinutes = 75; // 1 hour 15 min for dining
+  else if (type === "shopping") baseMinutes = 90; // 1.5 hours for shopping
+  else if (type === "nature") baseMinutes = 75; // 1 hour 15 min for parks
+  else if (type === "relax") baseMinutes = 90; // 1.5 hours for spa / wellness
+  else if (type === "nightlife") baseMinutes = 120; // 2 hours for nightlife / bars
+
+  const p = pace.toLowerCase();
+  if (p.includes("relax")) {
+    return Math.round(baseMinutes * 1.25); // +25% longer dwell time for relaxed pacing
+  } else if (p.includes("packed") || p.includes("fast")) {
+    return Math.round(baseMinutes * 0.75); // -25% shorter dwell time to fit more attractions
+  }
+  return baseMinutes;
 }
 
 /**
  * Assigns clean, non-overlapping, chronological time slots with opening hours adherence,
- * mandatory lunch window (11:30 - 13:30), sunset/golden hour anchor, and realistic dwell times.
+ * mandatory lunch window (11:30 - 13:30), sunset/golden hour anchor, and pace-tailored dwell times.
  */
 export function assignDeterministicTimeSlots(
   activities: Activity[],
@@ -1416,7 +1425,18 @@ export function assignDeterministicTimeSlots(
     return res;
   }
 
-  let currentMinutes = 9 * 60; // Start at 09:00 AM by default
+  const p = pace.toLowerCase();
+  let currentMinutes = 9 * 60; // 09:00 AM standard
+  let transitBuffer = 20;
+
+  if (p.includes("relax")) {
+    currentMinutes = 9 * 60 + 30; // 09:30 AM slow & scenic morning start
+    transitBuffer = 30; // 30 min buffer for leisurely travel & coffee stops
+  } else if (p.includes("packed") || p.includes("fast")) {
+    currentMinutes = 8 * 60 + 30; // 08:30 AM early start to maximize sightseeing
+    transitBuffer = 15; // 15 min brisk transit buffer
+  }
+
   const assignedRegular: Activity[] = [];
 
   let lunchIdx = regularActivities.findIndex(a => isFoodActivity(a) && !isEveningActivity(a));
@@ -1450,8 +1470,7 @@ export function assignDeterministicTimeSlots(
       }
     }
 
-    const dwellTime = getEstimatedDwellMinutes(act);
-    const transitBuffer = 20;
+    const dwellTime = getEstimatedDwellMinutes(act, pace);
     currentMinutes = actTimeMinutes + dwellTime + transitBuffer;
 
     assignedRegular.push({
