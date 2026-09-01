@@ -97,6 +97,117 @@
   .animate-pulse-soft {
     animation: pulseSoft 2s ease-in-out infinite;
   }
+
+  /* PDF Export Utilities */
+  .pdf-only {
+    display: none !important;
+  }
+
+  /* PDF cover section: always hidden on web, shown only during export */
+  #pdf-cover-section {
+    display: none !important;
+  }
+
+  .is-exporting #pdf-cover-section,
+  #pdf-export-wrapper.is-exporting #pdf-cover-section {
+    display: block !important;
+  }
+
+  .is-exporting .pdf-hidden,
+  #pdf-export-wrapper.is-exporting .pdf-hidden {
+    display: none !important;
+  }
+
+  .is-exporting .pdf-only,
+  #pdf-export-wrapper.is-exporting .pdf-only {
+    display: block !important;
+  }
+
+  .is-exporting .pdf-flex,
+  #pdf-export-wrapper.is-exporting .pdf-flex {
+    display: flex !important;
+  }
+
+  /* ── Page Break Rules ── */
+  .is-exporting .pdf-card-break,
+  #pdf-export-wrapper.is-exporting .pdf-card-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid-page !important;
+  }
+
+  .is-exporting .pdf-day-header,
+  #pdf-export-wrapper.is-exporting .pdf-day-header {
+    page-break-inside: avoid !important;
+    break-inside: avoid-page !important;
+    page-break-after: avoid !important;
+    break-after: avoid-page !important;
+  }
+
+  /* ── Force 2-column grid for itinerary layout in PDF ── */
+  .is-exporting .pdf-grid-cols-2,
+  #pdf-export-wrapper.is-exporting .pdf-grid-cols-2 {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 16px !important;
+  }
+
+  .is-exporting .pdf-card-shadow,
+  #pdf-export-wrapper.is-exporting .pdf-card-shadow {
+    box-shadow: none !important;
+    border: 1px solid hsl(var(--border)) !important;
+    padding: 16px !important;
+  }
+
+  /* ── Compact activity images in PDF (reduce height to 110px) ── */
+  .is-exporting .pdf-img-compact,
+  #pdf-export-wrapper.is-exporting .pdf-img-compact {
+    height: 110px !important;
+    max-height: 110px !important;
+  }
+
+  /* ── Remove backdrop-blur (html2canvas cannot render it correctly) ── */
+  .is-exporting [class*="backdrop-blur"],
+  #pdf-export-wrapper.is-exporting [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background-color: rgba(255, 255, 255, 0.95) !important;
+  }
+
+  /* ── Hide <details> (opening hours) in PDF ── */
+  .is-exporting details,
+  #pdf-export-wrapper.is-exporting details {
+    display: none !important;
+  }
+
+  /* ── Hide floating export button ── */
+  .is-exporting ~ button[title="Export Itinerary as PDF"] {
+    display: none !important;
+  }
+
+  /* ── Constrain wrapper to exact A4 printable width (740px) to prevent right-side truncation ── */
+  #pdf-export-wrapper.is-exporting {
+    width: 740px !important;
+    max-width: 740px !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+  }
+
+  /* ── Ensure all internal containers respect 740px width ── */
+  #pdf-export-wrapper.is-exporting * {
+    box-sizing: border-box !important;
+  }
+
+  #pdf-export-wrapper.is-exporting img {
+    max-width: 100% !important;
+  }
+
+  /* ── Remove hover transitions / animations during capture ── */
+  #pdf-export-wrapper.is-exporting * {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 @keyframes float {

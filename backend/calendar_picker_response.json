@@ -1,0 +1,177 @@
+{
+  "status": true,
+  "message": "Success",
+  "timestamp": 1787903568577,
+  "data": [
+    {
+      "departure": "2026-08-28",
+      "return": null,
+      "price": 10023
+    },
+    {
+      "departure": "2026-08-29",
+      "return": null,
+      "price": 10111
+    },
+    {
+      "departure": "2026-08-30",
+      "return": null,
+      "price": 10111
+    },
+    {
+      "departure": "2026-08-31",
+      "return": null,
+      "price": 9680
+    },
+    {
+      "departure": "2026-09-01",
+      "return": null,
+      "price": 8079
+    },
+    {
+      "departure": "2026-09-02",
+      "return": null,
+      "price": 8079
+    },
+    {
+      "departure": "2026-09-03",
+      "return": null,
+      "price": 7660
+    },
+    {
+      "departure": "2026-09-04",
+      "return": null,
+      "price": 7220
+    },
+    {
+      "departure": "2026-09-05",
+      "return": null,
+      "price": 8169
+    },
+    {
+      "departure": "2026-09-06",
+      "return": null,
+      "price": 7220
+    },
+    {
+      "departure": "2026-09-07",
+      "return": null,
+      "price": 8496
+    },
+    {
+      "departure": "2026-09-08",
+      "return": null,
+      "price": 7216
+    },
+    {
+      "departure": "2026-09-09",
+      "return": null,
+      "price": 6810
+    },
+    {
+      "departure": "2026-09-10",
+      "return": null,
+      "price": 7216
+    },
+    {
+      "departure": "2026-09-11",
+      "return": null,
+      "price": 7306
+    },
+    {
+      "departure": "2026-09-12",
+      "return": null,
+      "price": 6780
+    },
+    {
+      "departure": "2026-09-13",
+      "return": null,
+      "price": 6810
+    },
+    {
+      "departure": "2026-09-14",
+      "return": null,
+      "price": 6780
+    },
+    {
+      "departure": "2026-09-15",
+      "return": null,
+      "price": 6340
+    },
+    {
+      "departure": "2026-09-16",
+      "return": null,
+      "price": 6340
+    },
+    {
+      "departure": "2026-09-17",
+      "return": null,
+      "price": 5970
+    },
+    {
+      "departure": "2026-09-18",
+      "return": null,
+      "price": 6560
+    },
+    {
+      "departure": "2026-09-19",
+      "return": null,
+      "price": 7270
+    },
+    {
+      "departure": "2026-09-20",
+      "return": null,
+      "price": 6780
+    },
+    {
+      "departure": "2026-09-21",
+      "return": null,
+      "price": 9330
+    },
+    {
+      "departure": "2026-09-22",
+      "return": null,
+      "price": 15480
+    },
+    {
+      "departure": "2026-09-23",
+      "return": null,
+      "price": 9765
+    },
+    {
+      "departure": "2026-09-24",
+      "return": null,
+      "price": 9550
+    },
+    {
+      "departure": "2026-09-25",
+      "return": null,
+      "price": 9850
+    },
+    {
+      "departure": "2026-09-26",
+      "return": null,
+      "price": 11930
+    },
+    {
+      "departure": "2026-09-27",
+      "return": null,
+      "price": 11657
+    },
+    {
+      "departure": "2026-09-28",
+      "return": null,
+      "price": 9933
+    },
+    {
+      "departure": "2026-09-29",
+      "return": null,
+      "price": 7330
+    },
+    {
+      "departure": "2026-09-30",
+      "return": null,
+      "price": 7655
+    }
+  ]
+}

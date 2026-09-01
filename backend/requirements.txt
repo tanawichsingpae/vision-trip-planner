@@ -11,3 +11,4 @@ requests
 gunicorn
 google-generativeai
 openai
+python-dotenv

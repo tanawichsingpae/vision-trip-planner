@@ -1,21 +1,31 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { Sparkles, RefreshCw, Plus } from "lucide-react";
 import { getPlaceImage } from "@/utils/getPlaceImage";
 import { useDraggable } from "@dnd-kit/core";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { DEFAULT_IMAGE } from "@/components/TravelItinerary";
 
 export interface SuggestedPlace {
   id: string;
   name: string;
-  category: "attraction" | "food" | "nature" | "culture" | "activity";
+  category: "attraction" | "food" | "nature" | "culture" | "activity" | "shopping" | "nightlife" | "relax" | "hotel";
   description: string;
   image: string;
   image_url?: string | null;
   photo_url?: string | null;
   lat: number;
   lng: number;
+  openingHours?: string[] | null;
+  rating?: number | null;
+  userRatingsTotal?: number | null;
+  openNow?: boolean | null;
+  priceLevel?: number | null;
+  website?: string | null;
+  phoneNumber?: string | null;
 }
 
 const categoryConfig: Record<string, { label: string; color: string }> = {
@@ -24,14 +34,51 @@ const categoryConfig: Record<string, { label: string; color: string }> = {
   nature: { label: "Nature", color: "bg-travel-forest/15 text-travel-forest border-travel-forest/20" },
   culture: { label: "Culture", color: "bg-purple-100 text-purple-700 border-purple-200" },
   activity: { label: "Activity", color: "bg-travel-sand text-foreground border-travel-sand" },
+  shopping: { label: "Shopping", color: "bg-pink-100 text-pink-700 border-pink-200" },
+  nightlife: { label: "Nightlife", color: "bg-slate-800 text-amber-400 border-amber-400/30" },
+  relax: { label: "Relax", color: "bg-teal-100 text-teal-700 border-teal-200" },
+  hotel: { label: "🏨 Accommodation", color: "bg-indigo-100 text-indigo-700 border-indigo-300 font-semibold" },
 };
+
+function getFallbackSuggestions(locationName: string): SuggestedPlace[] {
+  const defaults = [
+    { name: `Historic Landmark in ${locationName}`, category: "culture" as const, description: `Popular historical landmark and architectural heritage spot.` },
+    { name: `Famous Local Restaurant in ${locationName}`, category: "food" as const, description: `Authentic local cuisine and top-rated regional specialties.` },
+    { name: `Scenic Viewpoint & Central Park`, category: "nature" as const, description: `Beautiful green landscape with panoramic views.` },
+    { name: `Popular Night Market & Evening District`, category: "nightlife" as const, description: `Lively night market featuring street food and shopping.` },
+    { name: `Central Shopping Arcade`, category: "shopping" as const, description: `Vibrant retail center with souvenirs and local handicrafts.` },
+    { name: `Relaxing Spa & Wellness Center`, category: "relax" as const, description: `Calming sanctuary for traditional massage and relaxation.` },
+  ];
+
+  return defaults.map((item, i) => ({
+    id: `fallback-sug-${i}-${Date.now()}`,
+    name: item.name,
+    category: item.category,
+    description: item.description,
+    image: `https://picsum.photos/seed/${encodeURIComponent(item.name)}/800/600`,
+    lat: 0,
+    lng: 0,
+    rating: 4.5 + (i % 3) * 0.2,
+    userRatingsTotal: 250 + i * 80,
+  }));
+}
 
 interface DraggableSuggestionProps {
   place: SuggestedPlace;
-  onAdd?: (place: SuggestedPlace) => void;
+  onAdd?: (place: SuggestedPlace, dayIndex: number, time: string) => void;
+  daysCount: number;
 }
 
-const DraggableSuggestion = ({ place, onAdd }: DraggableSuggestionProps) => {
+const DraggableSuggestion = ({ place, onAdd, daysCount }: DraggableSuggestionProps) => {
+  const [selectedDay, setSelectedDay] = useState<string>("0");
+  const [selectedTime, setSelectedTime] = useState<string>("12:00");
+  const [isPopoverOpen, setIsPopoverOpen] = useState(false);
+
+  const times = [
+    "07:00", "08:00", "09:00", "10:00", "11:00", "12:00",
+    "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"
+  ];
+
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `suggestion-${place.id}`,
     data: { type: "suggestion", place },
@@ -42,20 +89,19 @@ const DraggableSuggestion = ({ place, onAdd }: DraggableSuggestionProps) => {
   return (
     <div
       ref={setNodeRef}
-      className={`group relative min-w-[240px] max-w-[260px] rounded-2xl overflow-hidden bg-card border border-border shadow-sm hover:shadow-lg transition-all duration-300 snap-start cursor-grab active:cursor-grabbing select-none ${
-        isDragging ? "opacity-30 scale-95" : "hover:-translate-y-1"
-      }`}
+      className={`group relative min-w-[240px] max-w-[260px] rounded-2xl overflow-hidden bg-card border border-border shadow-sm hover:shadow-lg transition-all duration-300 snap-start cursor-grab active:cursor-grabbing select-none ${isDragging ? "opacity-30 scale-95" : "hover:-translate-y-1"
+        }`}
       {...attributes}
       {...listeners}
     >
       <div className="relative h-36 overflow-hidden">
         <img
-          src={place.image_url || `https://source.unsplash.com/800x600/?${encodeURIComponent(place.name)}`}
+          src={place.image_url || `https://picsum.photos/seed/${encodeURIComponent(place.name)}/800/600`}
           alt={place.name}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
           onError={(e) => {
-            e.currentTarget.src = "https://source.unsplash.com/800x600/?travel,landmark";
+            e.currentTarget.src = "https://picsum.photos/seed/travel/800/600";
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/50 to-transparent" />
@@ -66,19 +112,73 @@ const DraggableSuggestion = ({ place, onAdd }: DraggableSuggestionProps) => {
       <div className="p-3.5">
         <h4 className="font-semibold text-foreground text-sm leading-tight mb-1">{place.name}</h4>
         <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{place.description}</p>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="mt-2 w-full h-7 text-xs text-primary hover:bg-primary/10"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onAdd?.(place);
-          }}
-        >
-          <Plus className="w-3 h-3 mr-1" />
-          Add to Day 1
-        </Button>
+
+        <div onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+          <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2 w-full h-7 text-xs text-primary hover:bg-primary/10 relative z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+              >
+                <Plus className="w-3 h-3 mr-1" />
+                Add to Your Travel Itinerary
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-48 p-3 z-[100]"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Select Day</Label>
+                  <Select value={selectedDay} onValueChange={setSelectedDay}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Day" />
+                    </SelectTrigger>
+                    <SelectContent className="z-[110]">
+                      {Array.from({ length: daysCount }).map((_, i) => (
+                        <SelectItem key={i} value={i.toString()} className="text-xs">
+                          Day {i + 1}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Select Time</Label>
+                  <Select value={selectedTime} onValueChange={setSelectedTime}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Time" />
+                    </SelectTrigger>
+                    <SelectContent className="z-[110] max-h-[160px]">
+                      {times.map((t) => (
+                        <SelectItem key={t} value={t} className="text-xs">
+                          {t}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  size="sm"
+                  className="w-full h-8 text-xs mt-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAdd?.(place, parseInt(selectedDay, 10), selectedTime);
+                    setIsPopoverOpen(false);
+                  }}
+                >
+                  Confirm Add
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
     </div>
   );
@@ -90,12 +190,12 @@ export const SuggestionDragOverlay = ({ place }: { place: SuggestedPlace }) => {
   return (
     <div className="w-64 rounded-2xl overflow-hidden bg-card border border-primary shadow-2xl scale-105 rotate-1">
       <div className="relative h-36 overflow-hidden">
-        <img 
-          src={place.image_url || `https://source.unsplash.com/800x600/?${encodeURIComponent(place.name)}`} 
-          alt={place.name} 
-          className="w-full h-full object-cover" 
+        <img
+          src={place.image_url || `https://picsum.photos/seed/${encodeURIComponent(place.name)}/800/600`}
+          alt={place.name}
+          className="w-full h-full object-cover"
           onError={(e) => {
-            e.currentTarget.src = "https://source.unsplash.com/800x600/?travel,landmark";
+            e.currentTarget.src = "https://picsum.photos/seed/travel/800/600";
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
@@ -112,14 +212,16 @@ export const SuggestionDragOverlay = ({ place }: { place: SuggestedPlace }) => {
 };
 
 interface AISuggestedPlacesProps {
-  onAddToItinerary: (place: SuggestedPlace, dayIndex: number) => void;
+  onAddToItinerary: (place: SuggestedPlace, dayIndex: number, time?: string) => void;
   locationName: string;
   suggestions?: SuggestedPlace[];
+  onRefreshSuggestions?: () => Promise<void>;
+  daysCount: number;
 }
 
-const CATEGORIES = ["all", "attraction", "food", "nature", "culture", "activity"] as const;
+const CATEGORIES = ["all", "hotel", "attraction", "food", "nature", "culture", "activity"] as const;
 
-const AISuggestedPlaces = ({ onAddToItinerary, locationName, suggestions: propSuggestions }: AISuggestedPlacesProps) => {
+const AISuggestedPlaces = ({ onAddToItinerary, locationName, suggestions: propSuggestions, onRefreshSuggestions, daysCount }: AISuggestedPlacesProps) => {
   const [internalSuggestions, setInternalSuggestions] = useState<SuggestedPlace[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string>("all");
@@ -149,13 +251,22 @@ const AISuggestedPlaces = ({ onAddToItinerary, locationName, suggestions: propSu
     ? suggestions
     : suggestions.filter((s) => s.category === activeFilter);
 
-  const handleRefresh = useCallback(() => {
-    fetchSuggestions();
-  }, [fetchSuggestions]);
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      if (onRefreshSuggestions) {
+        await onRefreshSuggestions();
+      } else {
+        await fetchSuggestions();
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [fetchSuggestions, onRefreshSuggestions]);
 
   const handleAdd = useCallback(
-    (place: SuggestedPlace) => {
-      onAddToItinerary(place, 0);
+    (place: SuggestedPlace, dayIndex: number, time: string) => {
+      onAddToItinerary(place, dayIndex, time);
     },
     [onAddToItinerary],
   );
@@ -185,11 +296,10 @@ const AISuggestedPlaces = ({ onAddToItinerary, locationName, suggestions: propSu
           <button
             key={cat}
             onClick={() => setActiveFilter(cat)}
-            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors whitespace-nowrap ${
-              activeFilter === cat
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors whitespace-nowrap ${activeFilter === cat
                 ? "bg-primary text-primary-foreground border-primary"
                 : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
-            }`}
+              }`}
           >
             {cat === "all" ? "All" : (categoryConfig[cat]?.label || cat)}
           </button>
@@ -208,7 +318,7 @@ const AISuggestedPlaces = ({ onAddToItinerary, locationName, suggestions: propSu
         )}
         <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-thin">
           {filtered.map((place) => (
-            <DraggableSuggestion key={place.id} place={place} onAdd={handleAdd} />
+            <DraggableSuggestion key={place.id} place={place} onAdd={handleAdd} daysCount={daysCount} />
           ))}
           {!isRefreshing && filtered.length === 0 && (
             <p className="text-sm text-muted-foreground py-8 w-full text-center">
@@ -219,7 +329,7 @@ const AISuggestedPlaces = ({ onAddToItinerary, locationName, suggestions: propSu
       </div>
 
       <p className="text-xs text-muted-foreground mt-1">
-        Drag cards into your itinerary or click "Add to Day 1" to include them.
+        click "Add to Your Travel Itinerary" to include them.
       </p>
     </div>
   );

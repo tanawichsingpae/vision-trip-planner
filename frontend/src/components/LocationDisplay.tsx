@@ -1,5 +1,6 @@
-import { MapPin, Check } from "lucide-react";
+import { MapPin, Check, Filter, Eye } from "lucide-react";
 import { type ImageCandidate } from "@/services/aiService";
+import { Button } from "@/components/ui/button";
 
 export interface LocationData {
   name: string;
@@ -14,7 +15,8 @@ export interface LocationData {
 }
 
 interface LocationDisplayProps {
-    locations: Array<{
+  useClip?: boolean;
+  locations: Array<{
     place: string;
     type: string;
     country: string;
@@ -24,23 +26,71 @@ interface LocationDisplayProps {
     initial_candidates?: ImageCandidate[];
     top_candidates?: ImageCandidate[];
   }>;
+  outliersCount?: number;
+  onOpenOutliersReport?: () => void;
 }
 
-const LocationDisplay = ({ locations }: LocationDisplayProps) => {
+const LocationDisplay = ({
+  locations,
+  useClip = true,
+  outliersCount = 0,
+  onOpenOutliersReport,
+}: LocationDisplayProps) => {
   return (
     <div className="animate-slide-up max-w-4xl mx-auto">
       <div className="glass-card rounded-3xl p-8 border border-primary/10 shadow-xl overflow-hidden relative">
         <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-3xl" />
         
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-2xl travel-gradient flex items-center justify-center shadow-lg">
-            <MapPin className="w-6 h-6 text-primary-foreground" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl travel-gradient flex items-center justify-center shadow-lg">
+              <MapPin className="w-6 h-6 text-primary-foreground" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-bold text-foreground">Identified Destination</h3>
+              <p className="text-muted-foreground text-sm">Visual Verification results</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-2xl font-bold text-foreground">Identified Destination</h3>
-            <p className="text-muted-foreground text-sm">Visual Verification results</p>
-          </div>
+
+          {outliersCount > 0 && onOpenOutliersReport && (
+            <Button
+              variant="outline"
+              onClick={onOpenOutliersReport}
+              className="rounded-2xl border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-semibold text-xs gap-2 transition-all shadow-sm"
+            >
+              <Filter className="w-4 h-4" />
+              รายงาน Outlier ({outliersCount})
+            </Button>
+          )}
         </div>
+
+        {outliersCount > 0 && (
+          <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold flex-shrink-0">
+                <Filter className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                  Vision AI กรอง Outlier ออก {outliersCount} สถานที่
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  เพื่อรักษาความถูกต้องและขอบเขตการเดินทาง ระบบได้กรองสถานที่ที่มีค่าความเชื่อมั่นต่ำหรืออยู่ออกนอกพื้นที่ออก
+                </p>
+              </div>
+            </div>
+            {onOpenOutliersReport && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onOpenOutliersReport}
+                className="px-4 py-2 rounded-xl border-amber-500/40 hover:bg-amber-500/20 text-amber-800 dark:text-amber-200 font-bold text-xs transition-all gap-1.5 whitespace-nowrap shadow-sm"
+              >
+                <Eye className="w-3.5 h-3.5" /> ดูรายงาน & กู้คืนสถานที่
+              </Button>
+            )}
+          </div>
+        )}
 
         <div className="space-y-6">
           {locations.map((loc, i) => (
@@ -59,7 +109,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                   </div>
                 </div>
                 
-                {loc.confidence !== undefined && (
+                {useClip && loc.confidence !== undefined && (
                   <div className="flex flex-col items-end gap-1.5">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-foreground">Visual Match</span>
@@ -75,7 +125,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                 )}
               </div>
 
-              {loc.confidence !== undefined && (
+              {useClip && loc.confidence !== undefined && (
                 <div className="mt-4 p-4 rounded-xl border border-border/50 bg-background/50">
                   <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Confidence Status</p>
                   {loc.confidence >= 0.75 ? (
@@ -110,7 +160,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
               )}
 
               {/* Initial Guesses Section */}
-              {loc.initial_candidates && loc.initial_candidates.length > 0 && (
+              {useClip && loc.initial_candidates && loc.initial_candidates.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-border/20">
                   <h5 className="text-sm font-bold text-foreground mb-4">Initial Guesses from AI (LLM)</h5>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -118,7 +168,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                       <div key={idx} className="flex flex-col rounded-xl overflow-hidden bg-background/40 border border-border/50 group/cand">
                         <div className="relative h-24 overflow-hidden">
                           <img 
-                            src={cand.photo_url || `https://source.unsplash.com/400x300/?${encodeURIComponent(cand.name)}`} 
+                            src={cand.photo_url || `https://picsum.photos/seed/${encodeURIComponent(cand.name)}/400/300`} 
                             alt={cand.name}
                             className="w-full h-full object-cover group-hover/cand:scale-110 transition-transform duration-500"
                           />
@@ -136,7 +186,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
               )}
 
               {/* CLIP Ranking Section */}
-              {loc.top_candidates && loc.top_candidates.length > 0 && (
+              {useClip && loc.top_candidates && loc.top_candidates.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-border/20">
                   <h5 className="text-sm font-bold text-foreground mb-4">CLIP Visual Similarity Ranking (Top 3)</h5>
                   <div className="space-y-3">
@@ -152,7 +202,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                         </div>
                         <div className="w-16 h-16 rounded-lg overflow-hidden border border-border/20 flex-shrink-0">
                           <img 
-                            src={cand.photo_url || `https://source.unsplash.com/400x300/?${encodeURIComponent(cand.name)}`} 
+                            src={cand.photo_url || `https://picsum.photos/seed/${encodeURIComponent(cand.name)}/400/300`} 
                             alt={cand.name}
                             className="w-full h-full object-cover"
                           />
@@ -177,7 +227,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                 </div>
               )}
 
-              {loc.similar_locations && loc.similar_locations.length > 0 && (
+              {useClip && loc.similar_locations && loc.similar_locations.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-border/20">
                   <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Visually Similar Locations</p>
                   <div className="flex flex-wrap gap-2">
@@ -191,7 +241,7 @@ const LocationDisplay = ({ locations }: LocationDisplayProps) => {
                 </div>
               )}
 
-              {loc.ai_reasoning && loc.ai_reasoning.length > 0 && (
+              {useClip && loc.ai_reasoning && loc.ai_reasoning.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-border/50 text-sm text-muted-foreground">
                   <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-2">
                     Visual Evidence

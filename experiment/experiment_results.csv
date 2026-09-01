@@ -1,0 +1,110 @@
+Timestamp,Image Name,Ground Truth,Model,Predicted Place,Confidence,Time MS,Is Correct
+2026-08-20 23:27:47,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0.jpg,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0,google-gemini-25-pro,The Grand Palace,0,34233,True
+2026-08-20 23:27:47,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0.jpg,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0,google-gemini-25-flash,The Grand Palace,0,8202,True
+2026-08-20 23:27:47,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0.jpg,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0,google-gemma4-31b,The Grand Palace,0,9117,True
+2026-08-20 23:27:47,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0.jpg,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0,openai-gpt4o,The Grand Palace,0,11160,True
+2026-08-20 23:27:47,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0.jpg,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0,openai-gpt4o-mini,The Grand Palace,0,9603,True
+2026-08-20 23:27:47,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0.jpg,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0,anthropic-claude-sonnet5,The Grand Palace,0,16522,True
+2026-08-20 23:27:47,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0.jpg,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0,amazon-nova-pro,Bangkok,0,11341,False
+2026-08-20 23:27:47,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0.jpg,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0,mistral-medium,The Grand Palace,0,10302,True
+2026-08-20 23:27:47,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0.jpg,dFQROr7oWzulq5FZUEh3MRrERXP2ZCRNt1ty78Z5HuJ2mEG4frJaJLYSmi7PuWvciU0,qwen-vl-32b,The Grand Palace,0,4825,True
+2026-08-20 23:52:43,6-1.png,6 1,google-gemini-25-pro,พระราชวังบัคคิงแฮม,0.8501730633482679,50461,True
+2026-08-20 23:52:43,6-1.png,6 1,google-gemini-25-flash,พระราชวังบัคคิงแฮม,0.8501730633482679,12173,True
+2026-08-20 23:52:43,6-1.png,6 1,google-gemma4-31b,พระราชวังบัคคิงแฮม,0.8501730633482679,68426,True
+2026-08-20 23:52:43,6-1.png,6 1,openai-gpt4o,พระราชวังบัคคิงแฮม,0.8501730633482679,19939,True
+2026-08-20 23:52:43,6-1.png,6 1,openai-gpt4o-mini,พระราชวังบัคคิงแฮม,0.8501730633482679,24086,True
+2026-08-20 23:52:43,6-1.png,6 1,anthropic-claude-sonnet5,พระราชวังบัคคิงแฮม,0.8501730633482679,42477,True
+2026-08-20 23:52:43,6-1.png,6 1,xai-grok4,พระราชวังบัคคิงแฮม,0.8501730633482679,26265,True
+2026-08-20 23:52:43,6-1.png,6 1,amazon-nova-pro,พระราชวังบัคคิงแฮม,0.8501730633482679,23969,True
+2026-08-20 23:52:43,6-1.png,6 1,mistral-medium,พระราชวังบัคคิงแฮม,0.8501730633482679,26543,True
+2026-08-20 23:52:43,6-1.png,6 1,qwen-vl-32b,พระราชวังบัคคิงแฮม,0.8501730633482679,17529,True
+2026-08-20 23:52:43,6-1.png,6 1,meta-llama4,พระราชวังบัคคิงแฮม,0.8501730633482679,18851,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,google-gemini-25-pro,Forbidden City,0,9986,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,google-gemini-25-flash,Forbidden City,0,2045,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,google-gemma4-31b,Forbidden City,0,4586,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,openai-gpt4o,Forbidden City,0,2337,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,openai-gpt4o-mini,Forbidden City,0,4134,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,anthropic-claude-sonnet5,Forbidden City (Hall of Supreme Harmony),0,7093,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,xai-grok4,Forbidden City (Hall of Supreme Harmony),0,6998,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,amazon-nova-pro,The Forbidden City,0,3158,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,mistral-medium,Forbidden City,0,2294,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,qwen-vl-32b,Forbidden City,0,1709,True
+2026-08-21 00:35:11,พระราชวังต้องห้าม-The-Palace-Museum-and-the-Forbidden-City.jpg,พระราชวังต้องห้าม The Palace Museum and the Forbidden City,meta-llama4,Forbidden City,0,5135,True
+2026-08-21 02:08:27,images (7).jpg,images (7),google-gemini-25-pro,Wat Arun,0,8560,True
+2026-08-21 02:08:27,images (7).jpg,images (7),google-gemini-25-flash,Wat Arun (Temple of Dawn),0,2530,True
+2026-08-21 02:08:27,images (7).jpg,images (7),google-gemma4-31b,Wat Arun,0,3410,True
+2026-08-21 02:08:27,images (7).jpg,images (7),openai-gpt4o,Wat Arun,0,4451,True
+2026-08-21 02:08:27,images (7).jpg,images (7),openai-gpt4o-mini,Wat Arun,0,9800,True
+2026-08-21 02:08:27,images (7).jpg,images (7),anthropic-claude-sonnet5,Wat Arun (Temple of Dawn),0,5790,True
+2026-08-21 02:08:27,images (7).jpg,images (7),xai-grok4,Wat Arun,0,3570,True
+2026-08-21 02:08:27,images (7).jpg,images (7),amazon-nova-pro,Wat Arun,0,2629,True
+2026-08-21 02:08:27,images (7).jpg,images (7),mistral-medium,Wat Arun,0,17556,True
+2026-08-21 02:08:27,images (7).jpg,images (7),qwen-vl-32b,Wat Arun,0,3334,True
+2026-08-21 02:08:27,images (7).jpg,images (7),meta-llama4,Wat Arun,0,3983,True
+2026-08-21 02:09:47,images (5).jpg,images (5),google-gemini-25-pro,Eiffel Tower,0,14253,True
+2026-08-21 02:09:47,images (5).jpg,images (5),google-gemini-25-flash,Eiffel Tower,0,2776,True
+2026-08-21 02:09:47,images (5).jpg,images (5),google-gemma4-31b,Eiffel Tower,0,6671,True
+2026-08-21 02:09:47,images (5).jpg,images (5),openai-gpt4o,Eiffel Tower,0,2991,True
+2026-08-21 02:09:47,images (5).jpg,images (5),openai-gpt4o-mini,Eiffel Tower,0,1795,True
+2026-08-21 02:09:47,images (5).jpg,images (5),anthropic-claude-sonnet5,Eiffel Tower,0,4707,True
+2026-08-21 02:09:47,images (5).jpg,images (5),xai-grok4,Eiffel Tower,0,3985,True
+2026-08-21 02:09:47,images (5).jpg,images (5),amazon-nova-pro,Eiffel Tower,0,2159,True
+2026-08-21 02:09:47,images (5).jpg,images (5),mistral-medium,Eiffel Tower,0,1663,True
+2026-08-21 02:09:47,images (5).jpg,images (5),qwen-vl-32b,Eiffel Tower,0,1920,True
+2026-08-21 02:09:47,images (5).jpg,images (5),meta-llama4,Eiffel Tower,0,2525,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,google-gemini-25-pro,Taj Mahal,0,12716,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,google-gemini-25-flash,Taj Mahal,0,3578,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,google-gemma4-31b,Taj Mahal,0,6111,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,openai-gpt4o,Taj Mahal,0,2008,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,openai-gpt4o-mini,Taj Mahal,0,4410,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,anthropic-claude-sonnet5,Taj Mahal,0,5346,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,xai-grok4,Taj Mahal,0,3618,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,amazon-nova-pro,Taj Mahal,0,2334,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,mistral-medium,Taj Mahal,0,2238,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,qwen-vl-32b,Taj Mahal,0,1897,True
+2026-08-21 02:11:22,_98548702_gettyimages-104559594.jpg, 98548702 gettyimages 104559594,meta-llama4,Taj Mahal,0,3294,True
+2026-08-21 02:12:47,images (25).jpg,images (25),google-gemini-25-pro,Chatuchak Weekend Market,0,10642,False
+2026-08-21 02:12:47,images (25).jpg,images (25),google-gemini-25-flash,Pak Khlong Talat (Flower Market),0,2540,False
+2026-08-21 02:12:47,images (25).jpg,images (25),google-gemma4-31b,Basílica del Voto Nacional,0,3473,False
+2026-08-21 02:12:47,images (25).jpg,images (25),openai-gpt4o,Manila City Hall,0,2858,False
+2026-08-21 02:12:47,images (25).jpg,images (25),openai-gpt4o-mini,Burgos Circle,0,3495,False
+2026-08-21 02:12:47,images (25).jpg,images (25),anthropic-claude-sonnet5,"Torre del Reloj Monumental (Clock Tower), Tepito Market area",0,6756,False
+2026-08-21 02:12:47,images (25).jpg,images (25),xai-grok4,Torre del Reloj,0,13798,False
+2026-08-21 02:12:47,images (25).jpg,images (25),amazon-nova-pro,Koh Sirey Temple,0,2701,False
+2026-08-21 02:12:47,images (25).jpg,images (25),mistral-medium,Jalan Alor,0,2315,False
+2026-08-21 02:12:47,images (25).jpg,images (25),qwen-vl-32b,Bangkok,0,2967,False
+2026-08-21 02:12:47,images (25).jpg,images (25),meta-llama4,Quiapo Church,0,5439,False
+2026-08-21 02:14:35,images (28).jpg,images (28),google-gemini-25-pro,Wat Rong Khun (White Temple),0,7947,True
+2026-08-21 02:14:35,images (28).jpg,images (28),google-gemini-25-flash,Wat Rong Khun (The White Temple),0,1856,True
+2026-08-21 02:14:35,images (28).jpg,images (28),google-gemma4-31b,Wat Rong Khun (The White Temple),0,3019,True
+2026-08-21 02:14:35,images (28).jpg,images (28),openai-gpt4o,Wat Rong Khun,0,3931,True
+2026-08-21 02:14:35,images (28).jpg,images (28),openai-gpt4o-mini,Wat Rong Khun,0,2013,True
+2026-08-21 02:14:35,images (28).jpg,images (28),anthropic-claude-sonnet5,Wat Rong Khun (White Temple),0,6448,True
+2026-08-21 02:14:35,images (28).jpg,images (28),xai-grok4,Wat Rong Khun (White Temple),0,7278,True
+2026-08-21 02:14:35,images (28).jpg,images (28),amazon-nova-pro,Wat Rong Khun,0,3547,True
+2026-08-21 02:14:35,images (28).jpg,images (28),mistral-medium,Wat Rong Khun,0,18731,True
+2026-08-21 02:14:35,images (28).jpg,images (28),qwen-vl-32b,White Temple,0,4822,True
+2026-08-21 02:14:35,images (28).jpg,images (28),meta-llama4,Wat Rong Khun,0,2849,True
+2026-08-21 02:15:58,caption.jpg,caption,google-gemini-25-pro,Wat Pho,0,9120,True
+2026-08-21 02:15:58,caption.jpg,caption,google-gemini-25-flash,Wat Pho,0,12402,True
+2026-08-21 02:15:58,caption.jpg,caption,google-gemma4-31b,Wat Phra Kaew,0,3368,False
+2026-08-21 02:15:58,caption.jpg,caption,openai-gpt4o,Wat Pho,0,3627,True
+2026-08-21 02:15:58,caption.jpg,caption,openai-gpt4o-mini,Wat Phra Kaew,0,3156,False
+2026-08-21 02:15:58,caption.jpg,caption,anthropic-claude-sonnet5,Wat Pho (Temple of the Reclining Buddha),0,6507,True
+2026-08-21 02:15:58,caption.jpg,caption,xai-grok4,Grand Palace,0,3991,False
+2026-08-21 02:15:58,caption.jpg,caption,amazon-nova-pro,Wat Pho,0,2510,True
+2026-08-21 02:15:58,caption.jpg,caption,mistral-medium,Wat Pho,0,1934,True
+2026-08-21 02:15:58,caption.jpg,caption,qwen-vl-32b,Wat Pho,0,2872,True
+2026-08-21 02:15:58,caption.jpg,caption,meta-llama4,Wat Pho,0,3121,True
+2026-08-21 12:44:51,images (7).jpg,images (7),google-gemini-25-flash,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,17132,True
+2026-08-21 14:20:48,images (7).jpg,images (7),google-gemini-25-pro,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,34864,True
+2026-08-21 14:20:48,images (7).jpg,images (7),google-gemini-25-flash,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,12999,True
+2026-08-21 14:20:48,images (7).jpg,images (7),google-gemma4-31b,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,12839,True
+2026-08-21 14:20:48,images (7).jpg,images (7),openai-gpt4o,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,11819,True
+2026-08-21 14:20:48,images (7).jpg,images (7),openai-gpt4o-mini,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,12075,True
+2026-08-21 14:20:48,images (7).jpg,images (7),anthropic-claude-sonnet5,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,23427,True
+2026-08-21 14:20:48,images (7).jpg,images (7),xai-grok4,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,16787,True
+2026-08-21 14:20:48,images (7).jpg,images (7),amazon-nova-pro,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,10551,True
+2026-08-21 14:20:48,images (7).jpg,images (7),mistral-medium,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,10466,True
+2026-08-21 14:20:48,images (7).jpg,images (7),qwen-vl-32b,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,12637,True
+2026-08-21 14:20:48,images (7).jpg,images (7),meta-llama4,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,9781,True

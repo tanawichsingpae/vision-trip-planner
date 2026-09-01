@@ -1,0 +1,16 @@
+Timestamp,Session ID,Image Name,Ground Truth,Model,Run Number,Total Runs,Predicted Place,Confidence,Time MS,Is Correct
+2026-08-21 12:42:16,SES-936590,images (1).jpg,images (1),google-gemini-25-flash,1,5,Jinshanling,0.9079594778164003,18899,True
+2026-08-21 12:42:16,SES-936590,images (1).jpg,images (1),google-gemini-25-flash,2,5,Jinshanling,0.9079594778164003,8789,True
+2026-08-21 12:42:16,SES-936590,images (1).jpg,images (1),google-gemini-25-flash,3,5,Jinshanling,0.9079594778164003,10011,True
+2026-08-21 12:42:16,SES-936590,images (1).jpg,images (1),google-gemini-25-flash,4,5,Jinshanling,0.9079594778164003,9027,True
+2026-08-21 12:42:16,SES-936590,images (1).jpg,images (1),google-gemini-25-flash,5,5,Jinshanling,0.9079594778164003,11673,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,1,10,วัดร่องขุ่น,0.8323905503870326,12332,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,2,10,วัดร่องขุ่น,0.8323905503870326,12094,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,3,10,วัดร่องขุ่น,0.8323905503870326,10980,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,4,10,วัดร่องขุ่น,0.8323905503870326,13195,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,5,10,วัดร่องขุ่น,0.8323905503870326,9824,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,6,10,วัดร่องขุ่น,0.8323905503870326,10950,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,7,10,วัดร่องขุ่น,0.8323905503870326,9711,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,8,10,วัดร่องขุ่น,0.8323905503870326,11344,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,9,10,วัดร่องขุ่น,0.8323905503870326,11651,True
+2026-08-21 14:38:05,SES-885891,images (28).jpg,images (28),openai-gpt4o-mini,10,10,วัดร่องขุ่น,0.8323905503870326,14585,True

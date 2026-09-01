@@ -1,0 +1,34 @@
+Timestamp,Image Name,Ground Truth,Model,Predicted (CLIP),Predicted (No CLIP),Correct (CLIP),Correct (No CLIP),Latency CLIP (ms),Latency No CLIP (ms),Delta Latency (ms)
+2026-08-21 11:33:14,images (4).jpg,images (4),google-gemini-25-pro,มาชูปิกชู,Machu Picchu,False,False,33884,8869,-25015
+2026-08-21 11:33:14,images (4).jpg,images (4),google-gemini-25-flash,มาชูปิกชู,Machu Picchu,False,False,10853,1759,-9094
+2026-08-21 11:33:14,images (4).jpg,images (4),google-gemma4-31b,มาชูปิกชู,Machu Picchu,False,False,17362,2913,-14449
+2026-08-21 11:33:14,images (4).jpg,images (4),openai-gpt4o,มาชูปิกชู,Machu Picchu,False,False,10860,1747,-9113
+2026-08-21 11:33:14,images (4).jpg,images (4),openai-gpt4o-mini,มาชูปิกชู,Machu Picchu,False,False,13266,1679,-11587
+2026-08-21 11:33:14,images (4).jpg,images (4),anthropic-claude-sonnet5,Huayna Picchu,Machu Picchu,False,False,22172,4972,-17200
+2026-08-21 11:33:14,images (4).jpg,images (4),xai-grok4,มาชูปิกชู,Machu Picchu,False,False,24584,5849,-18735
+2026-08-21 11:33:14,images (4).jpg,images (4),amazon-nova-pro,มาชูปิกชู,Machu Picchu,False,False,11097,2496,-8601
+2026-08-21 11:33:14,images (4).jpg,images (4),mistral-medium,มาชูปิกชู,Machu Picchu,False,False,11207,1854,-9353
+2026-08-21 11:33:14,images (4).jpg,images (4),qwen-vl-32b,Huayna Picchu,Machu Picchu,False,False,9925,2130,-7795
+2026-08-21 11:33:14,images (4).jpg,images (4),meta-llama4,มาชูปิกชู,Machu Picchu,False,False,11215,1652,-9563
+2026-08-21 11:42:45,images (5).jpg,images (5),google-gemini-25-pro,หอคอยไอเฟล,Eiffel Tower,False,False,38627,5631,-32996
+2026-08-21 11:42:45,images (5).jpg,images (5),google-gemini-25-flash,หอคอยไอเฟล,Eiffel Tower,False,False,12959,1824,-11135
+2026-08-21 11:42:45,images (5).jpg,images (5),google-gemma4-31b,หอคอยไอเฟล,Eiffel Tower,False,False,27465,1946,-25519
+2026-08-21 11:42:45,images (5).jpg,images (5),openai-gpt4o,หอคอยไอเฟล,Eiffel Tower,False,False,14738,1468,-13270
+2026-08-21 11:42:45,images (5).jpg,images (5),openai-gpt4o-mini,หอคอยไอเฟล,Eiffel Tower,False,False,18302,1568,-16734
+2026-08-21 11:42:45,images (5).jpg,images (5),anthropic-claude-sonnet5,หอคอยไอเฟล,Eiffel Tower,False,False,32587,4943,-27644
+2026-08-21 11:42:45,images (5).jpg,images (5),xai-grok4,หอคอยไอเฟล,Eiffel Tower,False,False,21424,4126,-17298
+2026-08-21 11:42:45,images (5).jpg,images (5),amazon-nova-pro,Montmartre,Eiffel Tower,False,False,12122,2395,-9727
+2026-08-21 11:42:45,images (5).jpg,images (5),mistral-medium,หอคอยไอเฟล,Eiffel Tower,False,False,10502,1459,-9043
+2026-08-21 11:42:45,images (5).jpg,images (5),qwen-vl-32b,หอคอยไอเฟล,Eiffel Tower,False,False,14213,2510,-11703
+2026-08-21 11:42:45,images (5).jpg,images (5),meta-llama4,ปารีส,Eiffel Tower,False,False,15820,1613,-14207
+2026-08-21 11:54:52,images (7).jpg,images (7),google-gemini-25-pro,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun,True,True,37639,7232,-30407
+2026-08-21 11:54:52,images (7).jpg,images (7),google-gemini-25-flash,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun (Temple of Dawn),True,True,12124,1953,-10171
+2026-08-21 11:54:52,images (7).jpg,images (7),google-gemma4-31b,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun,True,True,15626,2856,-12770
+2026-08-21 11:54:52,images (7).jpg,images (7),openai-gpt4o,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun,True,True,13902,2051,-11851
+2026-08-21 11:54:52,images (7).jpg,images (7),openai-gpt4o-mini,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun,True,True,11448,2366,-9082
+2026-08-21 11:54:52,images (7).jpg,images (7),anthropic-claude-sonnet5,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun (Temple of Dawn),True,True,36196,5447,-30749
+2026-08-21 11:54:52,images (7).jpg,images (7),xai-grok4,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun,True,True,30098,5170,-24928
+2026-08-21 11:54:52,images (7).jpg,images (7),amazon-nova-pro,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun,True,True,13389,3609,-9780
+2026-08-21 11:54:52,images (7).jpg,images (7),mistral-medium,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun,True,True,29193,1398,-27795
+2026-08-21 11:54:52,images (7).jpg,images (7),qwen-vl-32b,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun,True,True,16616,1458,-15158
+2026-08-21 11:54:52,images (7).jpg,images (7),meta-llama4,วัดอรุณราชวรารามราชวรมหาวิหาร,Wat Arun,True,True,33010,1421,-31589
