@@ -28,6 +28,7 @@ interface LocationDisplayProps {
     top_candidates?: ImageCandidate[];
     distanceKm?: number;
     isExcursion?: boolean;
+    uploadedImageUrl?: string;
   }>;
   outliersCount?: number;
   onOpenOutliersReport?: () => void;
@@ -111,9 +112,27 @@ const LocationDisplay = ({
               <div key={i} className="flex flex-col p-6 rounded-2xl bg-muted/40 border border-border/50 hover:border-primary/30 transition-all hover:bg-muted/60 group">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center font-bold text-primary border border-primary/20 group-hover:scale-105 transition-transform">
-                      {i + 1}
-                    </div>
+                    {/* Uploaded Photo Card or Number Badge */}
+                    {loc.uploadedImageUrl ? (
+                      <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden border-2 border-primary/30 shadow-md shrink-0 group/img bg-muted">
+                        <img
+                          src={loc.uploadedImageUrl}
+                          alt={loc.place}
+                          className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-300"
+                        />
+                        <div className="absolute top-1 left-1 w-5 h-5 rounded-md bg-black/75 backdrop-blur-xs text-white text-[10px] font-bold flex items-center justify-center shadow-xs">
+                          {i + 1}
+                        </div>
+                        <div className="absolute bottom-0 inset-x-0 bg-black/60 backdrop-blur-xs py-0.5 text-center">
+                          <span className="text-[9px] font-semibold text-white tracking-tight">ภาพที่อัปโหลด</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center font-bold text-primary border border-primary/20 group-hover:scale-105 transition-transform shrink-0">
+                        {i + 1}
+                      </div>
+                    )}
+
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-bold text-foreground text-xl">{loc.place}</h4>

@@ -36,6 +36,7 @@ export interface VisionResult {
   ai_reasoning?: string[];
   initial_candidates?: ImageCandidate[];
   top_candidates?: ImageCandidate[];
+  uploadedImageUrl?: string;
 }
 
 export interface ImageCandidate {
@@ -374,18 +375,23 @@ async function callOpenRouterPlan(
   const month = preferences.startDate.getMonth() + 1;
   const season = month >= 3 && month <= 5 ? "Spring" : month >= 6 && month <= 8 ? "Summer" : month >= 9 && month <= 11 ? "Autumn" : "Winter";
 
+  const hotelInfoText = preferences.hasHotel === "yes" && preferences.hotelName
+    ? `\nHotel / Accommodation Anchor: ${preferences.hotelName}${preferences.hotelLat && preferences.hotelLng ? ` (Lat: ${preferences.hotelLat}, Lng: ${preferences.hotelLng})` : ""}. Daily exploration should originate from and conclude near this accommodation without unnecessary backtracking.\n`
+    : "";
+
   const spatialConstraintsText = dayClusters && dayClusters.length > 0
     ? `\nSPATIAL CLUSTER & DIRECTIONAL CONSTRAINTS (MANDATORY TO FOLLOW):
 The locations have been partitioned into ${dayClusters.length} spatial daily clusters with Macro-TSP progression.
 ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
 - Centroid: Lat ${c.centroid?.lat.toFixed(4) || "N/A"}, Lng ${c.centroid?.lng.toFixed(4) || "N/A"}${c.radiusKm ? ` (Max Radius: ${c.radiusKm.toFixed(1)} km)` : ""}
 - Suggested Anchors: ${c.pois.map(p => p.name).slice(0, 4).join(", ")}
-- Rule for Day ${c.day}: Keep ALL activities for Day ${c.day} strictly clustered in this specific geographic zone. DO NOT jump to another district. Progress smoothly along an open linear or curved path from morning to evening.`).join("\n")}\n`
+- Rule for Day ${c.day}: Keep ALL activities for Day ${c.day} strictly clustered in this specific geographic zone. DO NOT jump to another district far away. Progress logically from morning to evening without criss-crossing paths.`).join("\n")}\n`
     : "";
 
   const prompt = `Generate a ${preferences.days}-day travel itinerary and additional suggestions for a trip covering these locations: ${places.join(", ")}.
   
   Trip Dates: ${startFmt} to ${endFmt} (${preferences.days} days in ${monthName} – ${season})
+  ${hotelInfoText}
   ${spatialConstraintsText}
   Traveler Profile:
   - Type: ${preferences.travelerType}
@@ -394,14 +400,14 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
   - Travel Pace: ${preferences.pace}
   
   CRITICAL ITINERARY PLANNING RULES (MANDATORY):
-  1. LINEAR / ARC PROGRESSION (NO CIRCULAR LOOPS):
-     - Each day's travel route MUST progress smoothly forward along an open linear or curved path (e.g., North to South, West to East, or along a transit corridor).
-     - DO NOT make the route a closed loop where the last tourist spot curves back to the morning starting area.
+  1. UNTANGLED DAILY ROUTE (NO CRISS-CROSSING / BACKTRACKING):
+     - Each day's travel route MUST progress smoothly without criss-crossing or zigzagging across town.
+     - Sequence places by geographic proximity from morning to evening.
   2. STRICT GEOGRAPHIC DISTRICT GROUPING (NO REVISITING SAME DISTRICT ACROSS DAYS):
      - Group all places within the same neighborhood/district (within ~2.5-3.5 km) into the SAME day.
-     - NEVER scatter places from the same district across different days (e.g., avoid visiting Shibuya on Day 1 and returning to Harajuku on Day 3).
+     - NEVER scatter places from the same district across different days (e.g., avoid visiting Grand Palace on Day 1 and returning to Wat Pho on Day 3).
   3. MANDATORY MIDDAY LUNCH (11:30 - 13:30):
-     - EVERY single day MUST include a dedicated lunch restaurant/food activity in the midday slot (11:30 - 13:30).
+     - EVERY single day MUST include a dedicated lunch restaurant/food activity in the midday slot (11:30 - 13:30) located close to the morning attraction.
   4. STRICTLY NO CONSECUTIVE RESTAURANTS:
      - DO NOT schedule back-to-back restaurants or cafes in the same day without a sightseeing or cultural activity in between.
      - Structure per day: Morning Sightseeing -> Lunch (11:30-13:30) -> Afternoon Attraction -> Sunset/Dinner (18:00-20:00) -> Evening Stroll/Nightlife.

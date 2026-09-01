@@ -115,8 +115,9 @@ export function detectVisionOutliers(
     const lowerPlace = placeName.toLowerCase();
     const id = `outlier-${index}-${Date.now()}`;
 
-    // Get candidate photo if available
+    // Get candidate photo or uploaded photo if available
     const photoUrl =
+      res.uploadedImageUrl ||
       res.top_candidates?.[0]?.photo_url ||
       res.initial_candidates?.[0]?.photo_url ||
       null;

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabaseClient'
+import { useAuth } from '@/context/AuthContext'
 
 // ─── Animation Variants ───────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ const flyVariants = {
 
 export default function Login() {
   const navigate = useNavigate()
+  const { user, loading: authLoading } = useAuth()
   const [isSignUp, setIsSignUp] = useState(false)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [email, setEmail] = useState('')
@@ -64,6 +66,13 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user && !authLoading) {
+      navigate('/', { replace: true })
+    }
+  }, [user, authLoading, navigate])
 
   // Mouse parallax tracking
   useEffect(() => {

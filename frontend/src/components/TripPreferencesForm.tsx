@@ -74,6 +74,7 @@ function getSuggestedBudgetRange(destination: string, days: number, travelStyle:
   }
 
   const totalMin = baseMin * days;
+  const totalMax = baseMax * days;
   return `฿${totalMin.toLocaleString()} - ฿${totalMax.toLocaleString()} THB`;
 }
 

@@ -4,6 +4,7 @@ import {
   Plane,
   Sparkles,
   LogOut,
+  LogIn,
   FileDown,
   Beaker,
   Info,
@@ -181,7 +182,18 @@ const UserMenu = () => {
     navigate("/login");
   };
 
-  if (!user) return null;
+  if (!user) {
+    return (
+      <button
+        id="login-button"
+        onClick={() => navigate("/login")}
+        className="flex items-center gap-1.5 bg-background/10 hover:bg-white/20 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-primary-foreground/30 text-primary-foreground text-sm font-medium transition-all shadow-xs"
+      >
+        <LogIn className="w-4 h-4" />
+        <span>Sign In</span>
+      </button>
+    );
+  }
 
   const avatarUrl: string | undefined = user.user_metadata?.avatar_url;
   const displayName: string =
@@ -365,7 +377,19 @@ const Index = () => {
       // Step 1: Vision AI for each image
       setLoadingStep(useClip ? "Loading Vision Model + CLIP..." : "Loading Vision Model...");
       const results = await Promise.all(
-        files.map(file => analyzeImage(file, model, useClip, setLoadingStep))
+        files.map(async (file) => {
+          const res = await analyzeImage(file, model, useClip, setLoadingStep);
+          let uploadedImageUrl: string | undefined = undefined;
+          try {
+            uploadedImageUrl = URL.createObjectURL(file);
+          } catch {
+            // fallback
+          }
+          return {
+            ...res,
+            uploadedImageUrl,
+          };
+        })
       );
 
       // Pre-geocode identified locations to compute accurate geo-distances
@@ -643,9 +667,11 @@ const Index = () => {
 
       const sortedEnrichedItinerary = rebalancedItinerary.map((day, dIdx) => {
         const prevDayLastAct = dIdx > 0 ? rebalancedItinerary[dIdx - 1]?.activities.slice(-1)[0] : undefined;
-        const dayStart = dIdx === 0
+        const dayStart = (prefs.hasHotel === "yes" && prefs.hotelLat && prefs.hotelLng)
           ? hotelLoc
-          : (prevDayLastAct?.lat && prevDayLastAct?.lng ? { lat: prevDayLastAct.lat, lng: prevDayLastAct.lng } : hotelLoc);
+          : (dIdx === 0
+            ? hotelLoc
+            : (prevDayLastAct?.lat && prevDayLastAct?.lng ? { lat: prevDayLastAct.lat, lng: prevDayLastAct.lng } : hotelLoc));
 
         // Calculate day of week for opening hours fitting
         const dayDate = new Date(prefs.startDate);
