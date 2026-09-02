@@ -206,14 +206,14 @@ export const SavedTripsModal = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-fade-in">
       <div className="relative w-full max-w-4xl bg-card border border-border/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
         {/* Header */}
-        <div className="travel-gradient px-6 py-4 flex items-center justify-between shadow-md shrink-0">
+        <div className="bg-primary text-primary-foreground px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0 shadow-xs">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30 text-white shadow-inner">
-              <Compass className="w-5 h-5" />
+            <div className="size-10 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center border border-white/25 text-white shadow-inner">
+              <Compass className="size-5 text-white" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                ประวัติทริปและการสนทนาของฉัน (Saved Trips)
+              <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                ประวัติทริปของฉัน (Saved Trips)
               </h3>
               <p className="text-xs text-white/80">
                 เลือกทริปที่เคยบันทึกไว้เพื่อเปิดแก้ไข ตรวจสอบ หรือคุยต่อกับพิกซ์ (Pix)
@@ -228,17 +228,17 @@ export const SavedTripsModal = ({
                 onClose();
                 onNewTrip();
               }}
-              className="bg-white/20 hover:bg-white/30 text-white border border-white/40 rounded-xl text-xs font-semibold gap-1.5 shadow-sm"
+              className="bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl text-xs font-semibold gap-1.5 shadow-2xs"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="size-3.5" />
               <span>สร้างทริปใหม่</span>
             </Button>
 
             <button
               onClick={onClose}
-              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+              className="size-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
             >
-              <X className="w-4 h-4" />
+              <X className="size-4" />
             </button>
           </div>
         </div>
@@ -247,18 +247,18 @@ export const SavedTripsModal = ({
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {loading ? (
             <div className="py-16 text-center space-y-3">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+              <div className="size-8 border-3 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="text-sm text-muted-foreground font-medium">กำลังโหลดรายการทริปของคุณ...</p>
             </div>
           ) : trips.length === 0 ? (
             <div className="py-16 text-center max-w-sm mx-auto space-y-4">
-              <div className="w-16 h-16 rounded-3xl bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-inner">
-                <Plane className="w-8 h-8" />
+              <div className="size-16 rounded-3xl bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-inner">
+                <Plane className="size-8" />
               </div>
               <div>
                 <h4 className="font-bold text-foreground text-base">ยังไม่มีทริปที่บันทึกไว้</h4>
                 <p className="text-xs text-muted-foreground mt-1">
-                  เมื่อคุณสร้างแผนการท่องเที่ยวหรือคุยกับบอทพิกซ์ คุณสามารถกด "บันทึกทริป" เพื่อเก็บไว้ดูย้อนหลังได้ตลอดเวลา
+                  เมื่อคุณสร้างแผนการท่องเที่ยวหรือคุยกับบอทพิกซ์ คุณสามารถกด "Save trip" เพื่อเก็บไว้ดูย้อนหลังได้ตลอดเวลา
                 </p>
               </div>
               <Button
@@ -266,9 +266,9 @@ export const SavedTripsModal = ({
                   onClose();
                   onNewTrip();
                 }}
-                className="travel-gradient rounded-xl text-white font-semibold text-xs shadow-md"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-semibold text-xs shadow-2xs"
               >
-                <Plus className="w-3.5 h-3.5 mr-1" /> เริ่มวางแผนทริปแรก
+                <Plus className="size-3.5 mr-1" /> เริ่มวางแผนทริปแรก
               </Button>
             </div>
           ) : (
@@ -291,9 +291,9 @@ export const SavedTripsModal = ({
                       onSelectTrip(trip);
                       onClose();
                     }}
-                    className={`group relative flex flex-col rounded-2xl overflow-hidden border transition-all cursor-pointer hover:shadow-xl hover:-translate-y-0.5 bg-card/80 backdrop-blur-xs ${
+                    className={`group relative flex flex-col rounded-2xl overflow-hidden border transition-all cursor-pointer hover:shadow-lg hover:-translate-y-0.5 bg-card ${
                       isCurrent
-                        ? "border-primary ring-2 ring-primary/20 shadow-md bg-primary/5"
+                        ? "border-primary ring-2 ring-primary/20 shadow-xs bg-primary/5"
                         : "border-border/70 hover:border-primary/50"
                     }`}
                   >
@@ -304,8 +304,8 @@ export const SavedTripsModal = ({
                       {/* Top Badges (Active Status & AI Model) */}
                       <div className="absolute top-2 left-2 flex items-center gap-1.5 z-10 flex-wrap">
                         {isCurrent && (
-                          <div className="px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shadow-md flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                          <div className="px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shadow-2xs flex items-center gap-1">
+                            <span className="size-1.5 rounded-full bg-white animate-ping" />
                             กำลังเปิดใช้งาน
                           </div>
                         )}
@@ -314,8 +314,8 @@ export const SavedTripsModal = ({
                           const modelInfo = getAIModelInfo(modelKey);
                           if (!modelInfo) return null;
                           return (
-                            <div className="px-2 py-0.5 rounded-full bg-black/65 backdrop-blur-md text-white border border-white/20 text-[10px] font-semibold flex items-center gap-1 shadow-md">
-                              <Sparkles className="w-3 h-3 text-[#ffe0a9]" />
+                            <div className="px-2 py-0.5 rounded-full bg-black/65 backdrop-blur-md text-white border border-white/20 text-[10px] font-semibold flex items-center gap-1 shadow-2xs">
+                              <Sparkles className="size-3 text-[#ffe0a9]" />
                               <span>{modelInfo.label}</span>
                             </div>
                           );
@@ -328,7 +328,7 @@ export const SavedTripsModal = ({
                           {trip.title}
                         </h4>
                         <p className="text-[11px] text-white/90 flex items-center gap-1 drop-shadow-sm font-medium">
-                          <MapPin className="w-3 h-3 text-travel-sand" />
+                          <MapPin className="size-3 text-travel-sand" />
                           <span>{trip.destination || "ไม่ระบุจุดหมาย"}</span>
                         </p>
                       </div>
@@ -337,14 +337,14 @@ export const SavedTripsModal = ({
                     {/* Meta details */}
                     <div className="p-3.5 flex flex-col justify-between flex-1 gap-2.5">
                       <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1 bg-muted px-2 py-0.5 rounded-md font-medium text-foreground text-[11px]">
-                          <Calendar className="w-3 h-3 text-primary" />
+                        <span className="inline-flex items-center gap-1 bg-secondary px-2 py-0.5 rounded-md font-medium text-foreground text-[11px]">
+                          <Calendar className="size-3 text-primary" />
                           {trip.itinerary?.length || 1} วัน ({totalActivities} กิจกรรม)
                         </span>
 
                         {totalMessages > 0 && (
-                          <span className="inline-flex items-center gap-1 bg-muted px-2 py-0.5 rounded-md font-medium text-foreground text-[11px]">
-                            <MessageSquare className="w-3 h-3 text-emerald-500" />
+                          <span className="inline-flex items-center gap-1 bg-secondary px-2 py-0.5 rounded-md font-medium text-foreground text-[11px]">
+                            <MessageSquare className="size-3 text-emerald-500" />
                             {totalMessages} ข้อความแชท
                           </span>
                         )}
@@ -355,7 +355,7 @@ export const SavedTripsModal = ({
                           if (!modelInfo) return null;
                           return (
                             <span className="inline-flex items-center gap-1 bg-primary/10 border border-primary/20 text-primary px-2 py-0.5 rounded-md font-semibold text-[11px]">
-                              <Sparkles className="w-3 h-3 text-primary" />
+                              <Sparkles className="size-3 text-primary" />
                               {modelInfo.label}
                             </span>
                           );
@@ -364,7 +364,7 @@ export const SavedTripsModal = ({
 
                       <div className="flex items-center justify-between pt-2 border-t border-border/40 text-[11px] text-muted-foreground">
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
+                          <Clock className="size-3" />
                           แก้ไขเมื่อ {updatedDateStr}
                         </span>
 
@@ -372,14 +372,14 @@ export const SavedTripsModal = ({
                           <button
                             onClick={(e) => handleDelete(e, trip.id, trip.title)}
                             disabled={deletingId === trip.id}
-                            className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                             title="ลบทริปนี้"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="size-3.5" />
                           </button>
 
                           <span className="text-primary font-semibold flex items-center gap-0.5 text-xs group-hover:translate-x-0.5 transition-transform">
-                            เปิดดู <ArrowRight className="w-3 h-3" />
+                            เปิดดู <ArrowRight className="size-3" />
                           </span>
                         </div>
                       </div>
@@ -393,4 +393,6 @@ export const SavedTripsModal = ({
       </div>
     </div>
   );
+
 };
+

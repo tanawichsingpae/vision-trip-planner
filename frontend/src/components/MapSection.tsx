@@ -285,25 +285,35 @@ const MapSection = ({ location, itinerary, dayColors }: MapSectionProps) => {
   // UI RENDER
   // -----------------------------
   return (
-    <div className="animate-slide-up max-w-4xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-        <h2 className="text-2xl font-bold flex items-center gap-2 text-foreground">
-          <MapIcon className="w-6 h-6 text-primary" />
-          Interactive Map
-        </h2>
+    <div className="animate-slide-up w-full p-4 sm:p-5 flex flex-col gap-4">
+      {/* Header with Title and Day Filter Buttons */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <MapIcon className="size-4" />
+          </div>
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-foreground">
+              Interactive Map
+            </h2>
+            <p className="text-[11px] text-muted-foreground">
+              Visual route & location mapping for your trip
+            </p>
+          </div>
+        </div>
 
-        {/* Day Filter Bar */}
+        {/* Day Filter Pills */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
           <button
             onClick={() => setSelectedDayFilter("all")}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+            className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
               selectedDayFilter === "all"
-                ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                : "bg-background/80 text-muted-foreground border-border hover:bg-muted"
+                ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+                : "bg-secondary/60 text-muted-foreground border-border/70 hover:bg-secondary hover:text-foreground"
             }`}
           >
-            <Layers className="w-3.5 h-3.5" />
-            All Days
+            <Layers className="size-3" />
+            <span>All Days</span>
           </button>
           {itinerary.map((_, idx) => {
             const color = dayColors[idx % dayColors.length];
@@ -312,102 +322,119 @@ const MapSection = ({ location, itinerary, dayColors }: MapSectionProps) => {
               <button
                 key={idx}
                 onClick={() => setSelectedDayFilter(idx)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
                   isSelected
-                    ? "bg-card text-foreground border-primary shadow-md ring-2 ring-primary/30"
-                    : "bg-background/80 text-muted-foreground border-border hover:bg-muted"
+                    ? "bg-card text-foreground border-primary shadow-2xs ring-2 ring-primary/20"
+                    : "bg-secondary/60 text-muted-foreground border-border/70 hover:bg-secondary hover:text-foreground"
                 }`}
               >
-                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                Day {idx + 1}
+                <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                <span>Day {idx + 1}</span>
               </button>
             );
           })}
         </div>
       </div>
 
-      <div className="glass-card rounded-2xl overflow-hidden shadow-lg border border-white/20">
-        <div className="relative h-[420px]">
+      {/* Google Map Viewport */}
+      <div className="rounded-2xl overflow-hidden shadow-2xs border border-border/70 relative">
+        <div className="relative h-[360px] sm:h-[400px]">
           <div ref={mapRef} className="w-full h-full" />
 
           {!isLoaded && (
             <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 backdrop-blur-[2px]">
-              <Navigation className="w-8 h-8 animate-pulse text-primary" />
+              <Navigation className="size-8 animate-pulse text-primary" />
             </div>
           )}
         </div>
       </div>
 
-      {/* Day Legend */}
-      <div className="mt-6">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <Calendar className="w-3.5 h-3.5 text-primary" />
-          Day Legend & Filter
-        </h3>
+      {/* Day Legend & Filter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-secondary/30 border border-border/60">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <Calendar className="size-3.5 text-primary shrink-0" />
+          <span>Legend:</span>
+        </div>
 
-        <div className="flex flex-wrap gap-3 p-4 bg-card/60 backdrop-blur-sm rounded-xl border border-border/60 shadow-sm">
-          {itinerary.map((_, index) => (
-            <button
-              key={index}
-              onClick={() => setSelectedDayFilter(selectedDayFilter === index ? "all" : index)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
-                selectedDayFilter === index
-                  ? "bg-primary/10 border-primary text-primary font-bold shadow-xs"
-                  : "bg-background/50 border-border hover:border-primary/40 text-foreground"
-              }`}
-            >
-              <span
-                className="w-3.5 h-3.5 rounded-full border border-white/80 shrink-0"
-                style={{ backgroundColor: dayColors[index % dayColors.length] }}
-              />
-              <span>Day {index + 1}</span>
-            </button>
-          ))}
-          <div className="flex items-center gap-1.5 ml-auto text-xs text-muted-foreground font-mono">
-            <span className="w-3 h-3 rounded-full bg-indigo-600 inline-block"></span>
-            <span>🏨 Hotel Accommodation</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {itinerary.map((_, index) => {
+            const color = dayColors[index % dayColors.length];
+            const isSelected = selectedDayFilter === index;
+            return (
+              <button
+                key={index}
+                onClick={() => setSelectedDayFilter(selectedDayFilter === index ? "all" : index)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all ${
+                  isSelected
+                    ? "bg-primary/10 border-primary text-primary font-bold shadow-2xs"
+                    : "bg-background/80 border-border/70 hover:border-primary/40 text-foreground"
+                }`}
+              >
+                <span
+                  className="size-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: color }}
+                />
+                <span>Day {index + 1}</span>
+              </button>
+            );
+          })}
+
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-xs font-medium text-indigo-700 dark:text-indigo-300">
+            <span className="size-2.5 rounded-full bg-indigo-600 inline-block shrink-0" />
+            <span>🏨 Hotel Stay</span>
           </div>
         </div>
       </div>
 
-      {/* Itinerary Overview */}
-      <div className="mt-8">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-          Itinerary Overview ({selectedDayFilter === "all" ? "All Days" : `Day ${selectedDayFilter + 1}`})
-        </h3>
+      {/* Itinerary Overview (Compact & Responsive) */}
+      <div className="flex flex-col gap-3 pt-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Itinerary Overview ({selectedDayFilter === "all" ? "All Days" : `Day ${selectedDayFilter + 1}`})
+          </h3>
+          <span className="text-[11px] text-muted-foreground">
+            {itinerary.reduce((acc, d) => acc + d.activities.length, 0)} total spots
+          </span>
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-3">
           {itinerary.map((day, dayIndex) => {
             if (selectedDayFilter !== "all" && selectedDayFilter !== dayIndex) return null;
 
             return (
               <div
                 key={dayIndex}
-                className="bg-card/50 backdrop-blur-sm p-5 rounded-2xl border border-border/60 shadow-sm"
+                className="bg-secondary/30 p-4 rounded-2xl border border-border/70 shadow-2xs"
               >
-                <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-center gap-2.5 mb-3">
                   <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-xs"
+                    className="size-6 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-2xs shrink-0"
                     style={{ backgroundColor: dayColors[dayIndex % dayColors.length] }}
                   >
                     {dayIndex + 1}
                   </div>
-                  <h4 className="font-bold text-foreground">
-                    Day {dayIndex + 1}
+                  <h4 className="font-bold text-foreground text-xs sm:text-sm">
+                    Day {dayIndex + 1} ({day.activities.length} activities)
                   </h4>
                 </div>
 
                 <ul className="space-y-2">
                   {day.activities.map((activity, i) => (
-                    <li key={activity.id || `activity-${dayIndex}-${i}`} className="flex items-start gap-2.5 text-sm text-muted-foreground">
-                      <span className="font-bold text-primary/60 shrink-0 mt-0.5">
+                    <li key={activity.id || `activity-${dayIndex}-${i}`} className="flex items-start gap-2 text-xs text-muted-foreground">
+                      <span className="font-bold text-primary/70 shrink-0 mt-0.5 w-4">
                         {i + 1}.
                       </span>
-                      <span className="font-medium text-foreground leading-snug">
-                        {activity.type === "hotel" && "🏨 "}
-                        {activity.title}
-                        {activity.time && <span className="text-xs text-muted-foreground ml-1.5">({activity.time})</span>}
-                      </span>
+                      <div className="flex-1 leading-snug">
+                        <span className="font-medium text-foreground">
+                          {activity.type === "hotel" && "🏨 "}
+                          {activity.title}
+                        </span>
+                        {activity.time && (
+                          <span className="text-[10px] text-muted-foreground font-mono ml-1.5 px-1.5 py-0.5 rounded-md bg-secondary/80">
+                            {activity.time}
+                          </span>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>

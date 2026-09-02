@@ -398,6 +398,12 @@ const Index = () => {
     setAccommodations(trip.accommodations || []);
     setChatMessages(trip.chat_messages || []);
     setCoherenceResult(trip.coherence_score || null);
+    if (trip.detected_locations && trip.detected_locations[0]?.lat && trip.detected_locations[0]?.lng) {
+      setSelectedPlace({ lat: trip.detected_locations[0].lat, lng: trip.detected_locations[0].lng });
+    } else if (trip.itinerary && trip.itinerary[0]?.activities?.find(a => a.lat && a.lng)) {
+      const actWithCoords = trip.itinerary[0].activities.find(a => a.lat && a.lng)!;
+      setSelectedPlace({ lat: actWithCoords.lat!, lng: actWithCoords.lng! });
+    }
     if (trip.preferences?.startDate) {
       setTripStartDate(new Date(trip.preferences.startDate));
     }
@@ -417,6 +423,7 @@ const Index = () => {
     window.scrollTo({ top: 200, behavior: "smooth" });
     toast.success(`โหลดข้อมูลทริป "${trip.title}" สำเร็จ ✨`);
   }, [setModel]);
+
 
   const handleNewTrip = useCallback(() => {
     setCurrentTripId(null);
@@ -1906,42 +1913,53 @@ const Index = () => {
 
                 {/* Right Column (5/12 on lg, 4/12 on xl, Sticky): Interactive Map & Live Weather */}
                 <div className="flex flex-col gap-4 lg:col-span-5 xl:col-span-4 lg:sticky lg:top-20 lg:self-start">
-                  {/* Map Section */}
-                  <div className="overflow-hidden rounded-3xl border border-border/70 bg-card shadow-xs">
+                  {(() => {
+                    const effectiveCoords = selectedPlace
+                      || (detectedLocations[0]?.lat && detectedLocations[0]?.lng ? { lat: detectedLocations[0].lat, lng: detectedLocations[0].lng } : null)
+                      || (itinerary[0]?.activities?.find(a => a.lat && a.lng) ? { lat: itinerary[0].activities.find(a => a.lat && a.lng)!.lat!, lng: itinerary[0].activities.find(a => a.lat && a.lng)!.lng! } : null)
+                      || { lat: 13.7563, lng: 100.5018 };
+                    const effectivePlaceName = detectedLocations[0]?.place || preferences?.destination || "Destination";
+                    const effectiveCountry = detectedLocations[0]?.country || "";
+                    const effectiveType = detectedLocations[0]?.type || "City";
 
-                    <MapSection
-                      location={{
-                        name: detectedLocations[0].place,
-                        country: detectedLocations[0].country,
-                        type: detectedLocations[0].type,
-                        coordinates: selectedPlace || { lat: 0, lng: 0 },
-                        weather: environmentData?.current
-                          ? `${environmentData.current.temperatureC}°C`
-                          : "Sunny",
-                       temperature: environmentData?.current
-                          ? `${environmentData.current.temperatureC}°C`
-                          : "28°C",
-                        airQuality: environmentData?.airQuality?.category ?? "Good",
-                        timezone: "Local",
-                        sunlight: "12h"
-                      }}
-                      itinerary={mapItinerary}
-                      dayColors={DAY_COLORS}
-                    />
-                  </div>
+                    return (
+                      <>
+                        {/* Map Section */}
+                        <div className="overflow-hidden rounded-3xl border border-border/70 bg-card shadow-xs">
+                          <MapSection
+                            location={{
+                              name: effectivePlaceName,
+                              country: effectiveCountry,
+                              type: effectiveType,
+                              coordinates: effectiveCoords,
+                              weather: environmentData?.current
+                                ? `${environmentData.current.temperatureC}°C`
+                                : "Sunny",
+                              temperature: environmentData?.current
+                                ? `${environmentData.current.temperatureC}°C`
+                                : "28°C",
+                              airQuality: environmentData?.airQuality?.category ?? "Good",
+                              timezone: "Local",
+                              sunlight: "12h"
+                            }}
+                            itinerary={mapItinerary}
+                            dayColors={DAY_COLORS}
+                          />
+                        </div>
 
-                  {/* Weather Widget */}
-                  {selectedPlace && (
-                    <div className="rounded-3xl border border-border/70 bg-card shadow-xs overflow-hidden">
-                      <WeatherWidget
-                        lat={selectedPlace.lat}
-                        lng={selectedPlace.lng}
-                        locationName={detectedLocations[0].place}
-                        tripStartDate={tripStartDate ?? undefined}
-                        typicalWeather={typicalWeather ?? undefined}
-                      />
-                    </div>
-                  )}
+                        {/* Weather Widget */}
+                        <div className="rounded-3xl border border-border/70 bg-card shadow-xs overflow-hidden">
+                          <WeatherWidget
+                            lat={effectiveCoords.lat}
+                            lng={effectiveCoords.lng}
+                            locationName={effectivePlaceName}
+                            tripStartDate={tripStartDate ?? undefined}
+                            typicalWeather={typicalWeather ?? undefined}
+                          />
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 

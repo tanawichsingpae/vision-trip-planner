@@ -640,18 +640,18 @@ const ChatBot = ({
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-24 right-6 w-14 h-14 rounded-full travel-gradient shadow-2xl flex items-center justify-center hover:scale-110 transition-all z-50 ring-4 ring-primary/20 group overflow-hidden p-0.5"
+        className="fixed bottom-6 right-6 size-14 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl flex items-center justify-center hover:scale-110 transition-all z-50 ring-4 ring-primary/20 group overflow-hidden p-0.5 border border-white/20"
         title="Open Pixinerary Concierge Chat"
       >
         <img
           src="/logos/chatbot_profile.png"
           alt="Pixinerary Concierge"
-          className="w-full h-full rounded-full object-cover group-hover:scale-110 transition-transform"
+          className="size-full rounded-full object-cover group-hover:scale-110 transition-transform"
           onError={(e) => {
             e.currentTarget.style.display = "none";
           }}
         />
-        <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white animate-pulse" />
+        <span className="absolute top-1 right-1 size-3 bg-emerald-400 rounded-full border-2 border-white animate-pulse" />
       </button>
     );
   }
@@ -668,7 +668,7 @@ const ChatBot = ({
   return (
     <div
       style={windowStyle}
-      className={`fixed bg-background/95 backdrop-blur-2xl border border-border/80 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden transition-all duration-75 ${
+      className={`fixed bg-background/95 backdrop-blur-2xl border border-border/80 rounded-3xl shadow-2xl z-50 flex flex-col overflow-hidden transition-all duration-75 ${
         isDragging || activeResizeHandle ? "select-none" : ""
       }`}
     >
@@ -679,83 +679,83 @@ const ChatBot = ({
           <div onMouseDown={(e) => handleResizeMouseDown(e, "s")} className="absolute bottom-0 left-3 right-3 h-2 cursor-s-resize z-50 hover:bg-primary/30 transition-colors" />
           <div onMouseDown={(e) => handleResizeMouseDown(e, "w")} className="absolute top-3 bottom-3 left-0 w-2 cursor-w-resize z-50 hover:bg-primary/30 transition-colors" />
           <div onMouseDown={(e) => handleResizeMouseDown(e, "e")} className="absolute top-3 bottom-3 right-0 w-2 cursor-e-resize z-50 hover:bg-primary/30 transition-colors" />
-          <div onMouseDown={(e) => handleResizeMouseDown(e, "nw")} className="absolute top-0 left-0 w-4 h-4 cursor-nw-resize z-50 hover:bg-primary/40 rounded-tl-2xl transition-colors" />
-          <div onMouseDown={(e) => handleResizeMouseDown(e, "ne")} className="absolute top-0 right-0 w-4 h-4 cursor-ne-resize z-50 hover:bg-primary/40 rounded-tr-2xl transition-colors" />
-          <div onMouseDown={(e) => handleResizeMouseDown(e, "sw")} className="absolute bottom-0 left-0 w-4 h-4 cursor-sw-resize z-50 hover:bg-primary/40 rounded-bl-2xl transition-colors" />
-          <div onMouseDown={(e) => handleResizeMouseDown(e, "se")} className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-50 hover:bg-primary/40 rounded-br-2xl transition-colors" />
+          <div onMouseDown={(e) => handleResizeMouseDown(e, "nw")} className="absolute top-0 left-0 w-4 h-4 cursor-nw-resize z-50 hover:bg-primary/40 rounded-tl-3xl transition-colors" />
+          <div onMouseDown={(e) => handleResizeMouseDown(e, "ne")} className="absolute top-0 right-0 w-4 h-4 cursor-ne-resize z-50 hover:bg-primary/40 rounded-tr-3xl transition-colors" />
+          <div onMouseDown={(e) => handleResizeMouseDown(e, "sw")} className="absolute bottom-0 left-0 w-4 h-4 cursor-sw-resize z-50 hover:bg-primary/40 rounded-bl-3xl transition-colors" />
+          <div onMouseDown={(e) => handleResizeMouseDown(e, "se")} className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-50 hover:bg-primary/40 rounded-br-3xl transition-colors" />
         </>
       )}
 
       {/* ── Draggable Header ── */}
       <div
         onMouseDown={handleHeaderMouseDown}
-        className="travel-gradient px-4 py-3 flex items-center justify-between shadow-md shrink-0 cursor-move select-none"
+        className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between border-b border-white/10 shrink-0 cursor-move select-none shadow-xs"
         title="Drag header to move floating window"
       >
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30 shadow-inner overflow-hidden shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="size-8 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center border border-white/25 shadow-inner overflow-hidden shrink-0">
             <img
               src="/logos/chatbot_profile.png"
               alt="Pix"
-              className="w-full h-full object-cover"
+              className="size-full object-cover"
               onError={(e) => {
                 e.currentTarget.style.display = "none";
               }}
             />
           </div>
           <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-bold text-white text-sm tracking-tight flex items-center gap-1.5">
-                <Move className="w-3.5 h-3.5 text-white/70" />
-                Pix (พิกซ์)
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h3 className="font-bold text-white text-xs sm:text-sm tracking-tight flex items-center gap-1">
+                <Move className="size-3 text-white/70" />
+                <span>Pix Concierge</span>
               </h3>
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-500/30 text-emerald-100 border border-emerald-400/40 px-2 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-400/25 text-emerald-100 border border-emerald-300/30 px-2 py-0.2 rounded-full">
+                <span className="size-1.5 rounded-full bg-emerald-300 animate-ping" />
                 Online
               </span>
               {(() => {
                 const modelInfo = getAIModelInfo(model);
                 if (!modelInfo) return null;
                 return (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-white/20 text-white border border-white/30 px-2 py-0.5 rounded-full shadow-2xs">
-                    <Sparkles className="w-2.5 h-2.5 text-[#ffe0a9]" />
-                    {modelInfo.label}
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-white/15 text-white border border-white/25 px-2 py-0.2 rounded-full shadow-2xs">
+                    <Sparkles className="size-2.5 text-[#ffe0a9]" />
+                    <span>{modelInfo.label}</span>
                   </span>
                 );
               })()}
             </div>
-            <p className="text-[11px] text-white/80 font-medium">Your AI Travel Companion ✈️📸</p>
+            <p className="text-[10px] text-white/80">Your AI Travel Companion ✈️📸</p>
           </div>
         </div>
 
         <div className="flex items-center gap-1">
           <button
             onClick={toggleMaximize}
-            className="w-7 h-7 rounded-md bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+            className="size-7 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
             title={isMaximized ? "Restore Window Size" : "Maximize Window"}
           >
-            {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            {isMaximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
           <button
             onClick={() => setIsOpen(false)}
-            className="w-7 h-7 rounded-md bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+            className="size-7 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
             title="Minimize to Floating Button"
           >
-            <X className="w-4 h-4" />
+            <X className="size-4" />
           </button>
         </div>
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3.5 scrollbar-thin">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex gap-2.5 ${msg.role === "user" ? "justify-end" : ""}`}>
             {msg.role === "assistant" && (
-              <div className="w-8 h-8 rounded-xl overflow-hidden shrink-0 shadow-xs mt-0.5 border border-white/20 bg-primary/20">
+              <div className="size-7 rounded-xl overflow-hidden shrink-0 shadow-xs mt-0.5 border border-border/80 bg-secondary/80">
                 <img
                   src="/logos/chatbot_profile.png"
                   alt="Bot Profile"
-                  className="w-full h-full object-cover"
+                  className="size-full object-cover"
                   onError={(e) => {
                     e.currentTarget.style.display = "none";
                   }}
@@ -764,52 +764,52 @@ const ChatBot = ({
             )}
             <div className="flex flex-col max-w-[85%] space-y-1">
               <div
-                className={`rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed shadow-xs ${
+                className={`rounded-2xl px-4 py-2.5 text-xs sm:text-sm whitespace-pre-wrap leading-relaxed shadow-2xs ${
                   msg.role === "user"
-                    ? "travel-gradient text-white rounded-tr-xs font-medium"
-                    : "bg-card border border-border/80 text-foreground rounded-tl-xs"
+                    ? "bg-primary text-primary-foreground rounded-tr-xs font-medium"
+                    : "bg-card border border-border/70 text-foreground rounded-tl-xs"
                 }`}
               >
                 {msg.content}
               </div>
               {msg.actionSummary && (
-                <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 rounded-xl px-3 py-1.5 font-medium animate-fade-in">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-2.5 py-1 font-medium animate-fade-in">
+                  <CheckCircle2 className="size-3 text-emerald-500 shrink-0" />
                   <span>{msg.actionSummary}</span>
                 </div>
               )}
               {msg.role === "assistant" && (
                 <div className="flex items-center gap-1 text-[10px] text-muted-foreground/80 pl-1 font-medium select-none">
-                  <Sparkles className="w-2.5 h-2.5 text-primary/70" />
+                  <Sparkles className="size-2.5 text-primary" />
                   <span>โมเดล: {getAIModelInfo(msg.aiModel || msg.ai_model || model)?.label || "AI Model"}</span>
                 </div>
               )}
             </div>
             {msg.role === "user" && (
-              <div className="w-8 h-8 rounded-xl bg-muted border border-border flex items-center justify-center shrink-0 shadow-xs mt-0.5">
-                <User className="w-4 h-4 text-muted-foreground" />
+              <div className="size-7 rounded-xl bg-secondary border border-border flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
+                <User className="size-3.5 text-muted-foreground" />
               </div>
             )}
           </div>
         ))}
         {isTyping && (
           <div className="flex gap-2.5">
-            <div className="w-8 h-8 rounded-xl overflow-hidden shrink-0 shadow-xs border border-white/20 bg-primary/20">
+            <div className="size-7 rounded-xl overflow-hidden shrink-0 shadow-xs border border-border/80 bg-secondary/80">
               <img
                 src="/logos/chatbot_profile.png"
                 alt="Bot Profile"
-                className="w-full h-full object-cover"
+                className="size-full object-cover"
                 onError={(e) => {
                   e.currentTarget.style.display = "none";
                 }}
               />
             </div>
-            <div className="bg-card border border-border/80 rounded-2xl rounded-tl-xs px-4 py-3 shadow-xs">
+            <div className="bg-card border border-border/70 rounded-2xl rounded-tl-xs px-3.5 py-2.5 shadow-2xs">
               <div className="flex gap-1.5 items-center">
-                <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                <span className="text-xs text-muted-foreground ml-2 font-medium">พิกซ์กำลังคิดให้แป๊บนึงนะครับ... ☕✨</span>
+                <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                <span className="text-xs text-muted-foreground ml-1.5 font-medium">พิกซ์กำลังวิเคราะห์ข้อมูล... ☕✨</span>
               </div>
             </div>
           </div>
@@ -819,22 +819,22 @@ const ChatBot = ({
 
       {/* Dynamic Contextual Quick Actions Section */}
       {activeQuickActions && activeQuickActions.length > 0 && (
-        <div className="px-4 py-2.5 border-t border-border/60 bg-muted/30 transition-all">
+        <div className="px-3.5 py-2 border-t border-border/60 bg-secondary/30 transition-all">
           <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[11px] font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5 select-none">
-              <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
+            <p className="text-[10px] font-bold text-primary uppercase tracking-wider flex items-center gap-1 select-none">
+              <Sparkles className="size-3 text-primary animate-pulse" />
               คำสั่งด่วนที่แนะนำ (Quick Actions)
             </p>
-            <span className="text-[10px] text-muted-foreground/70 font-medium">เดาตามบริบทสนทนา</span>
+            <span className="text-[9px] text-muted-foreground font-medium">บริบทสนทนา</span>
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             {activeQuickActions.map((action, idx) => (
               <button
                 key={`${action}-${idx}`}
                 onClick={() => sendMessage(action)}
-                className="shrink-0 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 hover:bg-primary hover:text-white dark:hover:text-primary-foreground text-xs text-foreground hover:border-primary transition-all font-medium shadow-2xs hover:scale-105 active:scale-95 flex items-center gap-1.5 group"
+                className="shrink-0 px-2.5 py-1 rounded-full border border-primary/30 bg-primary/10 hover:bg-primary hover:text-primary-foreground text-[11px] text-foreground transition-all font-medium shadow-2xs hover:scale-105 active:scale-95 flex items-center gap-1 group"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-primary group-hover:bg-white transition-colors" />
+                <span className="size-1.5 rounded-full bg-primary group-hover:bg-primary-foreground transition-colors" />
                 <span>{action}</span>
               </button>
             ))}
@@ -843,23 +843,29 @@ const ChatBot = ({
       )}
 
       {/* Input Area */}
-      <div className="p-3 border-t border-border bg-card shrink-0">
+      <div className="p-3 border-t border-border/70 bg-card shrink-0">
         <div className="flex gap-2 items-center">
           <Input
             placeholder="พิมพ์บอกความต้องการ เช่น เปลี่ยนโรงแรม, สลับวัน, หรือตอบยืนยัน..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
-            className="flex-1 rounded-full border-border/80 px-4 focus-visible:ring-primary"
+            className="flex-1 rounded-full border-border/80 px-4 h-9 text-xs focus-visible:ring-primary"
           />
-          <Button size="icon" className="rounded-full travel-gradient shrink-0 shadow-md hover:scale-105 transition-transform" onClick={() => sendMessage(input)}>
-            <Send className="w-4 h-4" />
+          <Button
+            size="icon"
+            className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shrink-0 shadow-2xs hover:scale-105 transition-transform size-9"
+            onClick={() => sendMessage(input)}
+          >
+            <Send className="size-3.5" />
           </Button>
         </div>
       </div>
     </div>
   );
 };
+
+
 
 export default ChatBot;
 
