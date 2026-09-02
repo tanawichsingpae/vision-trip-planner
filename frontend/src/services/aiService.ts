@@ -1056,8 +1056,6 @@ export function inferActivityType(
   return "attraction";
 }
 
-}
-
 function generateHeuristicReasoning(place: string, type: string): string[] {
   const t = type.toLowerCase();
 
