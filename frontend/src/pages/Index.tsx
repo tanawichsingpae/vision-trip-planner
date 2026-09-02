@@ -67,13 +67,16 @@ import { gatherCandidatePOIs, kMeansCluster, sequenceDayClusters, solveGreedyTSP
 import { generateTravelPlan, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
 import { getEnvironmentData, type EnvironmentData } from "@/services/environmentService";
 import { toast } from "sonner";
-import { type Attraction } from "@/api/places";
 import { useAI, AI_MODEL_OPTIONS, getAIModelInfo, MODEL_ID_MAP } from "@/context/AIProviderContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { VisionOutlierModal, type OutlierItem } from "@/components/VisionOutlierModal";
 import { detectVisionOutliers } from "@/utils/outlierDetector";
 import { SavedTripsModal } from "@/components/SavedTripsModal";
 import { saveTrip, type TripRecord } from "@/services/tripService";
+
+
 
 
 // Mock initial data
@@ -191,14 +194,16 @@ const UserMenu = () => {
 
   if (!user) {
     return (
-      <button
+      <Button
+        type="button"
         id="login-button"
+        size="sm"
         onClick={() => navigate("/login")}
-        className="flex items-center gap-2 bg-white/15 hover:bg-white/25 backdrop-blur-md px-4 py-2 rounded-full border border-white/25 text-white text-sm font-semibold transition-all shadow-sm hover:shadow-md"
+        className="h-8 rounded-full px-3.5 text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 gap-1 shadow-2xs"
       >
-        <LogIn className="w-4 h-4 text-[#ffe0a9]" />
+        <LogIn className="size-3.5" />
         <span>Sign In</span>
-      </button>
+      </Button>
     );
   }
 
@@ -206,8 +211,8 @@ const UserMenu = () => {
   const displayName: string =
     user.user_metadata?.full_name ||
     user.user_metadata?.name ||
-    user.email ||
-    "User";
+    user.email?.split("@")[0] ||
+    "Traveler";
   const initials = displayName
     .split(" ")
     .map((w: string) => w[0])
@@ -216,35 +221,29 @@ const UserMenu = () => {
     .slice(0, 2);
 
   return (
-    <div className="flex items-center gap-2.5 bg-white/15 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/25 shadow-xs">
-      {/* Avatar */}
+    <div className="flex items-center gap-1.5 bg-secondary/80 border border-border/70 pl-1 pr-2 py-0.5 rounded-full shadow-2xs">
       {avatarUrl ? (
         <img
           src={avatarUrl}
           alt={displayName}
           referrerPolicy="no-referrer"
-          className="w-8 h-8 rounded-full object-cover ring-2 ring-[#ff9276] shrink-0 shadow-xs"
+          className="size-6 rounded-full object-cover shrink-0"
         />
       ) : (
-        <div className="w-8 h-8 rounded-full bg-[#ff9276] flex items-center justify-center ring-2 ring-white/50 shrink-0 shadow-xs">
-          <span className="text-xs font-bold text-white">{initials}</span>
+        <div className="size-6 rounded-full bg-primary/20 text-primary text-[11px] font-bold flex items-center justify-center shrink-0">
+          {initials}
         </div>
       )}
-
-      {/* Display name */}
-      <span className="text-sm font-semibold text-white max-w-[130px] truncate hidden sm:block">
+      <span className="text-xs font-semibold text-foreground max-w-[85px] truncate hidden md:inline">
         {displayName}
       </span>
-
-      {/* Logout button */}
       <button
-        id="logout-button"
+        type="button"
         onClick={handleSignOut}
-        title="Sign out"
-        className="flex items-center gap-1 px-2 py-1 rounded-full text-white/80 hover:text-white hover:bg-white/15 transition-all duration-200"
+        className="p-1 rounded-full text-muted-foreground hover:text-red-500 transition-colors ml-0.5"
+        title="Sign Out"
       >
-        <LogOut className="w-3.5 h-3.5" />
-        <span className="text-xs font-medium hidden sm:inline">Sign out</span>
+        <LogOut className="size-3" />
       </button>
     </div>
   );
@@ -316,8 +315,10 @@ const Index = () => {
   const [coherenceResult, setCoherenceResult] = useState<ItineraryCoherence | null>(null);
   const [outliers, setOutliers] = useState<OutlierItem[]>([]);
   const [isOutlierModalOpen, setIsOutlierModalOpen] = useState<boolean>(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
 
   // ── Saved Trips & Chat Persistence ──
+
   const [currentTripId, setCurrentTripId] = useState<string | null>(null);
   const [currentTripTitle, setCurrentTripTitle] = useState<string | null>(null);
   const [isSavedTripsModalOpen, setIsSavedTripsModalOpen] = useState<boolean>(false);
@@ -1568,440 +1569,467 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden">
-      {/* Ambient background glows */}
-      <div className="ambient ambient-one fixed -top-40 -left-40 pointer-events-none" />
-      <div className="ambient ambient-two fixed -bottom-40 -right-40 pointer-events-none" />
+    <div className="dot-grid-bg min-h-screen pb-24 text-foreground selection:bg-sky-500/20">
+      {/* Subtle ambient light */}
+      <div className="fixed -top-40 -left-40 size-96 rounded-full bg-sky-400/10 blur-3xl pointer-events-none" />
+      <div className="fixed -bottom-40 -right-40 size-96 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />
 
-      {/* Orbiting Flights & Bottom Globe Background */}
-      <GlobeFlightBackground />
-
-      {/* Hero Header */}
-      <header className="relative overflow-hidden bg-gradient-to-b from-[#147b87] via-[#1a8e94] to-[#2aa69e] text-white shadow-xl before:absolute before:inset-0 before:bg-[radial-gradient(ellipse_80%_60%_at_50%_-10%,rgba(175,242,236,0.32),transparent_70%)]">
-        {/* Subtle grid backdrop */}
-        <div className="absolute inset-0 showcase-grid-bg opacity-30 pointer-events-none" />
-
-        {/* Soft, blended background photo */}
-        <div className="absolute inset-0 opacity-[0.08] mix-blend-overlay pointer-events-none">
-          <img src={heroImage} alt="Travel destination" className="w-full h-full object-cover" width={1920} height={800} />
-        </div>
-
-        {/* Top Header / Step-Indicator Orbiting Flights & Globe Set */}
-        <GlobeFlightBackground variant="header" />
-
-        <div className="relative container mx-auto px-4 pt-7 pb-24 z-10">
-          <nav className="flex flex-col sm:flex-row items-center justify-between mb-12 gap-5">
-            {/* Logo and Experiment Link */}
-            <div className="flex items-center gap-4 flex-wrap justify-center sm:justify-start">
-              <Link to="/" className="flex items-center gap-2.5 group">
-                <div className="w-[34px] h-[34px] rounded-[10px_10px_10px_3px] bg-[#ff9276] flex items-center justify-center -rotate-12 shadow-[0_4px_12px_rgba(255,146,118,0.45)] shrink-0 transition-transform duration-300 group-hover:rotate-0">
-                  <Plane className="w-[18px] h-[18px] text-white rotate-12 group-hover:rotate-0 transition-transform duration-300" />
-                </div>
-                <span className="text-2xl font-extrabold text-white tracking-[-0.04em]">pixinerary</span>
-              </Link>
-              <Link
-                to="/experiment"
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white/12 text-white hover:bg-white/20 hover:text-white transition-all duration-200 border border-white/20 shadow-xs"
-              >
-                <Beaker className="w-3.5 h-3.5 text-[#ffe0a9]" />
-                <span>Experiment Console</span>
-              </Link>
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap justify-center">
-              {/* AI Model Selector */}
-              <div className="flex items-center gap-2 bg-white/15 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/25 shadow-xs">
-                <Sparkles className="w-4 h-4 text-[#ffe0a9] shrink-0" />
-                <Select value={model} onValueChange={(v) => setModel(v as typeof model)}>
-                  <SelectTrigger
-                    className="border-0 bg-transparent shadow-none text-sm font-medium text-white h-auto p-0 focus:ring-0 focus:ring-offset-0 [&>svg]:text-white/80 min-w-[170px]"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-2xl border border-border/80 shadow-2xl bg-white/95 backdrop-blur-xl">
-                    {AI_MODEL_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value} className="cursor-pointer">
-                        <div className="flex items-center gap-2">
-                          <img src={opt.icon} className="w-5 h-5 rounded-full object-cover shrink-0 bg-muted" alt="" />
-                          <span className="font-semibold text-foreground">{opt.label}</span>
-                          <span className="text-muted-foreground text-xs">· {opt.description}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+      {/* Floating Frosted Top Navigation Bar */}
+      <div className="sticky top-4 z-40 mx-auto w-[96%] lg:w-[80%] max-w-[1920px] px-2 sm:px-4">
+        <nav className="glass-strong flex items-center justify-between gap-2 rounded-full px-3 py-2 shadow-xs sm:px-5">
+          <div className="flex items-center gap-2">
+            <Link to="/" className="flex items-center gap-2 group">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 group-hover:scale-105 transition-transform shadow-2xs">
+                <Plane className="size-4" />
               </div>
+              <span className="hidden text-base font-bold tracking-tight sm:inline text-foreground">pixinerary</span>
+            </Link>
 
-              {/* My Saved Trips Button */}
+            <Link
+              to="/experiment"
+              className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            >
+              <Beaker className="size-3 text-sky-500" />
+              <span>Console</span>
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* AI Model Selector */}
+            <Select value={model} onValueChange={(v) => setModel(v as typeof model)}>
+              <SelectTrigger className="h-8 rounded-full border-border/70 bg-secondary/60 px-3 text-xs font-medium shadow-none [&>svg]:size-3.5 gap-1.5 min-w-[130px] sm:min-w-[155px]">
+                <Sparkles className="size-3.5 text-sky-500 shrink-0" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-2xl border border-border/80 shadow-xl bg-popover backdrop-blur-xl">
+                {AI_MODEL_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} className="cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <img src={opt.icon} className="size-4 rounded-full object-cover shrink-0 bg-muted" alt="" />
+                      <span className="font-semibold text-foreground text-xs">{opt.label}</span>
+                      <span className="text-muted-foreground text-[10px]">· {opt.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* My Trips Button */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsSavedTripsModalOpen(true)}
+              className="h-8 rounded-full px-3 text-xs font-semibold gap-1 text-foreground hover:bg-secondary"
+              title="ดูประวัติทริปที่บันทึกไว้"
+            >
+              <Compass className="size-3.5" />
+              <span className="hidden sm:inline">My Trips</span>
+            </Button>
+
+            {/* User Session / Sign in */}
+            <UserMenu />
+          </div>
+        </nav>
+      </div>
+
+      {/* Main Content Area (80% width with 10% margins left & right) */}
+      <main className="mx-auto w-[96%] lg:w-[80%] max-w-[1920px] px-2 sm:px-4 pt-6 pb-20">
+        {/* Step Indicator */}
+        <StepIndicator
+          currentStep={step}
+          maxUnlockedStep={maxUnlockedStep}
+          onStepClick={(s) => {
+            if (s === 0 || (s === 1 && detectedLocations.length > 0) || (s === 2 && detectedLocations.length > 0) || (s === 3 && preferences)) {
+              setStep(s);
+            }
+          }}
+        />
+
+
+        {/* Animated Loading Overlay */}
+        {isAnalyzing && (
+          <section className="mb-12 animate-in fade-in duration-300">
+            <AnalyzingOverlay
+              isAnalyzing={isAnalyzing}
+              loadingStep={loadingStep}
+              useClip={useClip}
+              type={overlayType}
+            />
+          </section>
+        )}
+
+        {/* ── STEP 0: Upload & First Impression (Pixinerary) ── */}
+        {step === 0 && !isAnalyzing && (
+          <section className="animate-in fade-in mx-auto flex max-w-2xl flex-col gap-6 duration-500 mb-12">
+            <ImageUpload
+              onImagesUploaded={handleImagesUploaded}
+              isAnalyzing={isAnalyzing}
+              loadingLabel={loadingStep}
+            />
+
+            {/* Advanced Settings Collapsible for CLIP toggle */}
+            <div className="rounded-2xl border border-border/70 bg-secondary/40 overflow-hidden">
               <button
-                onClick={() => setIsSavedTripsModalOpen(true)}
-                className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/25 text-white text-sm font-semibold transition-all shadow-xs"
-                title="ดูประวัติทริปและการสนทนาที่บันทึกไว้"
+                type="button"
+                onClick={() => setShowAdvancedSettings(prev => !prev)}
+                className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-secondary/70 transition-colors"
               >
-                <Compass className="w-4 h-4 text-[#ffe0a9]" />
-                <span className="hidden sm:inline">My Trips</span>
+                <span className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                  <SlidersHorizontal className="size-3.5 text-muted-foreground" />
+                  Advanced AI settings (Visual CLIP scoring)
+                </span>
+                <ChevronDown className={`size-4 text-muted-foreground transition-transform ${showAdvancedSettings ? "rotate-180" : ""}`} />
               </button>
 
-              {/* User session: avatar + display name + logout */}
-              <UserMenu />
-            </div>
-          </nav>
-
-          <div className="text-center max-w-3xl mx-auto pt-2">
-            <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#d8ffef] bg-white/15 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 mb-4 shadow-sm">
-              <Sparkles className="w-3.5 h-3.5 text-[#ffe0a9]" />
-              Travel, thoughtfully planned
-            </p>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold text-white mb-4 leading-[1.15] tracking-[-0.03em] drop-shadow-[0_4px_24px_rgba(10,50,56,0.3)]">
-              Plan Your Perfect Trip with <em className="text-[#ffe0a9] font-serif italic font-normal drop-shadow-[0_2px_12px_rgba(255,224,169,0.4)]">AI</em>
-            </h1>
-            <p className="text-base md:text-lg text-[#e6faf8] max-w-2xl mx-auto leading-relaxed drop-shadow-[0_2px_8px_rgba(10,50,56,0.2)]">
-              Upload a photo of any destination and let AI discover landmarks, craft your itinerary, and curate your journey.
-            </p>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 -mt-10 pb-20 relative z-10">
-        <div className="glass-card rounded-3xl p-6 md:p-12 shadow-[0_20px_60px_rgba(18,108,120,0.12)]">
-          <StepIndicator
-            currentStep={step}
-            maxUnlockedStep={maxUnlockedStep}
-            onStepClick={(s) => {
-              if (s === 0 || (s === 1 && detectedLocations.length > 0) || (s === 2 && detectedLocations.length > 0) || (s === 3 && preferences)) {
-                setStep(s);
-              }
-            }}
-          />
-
-          {/* Animated analysis overlay — shown during Vision AI analysis (type="vision") and Itinerary Planning (type="itinerary") */}
-          {isAnalyzing && (
-            <section className="mb-12 animate-fade-in">
-              <AnalyzingOverlay
-                isAnalyzing={isAnalyzing}
-                loadingStep={loadingStep}
-                useClip={useClip}
-                type={overlayType}
-              />
-            </section>
-          )}
-
-          {/* ── STEP 0: Upload Image & Vision AI Analysis ── */}
-          {step === 0 && !isAnalyzing && (
-            <section className="mb-12 animate-fade-in">
-              {/* CLIP toggle — shown only before analysis starts */}
-              <div className="flex items-center justify-end gap-2 mb-4">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center gap-2 cursor-default">
-                      <span className="text-sm font-medium text-foreground">Visual confidence scoring</span>
-                      <Info className="w-3.5 h-3.5 text-muted-foreground" />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs text-xs">
-                    Uses the CLIP vision model to compare your image against Google Places photos and rank candidates by visual similarity. More accurate, but slower.
-                  </TooltipContent>
-                </Tooltip>
-                <Switch
-                  id="clip-toggle"
-                  checked={useClip}
-                  onCheckedChange={setUseClip}
-                />
-                <span className="text-xs text-muted-foreground">{useClip ? "On (slower)" : "Off (faster)"}</span>
-              </div>
-
-              {/* Upload dropzone */}
-              <ImageUpload onImagesUploaded={handleImagesUploaded} isAnalyzing={isAnalyzing} loadingLabel={loadingStep} />
-            </section>
-          )}
-
-          {/* ── STEP 1: Vision AI / Identified Destinations ONLY ── */}
-          {detectedLocations.length > 0 && step === 1 && !isAnalyzing && (
-            <section className="mb-12 space-y-8 animate-fade-in">
-              <LocationDisplay
-                locations={detectedLocations}
-                useClip={useClip}
-                outliersCount={outliers.length}
-                onOpenOutliersReport={() => setIsOutlierModalOpen(true)}
-                onRemoveLocation={handleRemoveLocation}
-                onSwitchCandidate={handleSwitchCandidateFromLocation}
-              />
-
-              {/* Navigation Actions between Vision AI and Preferences */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-border">
-                <Button
-                  variant="outline"
-                  onClick={() => setStep(0)}
-                  className="w-full sm:w-auto h-11 px-5 rounded-xl border-border/80 hover:bg-muted/60 text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-colors"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  <span>Upload New Photos</span>
-                </Button>
-
-                <Button
-                  onClick={() => {
-                    setStep(2);
-                    setMaxUnlockedStep(prev => Math.max(prev, 2));
-                    window.scrollTo({ top: 200, behavior: "smooth" });
-                  }}
-                  className="w-full sm:w-auto h-11 px-6 rounded-xl travel-gradient text-white font-semibold text-sm shadow-md flex items-center justify-center gap-2 hover:opacity-95 transition-opacity"
-                >
-                  <span>Continue to Preferences</span>
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </section>
-          )}
-
-          {/* ── STEP 2: Trip Preferences Form ONLY ── */}
-          {detectedLocations.length > 0 && step === 2 && !isAnalyzing && (
-            <section className="mb-12 space-y-6 animate-fade-in">
-              {/* Destination Header Banner with quick back to Vision AI */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-primary/5 border border-primary/20 rounded-2xl p-4 md:p-6 shadow-xs">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl travel-gradient text-white flex items-center justify-center font-bold text-lg shadow-sm shrink-0">
-                    📍
-                  </div>
+              {showAdvancedSettings && (
+                <div className="px-4 pb-4 pt-1 border-t border-border/40 flex items-center justify-between gap-2 animate-in fade-in">
                   <div>
-                    <h3 className="font-bold text-foreground text-base md:text-lg">
-                      กำหนดทริปสำหรับ: {detectedLocations[0]?.place}, {detectedLocations[0]?.country}
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      สถานที่ที่ผ่านการวิเคราะห์ทั้งหมด {detectedLocations.length} แห่ง (ระบุโดย Vision AI)
-                    </p>
+                    <p className="text-xs font-medium text-foreground">Visual confidence scoring (CLIP)</p>
+                    <p className="text-[11px] text-muted-foreground">Uses the CLIP vision model to rank landmarks by visual similarity.</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Switch
+                      id="clip-toggle"
+                      checked={useClip}
+                      onCheckedChange={setUseClip}
+                    />
+                    <span className="text-xs font-medium text-muted-foreground">{useClip ? "On (slower)" : "Off (faster)"}</span>
                   </div>
                 </div>
+              )}
+            </div>
+          </section>
+        )}
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setStep(1)}
-                  className="rounded-xl border-border/80 text-foreground hover:bg-muted font-medium text-xs self-start sm:self-auto flex items-center gap-1.5"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Back to Vision AI</span>
-                </Button>
+        {/* ── STEP 1: Identified Locations (Pixinerary_2) ── */}
+        {detectedLocations.length > 0 && step === 1 && !isAnalyzing && (
+          <section className="animate-in fade-in mx-auto flex max-w-3xl flex-col gap-6 duration-500 mb-12">
+            <LocationDisplay
+              locations={detectedLocations}
+              useClip={useClip}
+              outliersCount={outliers.length}
+              onOpenOutliersReport={() => setIsOutlierModalOpen(true)}
+              onRemoveLocation={handleRemoveLocation}
+              onSwitchCandidate={handleSwitchCandidateFromLocation}
+            />
+
+            {/* Navigation Actions */}
+            <div className="flex items-center justify-between gap-4 border-t border-border pt-6">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setStep(0)}
+                className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-8 px-3 gap-1.5"
+              >
+                <ArrowLeft className="size-3.5" />
+                <span>Upload new photos</span>
+              </Button>
+
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  setStep(2);
+                  setMaxUnlockedStep(prev => Math.max(prev, 2));
+                  window.scrollTo({ top: 100, behavior: "smooth" });
+                }}
+                className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-medium text-xs h-8 px-3 gap-1.5 shadow-xs"
+              >
+                <span>Continue to preferences</span>
+                <ArrowRight className="size-3.5" />
+              </Button>
+            </div>
+          </section>
+        )}
+
+        {/* ── STEP 2: Trip Preferences (Pixinerary_33) ── */}
+        {detectedLocations.length > 0 && step === 2 && !isAnalyzing && (
+          <section className="animate-in fade-in mx-auto flex max-w-2xl flex-col gap-6 duration-500 mb-12">
+            {/* Destination Header Banner */}
+            <div className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm font-bold">
+                  📍
+                </div>
+                <div>
+                  <p className="text-sm font-bold tracking-tight text-foreground">
+                    Planning for {detectedLocations[0]?.place || "Destination"}, {detectedLocations[0]?.country}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Tell us how you like to travel ({detectedLocations.length} places identified)
+                  </p>
+                </div>
               </div>
 
-              {/* Preferences Form */}
-              <TripPreferencesForm
-                onSubmit={handlePreferencesSubmit}
-                destinationName={detectedLocations[0]?.place}
-                onBack={() => setStep(1)}
-              />
-            </section>
-          )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setStep(1)}
+                className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1 self-start sm:self-auto"
+              >
+                <ArrowLeft className="size-3.5" />
+                <span>Back</span>
+              </Button>
+            </div>
 
-          {/* Vision Outlier Modal */}
-          <VisionOutlierModal
-            open={isOutlierModalOpen}
-            onOpenChange={setIsOutlierModalOpen}
-            outliers={outliers}
-            keptLocations={detectedLocations}
-            onRestoreLocation={handleRestoreLocation}
-            onDiscardOutlier={handleDiscardOutlier}
-            onSwitchCandidate={handleSwitchCandidateFromOutlier}
-          />
+            {/* Preferences Form */}
+            <TripPreferencesForm
+              onSubmit={handlePreferencesSubmit}
+              destinationName={detectedLocations[0]?.place}
+              onBack={() => setStep(1)}
+            />
+          </section>
+        )}
 
-          {/* ── STEP 3: Travel Itinerary & Interactive Dashboard ── */}
-          {step >= 3 && detectedLocations.length > 0 && !isAnalyzing && (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={customCollisionDetection}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-            >
-              {/* Top Navigation Bar for Itinerary view */}
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-8 p-3 rounded-2xl bg-muted/40 border border-border/80">
+        {/* Vision Outlier Modal */}
+        <VisionOutlierModal
+          open={isOutlierModalOpen}
+          onOpenChange={setIsOutlierModalOpen}
+          outliers={outliers}
+          keptLocations={detectedLocations}
+          onRestoreLocation={handleRestoreLocation}
+          onDiscardOutlier={handleDiscardOutlier}
+          onSwitchCandidate={handleSwitchCandidateFromOutlier}
+        />
+
+        {/* ── STEP 3: Itinerary Dashboard (Pixinerary_4) ── */}
+        {step >= 3 && detectedLocations.length > 0 && !isAnalyzing && (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={customCollisionDetection}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <section className="animate-in fade-in flex flex-col gap-6 duration-500 mb-12">
+              {/* Top Control Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-secondary/40 p-3">
                 <div className="flex items-center gap-2">
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setStep(2)}
-                    className="rounded-xl border-border/80 text-foreground hover:bg-background font-medium text-xs flex items-center gap-2 shadow-2xs transition-colors"
+                    className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1"
                   >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Edit Preferences</span>
+                    <ArrowLeft className="size-3.5" />
+                    <span>Edit preferences</span>
                   </Button>
 
                   <Button
+                    type="button"
                     variant="ghost"
                     size="sm"
                     onClick={() => setStep(1)}
-                    className="text-muted-foreground hover:text-foreground text-xs font-medium flex items-center gap-1.5 rounded-xl transition-colors"
+                    className="rounded-xl text-muted-foreground hover:text-foreground font-medium text-xs h-7 px-2.5 gap-1"
                   >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>View Photos ({detectedLocations.length})</span>
+                    <Eye className="size-3.5" />
+                    <span>View photos ({detectedLocations.length})</span>
                   </Button>
                 </div>
 
-                {/* Save Trip Button & Status */}
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-wrap items-center gap-2">
                   {(() => {
                     const currentModelKey = preferences?.aiModel || preferences?.ai_model || model;
                     const modelInfo = getAIModelInfo(currentModelKey);
                     if (!modelInfo) return null;
                     return (
-                      <span className="inline-flex items-center gap-1.5 text-xs text-primary font-semibold px-2.5 py-1 rounded-xl bg-primary/10 border border-primary/25 shadow-2xs">
-                        <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      <span className="inline-flex items-center gap-1.5 rounded-xl border border-primary/25 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                        <Sparkles className="size-3.5" />
                         <span>AI: {modelInfo.label}</span>
                       </span>
                     );
                   })()}
+
                   {currentTripTitle && (
-                    <span className="text-xs text-muted-foreground font-medium hidden md:inline px-2 py-1 rounded-lg bg-background/60 border border-border/40">
+                    <h2 className="hidden text-sm font-bold tracking-tight text-foreground md:inline">
                       📍 {currentTripTitle}
-                    </span>
+                    </h2>
                   )}
+
                   <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={exportToPDF}
+                    disabled={isExportingPDF}
+                    className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1 shadow-2xs"
+                  >
+                    {isExportingPDF ? (
+                      <span className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <FileDown className="size-3.5" />
+                    )}
+                    <span>Export PDF</span>
+                  </Button>
+
+                  <Button
+                    type="button"
                     size="sm"
                     onClick={handleSaveCurrentTrip}
                     disabled={isSavingTrip}
-                    className="rounded-xl travel-gradient text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm hover:opacity-95 transition-all"
+                    className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-medium text-xs h-7 px-2.5 gap-1 shadow-2xs"
                   >
                     {isSavingTrip ? (
-                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span className="size-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
-                      <Bookmark className="w-3.5 h-3.5" />
+                      <Bookmark className="size-3.5" />
                     )}
-                    <span>{currentTripId ? "อัปเดตการบันทึก" : "บันทึกทริปนี้"}</span>
+                    <span>{currentTripId ? "อัปเดตการบันทึก" : "Save trip"}</span>
                   </Button>
                 </div>
               </div>
 
-              <section className="mb-12">
-                <MapSection
-                  location={{
-                    name: detectedLocations[0].place,
-                    country: detectedLocations[0].country,
-                    type: detectedLocations[0].type,
-                    coordinates: selectedPlace || { lat: 0, lng: 0 },
-                    weather: environmentData?.current
-                      ? `${environmentData.current.temperatureC}°C`
-                      : "Sunny",
-                    temperature: environmentData?.current
-                      ? `${environmentData.current.temperatureC}°C`
-                      : "28°C",
-                    airQuality: environmentData?.airQuality?.category ?? "Good",
-                    timezone: "Local",
-                    sunlight: "12h"
-                  }}
-                  itinerary={mapItinerary}
-                  dayColors={DAY_COLORS}
-                />
-              </section>
-              <section className="mb-12">
-                <AISuggestedPlaces
-                  onAddToItinerary={handleAddSuggestion}
-                  locationName={detectedLocations[0].place}
-                  suggestions={suggestions}
-                  onRefreshSuggestions={handleRefreshSuggestions}
-                  daysCount={itinerary.length}
-                />
-              </section>
-              <section className="mb-12">
-                <AIAccommodations
-                  accommodations={accommodations}
-                  onAddToItinerary={handleAddHotel}
-                  locationName={detectedLocations[0].place}
-                  daysCount={itinerary.length}
-                  onRefreshAccommodations={handleRefreshAccommodations}
-                  isRefreshing={isRefreshingAccommodations}
-                  tripStartDate={tripStartDate ?? undefined}
-                  hasHotelFromPreferences={preferences?.hasHotel === "yes" && !!preferences?.hotelName}
-                  selectedHotelName={preferences?.hotelName}
-                />
-              </section>
-              {/* Weather & Air Quality Widget */}
-              {selectedPlace && (
-                <WeatherWidget
-                  lat={selectedPlace.lat}
-                  lng={selectedPlace.lng}
-                  locationName={detectedLocations[0].place}
-                  tripStartDate={tripStartDate ?? undefined}
-                  typicalWeather={typicalWeather ?? undefined}
-                />
-              )}
-              <section className="mb-12">
-                {/* ── Flight Info Dashboard ── */}
-                {preferences && (
-                  <FlightInfoDashboard
-                    preferences={preferences}
-                    destinationIata={destinationIata}
-                    destinationName={`${detectedLocations[0].place}, ${detectedLocations[0].country}`}
-                    onUpdatePreferences={(updated) => setPreferences(prev => prev ? { ...prev, ...updated } : null)}
+              {/* 2-Column Responsive Dashboard */}
+              <div className="grid gap-6 lg:grid-cols-12 items-start">
+                {/* Left Column (7/12 on lg, 8/12 on xl): Itinerary Timeline */}
+                <div className="lg:col-span-7 xl:col-span-8" id="pdf-export-wrapper">
+                  <div id="pdf-cover-section" aria-hidden="true" />
+                  <TravelItinerary
+                    itinerary={itinerary}
+                    onUpdate={(newItinerary) => {
+                      setItinerary(newItinerary);
+                      setMapItinerary(newItinerary);
+                    }}
+                    activeDragId={activeDragId}
+                    onSelectActivity={handleSelectActivity}
+                    onHoverActivity={setHoveredActivityId}
+                    onReloadMap={() => setMapItinerary(itinerary)}
+                    suggestions={suggestions}
+                    tripStartDate={tripStartDate ?? undefined}
+                    hourlyWeather={environmentData?.hourly ?? []}
+                    coherenceResult={coherenceResult}
                   />
-                )}
-              </section>
-              <section className="mb-12" id="pdf-export-wrapper">
-                {/* PDF cover section — hidden on web, shown during export */}
-                <div id="pdf-cover-section" aria-hidden="true" />
-                <TravelItinerary
-                  itinerary={itinerary}
-                  onUpdate={(newItinerary) => {
-                    setItinerary(newItinerary);
-                    setMapItinerary(newItinerary);
-                  }}
-                  activeDragId={activeDragId}
-                  onSelectActivity={handleSelectActivity}
-                  onHoverActivity={setHoveredActivityId}
-                  onReloadMap={() => setMapItinerary(itinerary)}
-                  suggestions={suggestions}
-                  tripStartDate={tripStartDate ?? undefined}
-                  hourlyWeather={environmentData?.hourly ?? []}
-                  coherenceResult={coherenceResult}
-                />
-              </section>
+                </div>
+
+                {/* Right Column (5/12 on lg, 4/12 on xl, Sticky): Interactive Map & Live Weather */}
+                <div className="flex flex-col gap-4 lg:col-span-5 xl:col-span-4 lg:sticky lg:top-20 lg:self-start">
+                  {/* Map Section */}
+                  <div className="overflow-hidden rounded-3xl border border-border/70 bg-card shadow-xs">
+
+                    <MapSection
+                      location={{
+                        name: detectedLocations[0].place,
+                        country: detectedLocations[0].country,
+                        type: detectedLocations[0].type,
+                        coordinates: selectedPlace || { lat: 0, lng: 0 },
+                        weather: environmentData?.current
+                          ? `${environmentData.current.temperatureC}°C`
+                          : "Sunny",
+                       temperature: environmentData?.current
+                          ? `${environmentData.current.temperatureC}°C`
+                          : "28°C",
+                        airQuality: environmentData?.airQuality?.category ?? "Good",
+                        timezone: "Local",
+                        sunlight: "12h"
+                      }}
+                      itinerary={mapItinerary}
+                      dayColors={DAY_COLORS}
+                    />
+                  </div>
+
+                  {/* Weather Widget */}
+                  {selectedPlace && (
+                    <div className="rounded-3xl border border-border/70 bg-card shadow-xs overflow-hidden">
+                      <WeatherWidget
+                        lat={selectedPlace.lat}
+                        lng={selectedPlace.lng}
+                        locationName={detectedLocations[0].place}
+                        tripStartDate={tripStartDate ?? undefined}
+                        typicalWeather={typicalWeather ?? undefined}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Discovery & Logistics Tabs */}
+              <div className="mt-4">
+                <Tabs defaultValue="places" className="w-full">
+                  <TabsList className="w-full justify-start rounded-full bg-secondary/60 p-1 mb-4">
+                    <TabsTrigger value="places" className="rounded-full flex-1 text-xs sm:text-sm font-medium">
+                      📍 Suggested Places
+                    </TabsTrigger>
+                    <TabsTrigger value="hotels" className="rounded-full flex-1 text-xs sm:text-sm font-medium">
+                      🏨 Stays & Hotels
+                    </TabsTrigger>
+                    <TabsTrigger value="flights" className="rounded-full flex-1 text-xs sm:text-sm font-medium">
+                      ✈️ Flight Logistics
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="places" className="mt-0 animate-in fade-in">
+                    <AISuggestedPlaces
+                      onAddToItinerary={handleAddSuggestion}
+                      locationName={detectedLocations[0].place}
+                      suggestions={suggestions}
+                      onRefreshSuggestions={handleRefreshSuggestions}
+                      daysCount={itinerary.length}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="hotels" className="mt-0 animate-in fade-in">
+                    <AIAccommodations
+                      accommodations={accommodations}
+                      onAddToItinerary={handleAddHotel}
+                      locationName={detectedLocations[0].place}
+                      daysCount={itinerary.length}
+                      onRefreshAccommodations={handleRefreshAccommodations}
+                      isRefreshing={isRefreshingAccommodations}
+                      tripStartDate={tripStartDate ?? undefined}
+                      hasHotelFromPreferences={preferences?.hasHotel === "yes" && !!preferences?.hotelName}
+                      selectedHotelName={preferences?.hotelName}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="flights" className="mt-0 animate-in fade-in">
+                    {preferences && (
+                      <FlightInfoDashboard
+                        preferences={preferences}
+                        destinationIata={destinationIata}
+                        destinationName={`${detectedLocations[0].place}, ${detectedLocations[0].country}`}
+                        onUpdatePreferences={(updated) => setPreferences(prev => prev ? { ...prev, ...updated } : null)}
+                      />
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </div>
 
               <DragOverlay dropAnimation={{ duration: 200, easing: "ease" }}>
                 {getOverlayContent()}
               </DragOverlay>
-            </DndContext>
-          )}
-        </div>
+            </section>
+          </DndContext>
+        )}
       </main>
 
+      {/* Floating AI ChatBot (Reserved exclusively for bottom right) */}
       {step >= 3 && detectedLocations.length > 0 && !isAnalyzing && (
-        <>
-          <ChatBot
-            locationName={detectedLocations[0]?.place || "Destination"}
-            itinerary={itinerary}
-            onUpdateItinerary={(newItinerary) => {
-              setItinerary(newItinerary);
-              setMapItinerary(newItinerary);
-            }}
-            preferences={preferences}
-            onUpdatePreferences={(updatedPrefs) => {
-              setPreferences((prev) => (prev ? { ...prev, ...updatedPrefs } : null));
-              toast.success("อัปเดตความต้องการเดินทางสำเร็จ");
-            }}
-            onUpdateHotel={(hotelName) => {
-              setPreferences((prev) => (prev ? { ...prev, hasHotel: "yes", hotelName } : null));
-              toast.success(`สลับโรงแรมเป็น: ${hotelName}`);
-            }}
-            onUpdateFlight={(flightCode) => {
-              setPreferences((prev) => (prev ? { ...prev, hasFlight: "yes", flightCode } : null));
-              toast.success(`อัปเดตเที่ยวบิน ${flightCode} เรียบร้อยแล้ว ขอให้ถึงที่หมายโดยสวัสดิภาพ ✨✈️`);
-            }}
-            messages={chatMessages}
-            onUpdateMessages={setChatMessages}
-          />
-
-          {/* Floating Export PDF Button */}
-          <button
-            onClick={exportToPDF}
-            disabled={isExportingPDF}
-            className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-all duration-200 z-50 disabled:opacity-50 border border-border/20"
-            title="Export Itinerary as PDF"
-          >
-            {isExportingPDF ? (
-              <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <FileDown className="w-6 h-6" />
-            )}
-          </button>
-        </>
+        <ChatBot
+          locationName={detectedLocations[0]?.place || "Destination"}
+          itinerary={itinerary}
+          onUpdateItinerary={(newItinerary) => {
+            setItinerary(newItinerary);
+            setMapItinerary(newItinerary);
+          }}
+          preferences={preferences}
+          onUpdatePreferences={(updatedPrefs) => {
+            setPreferences((prev) => (prev ? { ...prev, ...updatedPrefs } : null));
+            toast.success("อัปเดตความต้องการเดินทางสำเร็จ");
+          }}
+          onUpdateHotel={(hotelName) => {
+            setPreferences((prev) => (prev ? { ...prev, hasHotel: "yes", hotelName } : null));
+            toast.success(`สลับโรงแรมเป็น: ${hotelName}`);
+          }}
+          onUpdateFlight={(flightCode) => {
+            setPreferences((prev) => (prev ? { ...prev, hasFlight: "yes", flightCode } : null));
+            toast.success(`อัปเดตเที่ยวบิน ${flightCode} เรียบร้อยแล้ว ขอให้ถึงที่หมายโดยสวัสดิภาพ ✨✈️`);
+          }}
+          messages={chatMessages}
+          onUpdateMessages={setChatMessages}
+        />
       )}
 
       {/* Saved Trips & Chat History Modal */}
@@ -2013,11 +2041,12 @@ const Index = () => {
         currentTripId={currentTripId}
       />
 
-      <footer className="border-t border-border py-6 text-center text-sm text-muted-foreground">
-        <p>Pixinerary Image-Based AI Travel Planning System • Research Project</p>
+      <footer className="border-t border-border/70 py-6 text-center text-xs text-muted-foreground mt-12">
+        <p>Pixinerary — AI-Powered Image-Based Travel Planner • Research Project</p>
       </footer>
     </div>
   );
 };
+
 
 export default Index;

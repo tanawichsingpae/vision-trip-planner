@@ -21,13 +21,11 @@ export async function safeFetch<T>(url: string, options?: RequestInit): Promise<
 }
 
 /**
- * Validates that an API key is present, otherwise logs a warning without crashing the app.
+ * Validates that an API key is present, otherwise throws 
  */
-export function validateApiKey(key?: string, providerName?: string): boolean {
+export function validateApiKey(key?: string, providerName?: string) {
   // Only validate Google Maps key
   if (providerName === "Google Maps" && (!key || key.trim() === "")) {
-    console.warn("Google Maps API key is missing or empty. Maps and place photo features will be limited.");
-    return false;
+    throw new Error("Google Maps API key is missing or empty.");
   }
-  return true;
 }

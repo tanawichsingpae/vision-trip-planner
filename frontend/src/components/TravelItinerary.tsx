@@ -1288,7 +1288,7 @@ const TravelItinerary = ({ itinerary, onUpdate, onSelectActivity, onHoverActivit
   const isDraggingAttraction = activeDragId?.startsWith("attraction-") ?? false;
 
   return (
-    <div className="animate-slide-up w-full max-w-7xl mx-auto px-4" id="itinerary-pdf-content">
+    <div className="animate-slide-up w-full mx-auto" id="itinerary-pdf-content">
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Calendar className="w-6 h-6 text-primary" />
@@ -1318,7 +1318,8 @@ const TravelItinerary = ({ itinerary, onUpdate, onSelectActivity, onHoverActivit
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start pdf-grid-cols-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5 items-start pdf-grid-cols-2">
+
         {itinerary.map((day, dayIndex) => (
           <DayColumn
             key={day.day}
