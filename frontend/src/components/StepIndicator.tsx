@@ -31,9 +31,9 @@ const StepIndicator = ({ currentStep, maxUnlockedStep = currentStep, onStepClick
                 className={`flex items-center gap-2 rounded-full px-2.5 py-1.5 text-xs font-semibold transition-all sm:px-3.5 sm:text-sm ${
                   isCurrent
                     ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs"
-                    : isComplete
+                    : isUnlocked
                     ? "text-foreground hover:bg-secondary cursor-pointer"
-                    : "cursor-not-allowed text-muted-foreground/50"
+                    : "cursor-not-allowed text-muted-foreground/40 pointer-events-none"
                 }`}
               >
                 <span
@@ -42,6 +42,8 @@ const StepIndicator = ({ currentStep, maxUnlockedStep = currentStep, onStepClick
                       ? "bg-white/20 text-white dark:bg-black/20 dark:text-slate-900"
                       : isComplete
                       ? "bg-sky-500 text-white"
+                      : isUnlocked
+                      ? "bg-sky-500/20 text-sky-600 dark:text-sky-400 border border-sky-500/30"
                       : "bg-secondary text-muted-foreground"
                   }`}
                 >
@@ -53,13 +55,14 @@ const StepIndicator = ({ currentStep, maxUnlockedStep = currentStep, onStepClick
               {i < steps.length - 1 && (
                 <div
                   className={`h-px w-4 sm:w-8 transition-colors ${
-                    i < currentStep ? "bg-sky-500/70" : "bg-border"
+                    i < maxUnlockedStep ? "bg-sky-500/70" : "bg-border"
                   }`}
                 />
               )}
             </li>
           );
         })}
+
       </ol>
     </div>
   );

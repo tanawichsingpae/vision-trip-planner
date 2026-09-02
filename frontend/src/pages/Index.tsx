@@ -424,16 +424,17 @@ const Index = () => {
     environmentData,
   ]);
 
-  // ── Auto-save every 1 minute (60,000 ms) when on step 4 ──
+  // ── Auto-save every 1 minute (60,000 ms) whenever itinerary exists ──
   useEffect(() => {
-    if (itinerary.length === 0 || step !== 4) return;
+    if (!itinerary || itinerary.length === 0 || maxUnlockedStep < 3) return;
 
     const intervalId = setInterval(() => {
       handleSaveCurrentTrip(true);
     }, 60000); // 1 minute
 
     return () => clearInterval(intervalId);
-  }, [handleSaveCurrentTrip, itinerary.length, step]);
+  }, [handleSaveCurrentTrip, itinerary, maxUnlockedStep]);
+
 
 
   const handleSelectTrip = useCallback((trip: TripRecord) => {
@@ -442,6 +443,11 @@ const Index = () => {
     setItinerary(trip.itinerary || []);
     setMapItinerary(trip.itinerary || []);
     setPreferences(trip.preferences || null);
+    if (trip.preferences) {
+      try {
+        sessionStorage.setItem("pixinerary_active_preferences", JSON.stringify(trip.preferences));
+      } catch {}
+    }
     setDetectedLocations(trip.detected_locations || []);
     setSuggestions(trip.suggestions || []);
     setAccommodations(trip.accommodations || []);
@@ -726,6 +732,9 @@ const Index = () => {
       ai_model: model,
     };
     setPreferences(prefsWithModel);
+    try {
+      sessionStorage.setItem("pixinerary_active_preferences", JSON.stringify(prefsWithModel));
+    } catch {}
     setOverlayType("itinerary");
     setLoadingStep("Analyzing Preferences...");
     setIsAnalyzing(true);
@@ -1790,11 +1799,22 @@ const Index = () => {
           currentStep={step}
           maxUnlockedStep={maxUnlockedStep}
           onStepClick={(s) => {
-            if (s === 0 || (s === 1 && detectedLocations.length > 0) || (s === 2 && detectedLocations.length > 0) || (s === 3 && preferences)) {
-              setStep(s);
+            if (s === 0) {
+              setStep(0);
+            } else if (s === 1 && detectedLocations.length > 0) {
+              setStep(1);
+            } else if (s === 2 && detectedLocations.length > 0) {
+              setStep(2);
+            } else if (s === 3) {
+              if (maxUnlockedStep >= 3 || (itinerary && itinerary.length > 0 && preferences)) {
+                setStep(3);
+              } else {
+                toast.info("กรุณากรอกข้อมูล Preferences และกดสร้างแผนการท่องเที่ยวก่อนครับ");
+              }
             }
           }}
         />
+
 
 
         {/* Animated Loading Overlay */}
@@ -1895,7 +1915,7 @@ const Index = () => {
         )}
 
         {/* ── STEP 2: Trip Preferences (Pixinerary_33) ── */}
-        {detectedLocations.length > 0 && step === 2 && !isAnalyzing && (
+        {(detectedLocations.length > 0 || preferences !== null || maxUnlockedStep >= 2) && step === 2 && !isAnalyzing && (
           <section className="animate-in fade-in mx-auto flex max-w-2xl flex-col gap-6 duration-500 mb-12">
             {/* Destination Header Banner */}
             <div className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1913,26 +1933,46 @@ const Index = () => {
                 </div>
               </div>
 
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setStep(1)}
-                className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1 self-start sm:self-auto"
-              >
-                <ArrowLeft className="size-3.5" />
-                <span>Back</span>
-              </Button>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                {maxUnlockedStep >= 3 && itinerary.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setStep(3)}
+                    className="rounded-xl border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary font-semibold text-xs h-7 px-2.5 gap-1 shadow-2xs"
+                  >
+                    <Compass className="size-3.5" />
+                    <span>ดูแผนปัจจุบัน</span>
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStep(1)}
+                  className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1"
+                >
+                  <ArrowLeft className="size-3.5" />
+                  <span>Back</span>
+                </Button>
+              </div>
             </div>
 
             {/* Preferences Form */}
             <TripPreferencesForm
+              key={`pref-form-${preferences ? `${preferences.days}-${preferences.travelerType}-${preferences.budget}-${(preferences.activities || []).join("-")}` : "new"}`}
               onSubmit={handlePreferencesSubmit}
               destinationName={detectedLocations[0]?.place}
               onBack={() => setStep(1)}
+              initialPreferences={preferences}
+              hasExistingItinerary={maxUnlockedStep >= 3 && itinerary.length > 0}
+              onViewExistingItinerary={() => setStep(3)}
             />
+
           </section>
         )}
+
 
         {/* Vision Outlier Modal */}
         <VisionOutlierModal
@@ -1961,7 +2001,10 @@ const Index = () => {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setStep(2)}
+                    onClick={() => {
+                      setMaxUnlockedStep(prev => Math.max(prev, 3));
+                      setStep(2);
+                    }}
                     className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1"
                   >
                     <ArrowLeft className="size-3.5" />

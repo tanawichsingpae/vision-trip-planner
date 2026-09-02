@@ -12,7 +12,7 @@ import { DEFAULT_IMAGE } from "@/components/TravelItinerary";
 export interface SuggestedPlace {
   id: string;
   name: string;
-  category: "attraction" | "food" | "nature" | "culture" | "activity" | "shopping" | "nightlife" | "relax" | "hotel";
+  category: "culture" | "food" | "nature" | "adventure" | "activity" | "shopping" | "nightlife" | "relax" | "landmark" | "photo" | "entertainment" | "spiritual" | "hotel" | "attraction";
   description: string;
   image: string;
   image_url?: string | null;
@@ -29,21 +29,29 @@ export interface SuggestedPlace {
 }
 
 const categoryConfig: Record<string, { label: string; color: string }> = {
+  culture: { label: "Culture", color: "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border-purple-200" },
+  food: { label: "Food", color: "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200" },
+  nature: { label: "Nature", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200" },
+  adventure: { label: "Adventure", color: "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300 border-orange-200" },
+  activity: { label: "Adventure", color: "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300 border-orange-200" },
+  shopping: { label: "Shopping", color: "bg-pink-100 text-pink-700 dark:bg-pink-950/60 dark:text-pink-300 border-pink-200" },
+  nightlife: { label: "Nightlife", color: "bg-slate-800 text-amber-400 dark:bg-slate-900 dark:text-amber-300 border-amber-400/30" },
+  relax: { label: "Relax", color: "bg-teal-100 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 border-teal-200" },
+  landmark: { label: "📸 Landmark & Photo", color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-200 font-medium" },
+  photo: { label: "📸 Landmark & Photo", color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-200 font-medium" },
+  entertainment: { label: "🎪 Entertainment", color: "bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border-violet-200 font-medium" },
+  spiritual: { label: "🔮 Spiritual & Mutelu", color: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-950/60 dark:text-fuchsia-300 border-fuchsia-200 font-medium" },
+  hotel: { label: "🏨 Accommodation", color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-300 font-semibold" },
   attraction: { label: "Attraction", color: "bg-primary/15 text-primary border-primary/20" },
-  food: { label: "Food", color: "bg-travel-sunset/20 text-travel-sunset border-travel-sunset/20" },
-  nature: { label: "Nature", color: "bg-travel-forest/15 text-travel-forest border-travel-forest/20" },
-  culture: { label: "Culture", color: "bg-purple-100 text-purple-700 border-purple-200" },
-  activity: { label: "Activity", color: "bg-travel-sand text-foreground border-travel-sand" },
-  shopping: { label: "Shopping", color: "bg-pink-100 text-pink-700 border-pink-200" },
-  nightlife: { label: "Nightlife", color: "bg-slate-800 text-amber-400 border-amber-400/30" },
-  relax: { label: "Relax", color: "bg-teal-100 text-teal-700 border-teal-200" },
-  hotel: { label: "🏨 Accommodation", color: "bg-indigo-100 text-indigo-700 border-indigo-300 font-semibold" },
 };
 
 function getFallbackSuggestions(locationName: string): SuggestedPlace[] {
   const defaults = [
-    { name: `Historic Landmark in ${locationName}`, category: "culture" as const, description: `Popular historical landmark and architectural heritage spot.` },
+    { name: `Scenic SkyWalk & Photo Landmark in ${locationName}`, category: "landmark" as const, description: `Iconic viewpoint and popular photo spot with stunning panorama.` },
+    { name: `Historic Landmark & Temple in ${locationName}`, category: "culture" as const, description: `Popular historical landmark and architectural heritage spot.` },
     { name: `Famous Local Restaurant in ${locationName}`, category: "food" as const, description: `Authentic local cuisine and top-rated regional specialties.` },
+    { name: `Sacred Shrine & Spiritual Blessing Spot`, category: "spiritual" as const, description: `Revered spiritual destination for blessings, fortune, and peaceful reflection.` },
+    { name: `Exciting Theme Park & Entertainment Complex`, category: "entertainment" as const, description: `Thrilling rides, shows, and family entertainment attractions.` },
     { name: `Scenic Viewpoint & Central Park`, category: "nature" as const, description: `Beautiful green landscape with panoramic views.` },
     { name: `Popular Night Market & Evening District`, category: "nightlife" as const, description: `Lively night market featuring street food and shopping.` },
     { name: `Central Shopping Arcade`, category: "shopping" as const, description: `Vibrant retail center with souvenirs and local handicrafts.` },
@@ -51,6 +59,7 @@ function getFallbackSuggestions(locationName: string): SuggestedPlace[] {
   ];
 
   return defaults.map((item, i) => ({
+
     id: `fallback-sug-${i}-${Date.now()}`,
     name: item.name,
     category: item.category,

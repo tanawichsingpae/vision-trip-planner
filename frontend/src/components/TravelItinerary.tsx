@@ -39,7 +39,7 @@ export interface Activity {
   time: string;
   title: string;
   description: string;
-  type: "attraction" | "food" | "transport" | "rest" | "nature" | "culture" | "activity" | "shopping" | "nightlife" | "relax" | "hotel";
+  type: "culture" | "food" | "nature" | "adventure" | "activity" | "shopping" | "nightlife" | "relax" | "rest" | "landmark" | "photo" | "entertainment" | "spiritual" | "hotel" | "transport" | "attraction";
   image?: string;
   image_url?: string | null;
   photo_url?: string | null;
@@ -77,18 +77,25 @@ interface TravelItineraryProps {
 
 
 export const typeConfig: Record<string, { label: string; color: string }> = {
+  culture: { label: "Culture", color: "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border-purple-200 dark:border-purple-800/50" },
+  food: { label: "Food", color: "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800/50" },
+  nature: { label: "Nature", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/50" },
+  adventure: { label: "Adventure", color: "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300 border-orange-200 dark:border-orange-800/50" },
+  activity: { label: "Adventure", color: "bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300 border-orange-200 dark:border-orange-800/50" },
+  shopping: { label: "Shopping", color: "bg-pink-100 text-pink-700 dark:bg-pink-950/60 dark:text-pink-300 border-pink-200 dark:border-pink-800/50" },
+  nightlife: { label: "Nightlife", color: "bg-slate-800 text-amber-400 dark:bg-slate-900 dark:text-amber-300 border-amber-400/30" },
+  relax: { label: "Relax", color: "bg-teal-100 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 border-teal-200 dark:border-teal-800/50" },
+  rest: { label: "Relax", color: "bg-teal-100 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 border-teal-200 dark:border-teal-800/50" },
+  landmark: { label: "📸 Landmark & Photo", color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/50 font-medium" },
+  photo: { label: "📸 Landmark & Photo", color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/50 font-medium" },
+  entertainment: { label: "🎪 Entertainment", color: "bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border-violet-200 dark:border-violet-800/50 font-medium" },
+  spiritual: { label: "🔮 Spiritual & Mutelu", color: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-950/60 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-800/50 font-medium" },
+  hotel: { label: "🏨 Accommodation", color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800/50 font-semibold" },
+  transport: { label: "Transport", color: "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 dark:border-sky-800/50" },
   attraction: { label: "Attraction", color: "bg-primary/15 text-primary border-primary/20" },
-  food: { label: "Food & Drink", color: "bg-travel-sunset/20 text-travel-sunset border-travel-sunset/20" },
-  transport: { label: "Transport", color: "bg-travel-forest/15 text-travel-forest border-travel-forest/20" },
-  rest: { label: "Wellness", color: "bg-travel-sand text-foreground border-travel-sand" },
-  nature: { label: "Nature", color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-  culture: { label: "Culture", color: "bg-purple-100 text-purple-700 border-purple-200" },
-  activity: { label: "Activity", color: "bg-orange-100 text-orange-700 border-orange-200" },
-  shopping: { label: "Shopping", color: "bg-pink-100 text-pink-700 border-pink-200" },
-  nightlife: { label: "Nightlife", color: "bg-slate-800 text-amber-400 border-amber-400/30" },
-  relax: { label: "Relax", color: "bg-teal-100 text-teal-700 border-teal-200" },
-  hotel: { label: "🏨 Accommodation", color: "bg-indigo-100 text-indigo-700 border-indigo-300 font-semibold" },
 };
+
+
 
 export const DAY_COLORS = [
   '#10b981', // Day 1

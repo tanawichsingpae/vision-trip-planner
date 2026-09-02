@@ -47,13 +47,19 @@ export interface ImageCandidate {
 }
 
 export interface TripPreferences {
-  startDate: Date;
-  endDate: Date;
+  startDate: Date | string;
+  endDate: Date | string;
   days: number;
   travelerType: string;
   budget: string;
+  budgetMinTHB?: number;
+  budgetMaxTHB?: number;
+  budgetRange?: number[];
   activities: string[];
   pace: string;
+  hasFlight?: "yes" | "no";
+  flightCode?: string;
+  originIata?: string;
   hasHotel?: "yes" | "no";
   hotelName?: string;
   hotelLat?: number;
@@ -65,6 +71,7 @@ export interface TripPreferences {
   aiModel?: string;
   ai_model?: string;
 }
+
 
 // ==========================================
 // PUBLIC API
@@ -130,7 +137,9 @@ YOUR OPTIMIZATION MISSION:
    - Sunset viewpoints/observation decks MUST be at 17:00 - 18:30 (Golden Hour).
    - Night markets/bars/nightlife MUST be in the evening (after 18:30).
 4. RESPECT REAL OPERATING HOURS: Do not schedule closed or late-night visits to daytime temples/museums.
-5. PRESERVE ESSENTIALS: Retain the user's key landmark places and coordinates wherever possible. Fix times and re-order sequence.
+5. PRESERVE ALL USER PLACES (STRICT NO DELETION): DO NOT delete, drop, or remove any of the user's existing attractions or chosen places from the itinerary (unless it is an exact duplicate title). Keep all places that the user added, and focus purely on re-sequencing the order, adjusting times, fixing meal slots, and grouping nearby spots onto the same day.
+6. CATEGORY TYPE ACCURACY: Each activity "type" MUST accurately reflect its true category: "culture", "food", "nature", "adventure", "shopping", "nightlife", "relax", "landmark", "entertainment", "spiritual", or "hotel". DO NOT label everything as "attraction".
+
 
 Return ONLY the refined itinerary strictly in this JSON format:
 {
@@ -143,7 +152,7 @@ Return ONLY the refined itinerary strictly in this JSON format:
           "time": "09:00",
           "title": "...",
           "description": "...",
-          "type": "attraction",
+          "type": "culture",
           "lat": 0,
           "lng": 0
         }
@@ -181,8 +190,10 @@ Return ONLY the refined itinerary strictly in this JSON format:
         const originalDay = currentItinerary[dIdx];
         const activities: Activity[] = (day.activities || []).map((act: any, aIdx: number) => {
           const matched = originalActivityMap.get(act.title?.toLowerCase().trim()) || (act.id ? originalActivityMap.get(act.id) : null);
+          const accurateType = inferActivityType(act.title, act.description, act.type || matched?.type, []);
           return {
             ...act,
+            type: accurateType,
             id: matched?.id || act.id || `refine-${dIdx}-${aIdx}-${Date.now()}`,
             image_url: matched?.image_url || null,
             photo_url: matched?.photo_url || null,
@@ -197,6 +208,7 @@ Return ONLY the refined itinerary strictly in this JSON format:
             lng: (act.lng && act.lng !== 0) ? act.lng : (matched?.lng ?? 0),
           };
         });
+
 
         return {
           day: day.day || dIdx + 1,
@@ -584,6 +596,21 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
   7. COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every activity, suggestion, and accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
   8. ACCOMMODATIONS RULE (MANDATORY): You MUST provide at least 5 to 8 diverse, real accommodations/hotels (luxury, boutique, mid-range, budget) located in or near the trip destinations. Include real hotel names with priceLevel from 1 (budget) to 4 (luxury).
   9. Use ONLY real, geocodable place names for activity "title". DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll") in the "title". Place descriptions in the "description" field.
+  10. CATEGORY TYPE ACCURACY (MANDATORY):
+      - Each activity "type" MUST accurately match its true function from one of these categories:
+        * "culture" (historic temples, museums, ancient ruins, palaces, heritage monuments, art galleries)
+        * "food" (restaurants, local street food, cafes, coffee shops, noodle bars, bakeries, dining spots)
+        * "nature" (mountains, peaks, beaches, waterfalls, national parks, islands, lakes, gardens, viewpoints)
+        * "adventure" (outdoor sports, boat tours, zipline, diving, rafting, kayaking, hiking trails, workshops)
+        * "shopping" (night markets, walking streets, shopping malls, floating markets, bazaars, shopping plazas)
+        * "nightlife" (rooftop bars, pubs, clubs, evening entertainment, night cruises, night illuminations)
+        * "relax" (spas, onsen, hot springs, traditional massage, wellness retreats, relaxation)
+        * "landmark" (iconic towers, glass skywalks, city observation decks, famous photo spots, instagrammable sights)
+        * "entertainment" (theme parks, water parks, aquariums, zoos, safari parks, live shows, amusement parks)
+        * "spiritual" (sacred shrines, mutelu blessing spots, holy relics, revered places of worship for fortune/luck)
+        * "hotel" (hotels, resorts, check-in, check-out)
+      - DO NOT default to "attraction". Choose the exact true category for every place.
+
   
   Return the response strictly in JSON format matching this schema:
   {
@@ -594,7 +621,7 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
           "time": "09:00", 
           "title": "...", 
           "description": "...", 
-          "type": "attraction",
+          "type": "culture",
           "lat": 0,
           "lng": 0
         }]
@@ -603,6 +630,7 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
     "accommodations": [
       { "name": "...", "category": "hotel", "description": "...", "lat": 0, "lng": 0, "priceLevel": 2 }
     ],
+
     "typicalWeather": {
       "month": "${monthName}",
       "avgHighC": 0,
@@ -840,6 +868,196 @@ async function fetchCandidateFromGoogle(name: string): Promise<Omit<ImageCandida
 // UTILS
 // ==========================================
 
+/**
+ * Accurately determines the true categorical type of an activity
+ * based on LLM output, Google Places API types, and Thai/English keyword heuristics.
+ * Covers: culture, food, nature, adventure, shopping, nightlife, relax, landmark, entertainment, spiritual (+ hotel, transport).
+ */
+export function inferActivityType(
+  title: string = "",
+  description: string = "",
+  rawType?: string,
+  googleTypes: string[] = []
+): "culture" | "food" | "nature" | "adventure" | "shopping" | "nightlife" | "relax" | "landmark" | "entertainment" | "spiritual" | "hotel" | "transport" | "attraction" {
+  const t = `${title} ${description}`.toLowerCase();
+  const gt = (googleTypes || []).map((x) => x.toLowerCase());
+  const r = (rawType || "").toLowerCase().trim();
+
+  // 1. Hotel / Accommodation
+  if (
+    r === "hotel" ||
+    gt.some((g) => ["lodging", "hotel", "resort_hotel", "motel", "hostel", "bed_and_breakfast"].includes(g)) ||
+    t.includes("check in") || t.includes("check-in") || t.includes("check out") || t.includes("check-out") ||
+    t.includes("โรงแรม") || t.includes("ที่พัก") || t.includes("รีสอร์ท") || t.includes("โฮสเทล")
+  ) {
+    return "hotel";
+  }
+
+  // 2. Food & Dining
+  if (
+    r === "food" || r === "restaurant" || r === "cafe" || r === "dining" ||
+    gt.some((g) => ["restaurant", "cafe", "food", "bakery", "meal_takeaway", "meal_delivery", "coffee_shop", "ice_cream_shop", "diner"].includes(g)) ||
+    t.includes("restaurant") || t.includes("cafe") || t.includes("coffee") || t.includes("dining") ||
+    t.includes("bistro") || t.includes("eatery") || t.includes("kitchen") || t.includes("ramen") ||
+    t.includes("noodle") || t.includes("bakery") || t.includes("breakfast") || t.includes("lunch") ||
+    t.includes("dinner") || t.includes("seafood") || t.includes("grill") || t.includes("bbq") ||
+    t.includes("buffet") || t.includes("dessert") || t.includes("tea room") ||
+    t.includes("ร้านอาหาร") || t.includes("คาเฟ่") || t.includes("ก๋วยเตี๋ยว") || t.includes("ข้าวมันไก่") ||
+    t.includes("ส้มตำ") || t.includes("อาหาร") || t.includes("ชาบู") || t.includes("หมูกระทะ") ||
+    t.includes("ของกิน") || t.includes("กาแฟ") || t.includes("เบเกอรี่") || t.includes("ครัว") ||
+    t.includes("โภชนา") || t.includes("ภัตตาคาร") || t.includes("ซีฟู้ด")
+  ) {
+    return "food";
+  }
+
+  // 3. Spiritual / สายมู (Mutelu, Fortune, Blessing, Sacred Shrines)
+  if (
+    r === "spiritual" || r === "mutelu" ||
+    t.includes("มูเตลู") || t.includes("สายมู") || t.includes("ขอพร") || t.includes("สักการะ") ||
+    t.includes("ศาลหลักเมือง") || t.includes("ท้าวมหาพรหม") || t.includes("พระพรหม") ||
+    t.includes("พระพิฆเนศ") || t.includes("พระราหู") || t.includes("ไอ้ไข่") || t.includes("พญานาค") ||
+    t.includes("คำชะโนด") || t.includes("แชกงมิว") || t.includes("หวังต้าเซียน") ||
+    t.includes("เจ้าแม่กวนอิม") || t.includes("เซียนแปะ") || t.includes("สิ่งศักดิ์สิทธิ์") ||
+    t.includes("mutelu") || t.includes("spiritual") || t.includes("blessing") || t.includes("fortune") ||
+    t.includes("sacred shrine") || t.includes("worship")
+  ) {
+    return "spiritual";
+  }
+
+  // 4. Landmark & Photo Spots (Observation decks, Skywalks, Famous Photo Viewpoints)
+  if (
+    r === "landmark" || r === "photo" ||
+    t.includes("skywalk") || t.includes("observation deck") || t.includes("skydeck") ||
+    t.includes("view deck") || t.includes("photo spot") || t.includes("instagram") ||
+    t.includes("street art") || t.includes("photogenic") || t.includes("shibuya sky") ||
+    t.includes("mahanakhon") || t.includes("จุดเช็คอิน") || t.includes("สกายวอล์ค") ||
+    t.includes("จุดชมวิวเมือง") || t.includes("แลนด์มาร์ก") || t.includes("ถ่ายรูป") ||
+    t.includes("หอคอย") || t.includes("ตึกมหานคร") || t.includes("tokyo tower") || t.includes("eiffel")
+  ) {
+    return "landmark";
+  }
+
+  // 5. Entertainment & Theme Parks (Amusement parks, Water parks, Zoos, Aquariums, Shows)
+  if (
+    r === "entertainment" ||
+    gt.some((g) => ["amusement_park", "water_park", "aquarium", "zoo", "bowling_alley", "movie_theater"].includes(g)) ||
+    t.includes("theme park") || t.includes("amusement park") || t.includes("water park") ||
+    t.includes("aquarium") || t.includes("zoo") || t.includes("safari") || t.includes("disneyland") ||
+    t.includes("universal studios") || t.includes("legoland") || t.includes("illusion") ||
+    t.includes("magic show") || t.includes("cinema") || t.includes("theater") || t.includes("planetarium") ||
+    t.includes("สวนสนุก") || t.includes("สวนน้ำ") || t.includes("สวนสัตว์") || t.includes("อควาเรียม") ||
+    t.includes("ซาฟารี") || t.includes("โรงละคร") || t.includes("การแสดงโชว์") || t.includes("พิพิธภัณฑ์สัตว์น้ำ")
+  ) {
+    return "entertainment";
+  }
+
+  // 6. Culture & Heritage (Historic Temples, Palaces, Museums, Ancient Ruins)
+  if (
+    r === "culture" || r === "historic" || r === "museum" || r === "temple" ||
+    gt.some((g) => ["museum", "place_of_worship", "church", "mosque", "synagogue", "art_gallery", "city_hall", "monument", "historical_landmark", "cultural_center"].includes(g)) ||
+    t.includes("temple") || t.includes("wat ") || t.includes("wat_") || t.includes("shrine") ||
+    t.includes("palace") || t.includes("museum") || t.includes("sanctuary") || t.includes("pagoda") ||
+    t.includes("cathedral") || t.includes("church") || t.includes("monastery") || t.includes("castle") ||
+    t.includes("historic") || t.includes("monument") || t.includes("heritage") || t.includes("ruins") ||
+    t.includes("art gallery") || t.includes("archaeological") || t.includes("cultural center") ||
+    t.includes("วัด") || t.includes("ศาลเจ้า") || t.includes("พระราชวัง") || t.includes("พิพิธภัณฑ์") ||
+    t.includes("โบราณสถาน") || t.includes("ปราสาท") || t.includes("หอศิลป์") || t.includes("อนุสาวรีย์") ||
+    t.includes("สถูป") || t.includes("เจดีย์") || t.includes("วิหาร") || t.includes("อุโบสถ") ||
+    t.includes("มัสยิด") || t.includes("โบสถ์") || t.includes("กำแพงเมือง")
+  ) {
+    return "culture";
+  }
+
+  // 7. Nature & Scenic (National parks, mountains, beaches, waterfalls, islands, viewpoints)
+  if (
+    r === "nature" ||
+    gt.some((g) => ["natural_feature", "park", "national_park", "state_park", "forest", "beach", "hiking_area"].includes(g)) ||
+    t.includes("national park") || t.includes("mountain") || t.includes("peak") || t.includes("doi ") ||
+    t.includes("khao ") || t.includes("beach") || t.includes("waterfall") || t.includes("island") ||
+    t.includes("koh ") || t.includes("ko ") || t.includes("lake") || t.includes("bay") ||
+    t.includes("forest") || t.includes("canyon") || t.includes("garden") || t.includes("viewpoint") ||
+    t.includes("valley") || t.includes("trail") || t.includes("cliff") || t.includes("botanical") ||
+    t.includes("scenic") || t.includes("panorama") ||
+    t.includes("อุทยาน") || t.includes("ดอย") || t.includes("เขา") || t.includes("หาด") ||
+    t.includes("น้ำตก") || t.includes("เกาะ") || t.includes("อ่าว") || t.includes("สวนดอกไม้") ||
+    t.includes("จุดชมวิว") || t.includes("ทะเล") || t.includes("ภู") || t.includes("ผา") ||
+    t.includes("ถ้ำ") || t.includes("แก่ง") || t.includes("หุบเขา") || t.includes("สวนพฤกษศาสตร์")
+  ) {
+    return "nature";
+  }
+
+  // 8. Shopping & Markets (Walking streets, night markets, malls, bazaars)
+  if (
+    r === "shopping" || r === "market" ||
+    gt.some((g) => ["shopping_mall", "department_store", "clothing_store", "supermarket", "market", "grocery_store"].includes(g)) ||
+    t.includes("shopping") || t.includes("night market") || t.includes("market") || t.includes("floating market") ||
+    t.includes("walking street") || t.includes("mall") || t.includes("plaza") || t.includes("bazaar") ||
+    t.includes("outlet") || t.includes("supermarket") || t.includes("department store") ||
+    t.includes("ตลาด") || t.includes("ถนนคนเดิน") || t.includes("ห้าง") || t.includes("ช้อปปิ้ง") ||
+    t.includes("ตลาดนัด") || t.includes("ตลาดน้ำ") || t.includes("มอลล์") || t.includes("พลาซ่า")
+  ) {
+    return "shopping";
+  }
+
+  // 9. Nightlife & Entertainment (Rooftops, Bars, Pubs, Clubs, Night cruises)
+  if (
+    r === "nightlife" || r === "bar" || r === "pub" || r === "club" ||
+    gt.some((g) => ["night_club", "bar", "pub", "cocktail_bar", "wine_bar", "karaoke"].includes(g)) ||
+    t.includes("nightlife") || t.includes("rooftop") || t.includes("bar") || t.includes("pub") ||
+    t.includes("club") || t.includes("nightclub") || t.includes("lounge") || t.includes("beer") ||
+    t.includes("cocktail") || t.includes("night cruise") || t.includes("speakeasy") ||
+    t.includes("บาร์") || t.includes("ผับ") || t.includes("รูฟท็อป") || t.includes("ค็อกเทล") ||
+    t.includes("เลานจ์") || t.includes("ราตรี") || t.includes("ไนต์คลับ")
+  ) {
+    return "nightlife";
+  }
+
+  // 10. Relax & Wellness (Spas, Onsen, Hot springs, Traditional Massage)
+  if (
+    r === "relax" || r === "rest" || r === "wellness" || r === "spa" ||
+    gt.some((g) => ["spa", "beauty_salon", "sauna", "massage"].includes(g)) ||
+    t.includes("spa") || t.includes("onsen") || t.includes("hot spring") || t.includes("massage") ||
+    t.includes("wellness") || t.includes("relaxation") || t.includes("thai massage") || t.includes("retreat") ||
+    t.includes("สปา") || t.includes("ออนเซ็น") || t.includes("น้ำพุร้อน") || t.includes("นวด") ||
+    t.includes("นวดแผนไทย") || t.includes("ผ่อนคลาย") || t.includes("เวลเนส")
+  ) {
+    return "relax";
+  }
+
+  // 11. Adventure & Sports (Outdoor sports, Diving, Zipline, Rafting, Workshops)
+  if (
+    r === "adventure" || r === "activity" ||
+    t.includes("adventure") || t.includes("diving") || t.includes("snorkeling") ||
+    t.includes("zipline") || t.includes("cooking class") || t.includes("workshop") ||
+    t.includes("rafting") || t.includes("kayak") || t.includes("boat tour") || t.includes("cable car") ||
+    t.includes("ล่องแพ") || t.includes("ดำน้ำ") || t.includes("กิจกรรม") || t.includes("ผจญภัย") ||
+    t.includes("ซิปไลน์") || t.includes("เวิร์กช็อป") || t.includes("ล่องแก่ง") || t.includes("ปีนเขา")
+  ) {
+    return "adventure";
+  }
+
+  // 12. Transport
+  if (
+    r === "transport" ||
+    gt.some((g) => ["airport", "train_station", "transit_station", "bus_station", "subway_station", "ferry_terminal"].includes(g)) ||
+    t.includes("airport") || t.includes("station") || t.includes("terminal") || t.includes("pier") ||
+    t.includes("ferry") || t.includes("สนามบิน") || t.includes("สถานีรถไฟ") || t.includes("ท่าเรือ")
+  ) {
+    return "transport";
+  }
+
+  // Direct valid match fallback
+  if (["culture", "food", "nature", "adventure", "activity", "shopping", "nightlife", "relax", "landmark", "photo", "entertainment", "spiritual", "hotel", "transport"].includes(r)) {
+    if (r === "activity") return "adventure";
+    if (r === "photo") return "landmark";
+    return r as any;
+  }
+
+  return "attraction";
+}
+
+}
+
 function generateHeuristicReasoning(place: string, type: string): string[] {
   const t = type.toLowerCase();
 
@@ -913,8 +1131,10 @@ async function formatResponse(result: any): Promise<TravelPlanResponse> {
     ...day,
     activities: await Promise.all((day.activities || []).map(async (act: any) => {
       const details = await fetchPlaceDetails(act.title);
+      const accurateType = inferActivityType(act.title, act.description, act.type, details?.types);
       return {
         ...act,
+        type: accurateType,
         id: `gen-${Math.random().toString(36).substr(2, 9)}`,
         image_url: details.photo_url,
         rating: details.rating,
@@ -930,8 +1150,10 @@ async function formatResponse(result: any): Promise<TravelPlanResponse> {
 
   const suggestions: SuggestedPlace[] = await Promise.all((result.suggestions || []).map(async (sug: any) => {
     const details = await fetchPlaceDetails(sug.name);
+    const accurateCategory = inferActivityType(sug.name, sug.description, sug.category, details?.types);
     return {
       ...sug,
+      category: (accurateCategory === "transport" ? "attraction" : accurateCategory) as any,
       id: `sug-${Math.random().toString(36).substr(2, 9)}`,
       image: details.photo_url || `https://picsum.photos/seed/${encodeURIComponent(sug.name)}/800/600`,
       image_url: details.photo_url,
@@ -947,6 +1169,7 @@ async function formatResponse(result: any): Promise<TravelPlanResponse> {
       phoneNumber: details.phoneNumber ?? sug.phoneNumber,
     };
   }));
+
 
   const accommodations: SuggestedPlace[] = await Promise.all((result.accommodations || []).map(async (acc: any) => {
     const details = await fetchPlaceDetails(acc.name);

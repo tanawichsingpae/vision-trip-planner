@@ -27,6 +27,7 @@ import {
   Zap,
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronDown,
   Plane,
   PlaneTakeoff,
@@ -35,6 +36,8 @@ import {
   Clock,
   ChevronLeft,
   ArrowLeft,
+  ArrowRight,
+  Compass,
   Sparkles,
 } from "lucide-react";
 import { type DateRange } from "react-day-picker";
@@ -48,35 +51,36 @@ function getSuggestedBudgetRange(destination: string, days: number, travelStyle:
     destLower.includes("osaka") ||
     destLower.includes("kyoto") ||
     destLower.includes("singapore") ||
-    destLower.includes("france") ||
-    destLower.includes("paris") ||
-    destLower.includes("london") ||
-    destLower.includes("uk") ||
+    destLower.includes("europe") ||
     destLower.includes("usa") ||
     destLower.includes("switzerland") ||
+    destLower.includes("iceland");
+
+  const isMidCost =
+    destLower.includes("taiwan") ||
     destLower.includes("korea") ||
     destLower.includes("seoul") ||
-    destLower.includes("europe") ||
-    destLower.includes("australia");
+    destLower.includes("hong kong") ||
+    destLower.includes("china");
 
-  let baseMin = 1500;
-  let baseMax = 2500;
-
-  if (travelStyle === "standard") {
-    baseMin = 3000;
-    baseMax = 5000;
-  } else if (travelStyle === "luxury") {
-    baseMin = 8000;
-    baseMax = 15000;
-  }
+  let baseDailyMin = 1500;
+  let baseDailyMax = 3500;
 
   if (isHighCost) {
-    baseMin *= 2;
-    baseMax *= 2;
+    baseDailyMin = 3500;
+    baseDailyMax = 7000;
+  } else if (isMidCost) {
+    baseDailyMin = 2500;
+    baseDailyMax = 5000;
   }
 
-  const totalMin = baseMin * days;
-  const totalMax = baseMax * days;
+  let multiplier = 1.0;
+  if (travelStyle === "budget") multiplier = 0.6;
+  if (travelStyle === "luxury") multiplier = 2.5;
+
+  const totalMin = Math.round(baseDailyMin * days * multiplier);
+  const totalMax = Math.round(baseDailyMax * days * multiplier);
+
   return `฿${totalMin.toLocaleString()} - ฿${totalMax.toLocaleString()} THB`;
 }
 
@@ -90,40 +94,178 @@ export interface TripPreferencesFormProps {
   onSubmit: (preferences: TripPreferences) => void;
   destinationName?: string;
   onBack?: () => void;
+  initialPreferences?: TripPreferences | null;
+  hasExistingItinerary?: boolean;
+  onViewExistingItinerary?: () => void;
 }
 
-const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPreferencesFormProps) => {
+function normalizeTravelerType(val?: string): string {
+  if (!val) return "";
+  const s = val.toLowerCase().trim();
+  if (s.includes("solo") || s === "1") return "solo";
+  if (s.includes("couple") || s.includes("romantic")) return "couple";
+  if (s.includes("friend") || s.includes("group")) return "friends";
+  if (s.includes("kid") || s.includes("child") || s === "family_kids" || s === "family / kids" || s === "family") return "family_kids";
+  if (s.includes("senior") || s.includes("elder") || s === "family_seniors" || s === "family / seniors") return "family_seniors";
+  return s;
+}
+
+function normalizeBudget(val?: string): string {
+  if (!val) return "";
+  const s = val.toLowerCase().trim();
+  if (s.includes("budget") || s.includes("backpack")) return "budget";
+  if (s.includes("standard") || s.includes("moderate") || s.includes("comfort")) return "standard";
+  if (s.includes("luxury") || s.includes("premium")) return "luxury";
+  return s;
+}
+
+function normalizePace(val?: string): string {
+  if (!val) return "";
+  const s = val.toLowerCase().trim();
+  if (s.includes("relax") || s.includes("slow") || s.includes("chill")) return "relaxed";
+  if (s.includes("balance") || s.includes("moderate") || s.includes("medium") || s.includes("steady")) return "balanced";
+  if (s.includes("pack") || s.includes("fast") || s.includes("busy") || s.includes("action")) return "packed";
+  return s;
+}
+
+function normalizeActivityId(act: string): string {
+  const s = act.toLowerCase().trim();
+  if (s.includes("cultur") || s.includes("temple") || s.includes("museum") || s.includes("วัด")) return "culture";
+  if (s.includes("food") || s.includes("cafe") || s.includes("dining") || s.includes("อาหาร") || s.includes("กิน")) return "food";
+  if (s.includes("nature") || s.includes("park") || s.includes("beach") || s.includes("เขา") || s.includes("ธรรมชาติ")) return "nature";
+  if (s.includes("adventure") || s.includes("activity") || s.includes("sport") || s.includes("ผจญภัย")) return "adventure";
+  if (s.includes("shopping") || s.includes("market") || s.includes("mall") || s.includes("ตลาด") || s.includes("ช้อป")) return "shopping";
+  if (s.includes("nightlife") || s.includes("bar") || s.includes("club") || s.includes("บาร์") || s.includes("กลางคืน")) return "nightlife";
+  if (s.includes("relax") || s.includes("spa") || s.includes("massage") || s.includes("wellness") || s.includes("สปา") || s.includes("นวด")) return "relax";
+  if (s.includes("landmark") || s.includes("photo") || s.includes("sightseeing") || s.includes("จุดชมวิว") || s.includes("ถ่ายรูป")) return "landmark";
+  if (s.includes("entertain") || s.includes("theme park") || s.includes("zoo") || s.includes("aquarium") || s.includes("สวนสนุก") || s.includes("สวนสัตว์")) return "entertainment";
+  if (s.includes("spirit") || s.includes("mutelu") || s.includes("มู") || s.includes("ขอพร") || s.includes("สักการะ")) return "spiritual";
+  return s;
+}
+
+function normalizeActivities(acts?: string[]): string[] {
+  if (!acts || !Array.isArray(acts)) return [];
+  const set = new Set<string>();
+  for (const a of acts) {
+    if (typeof a === "string") {
+      set.add(normalizeActivityId(a));
+    }
+  }
+  return Array.from(set);
+}
+
+function normalizeBudgetRange(prefs?: TripPreferences | null): number[] {
+  if (prefs?.budgetRange && Array.isArray(prefs.budgetRange) && prefs.budgetRange.length === 2) {
+    return [Number(prefs.budgetRange[0]) || 10000, Number(prefs.budgetRange[1]) || 50000];
+  }
+  if (prefs?.budgetMinTHB !== undefined && prefs?.budgetMaxTHB !== undefined) {
+    return [Number(prefs.budgetMinTHB) || 10000, Number(prefs.budgetMaxTHB) || 50000];
+  }
+  return [10000, 50000];
+}
+
+function getEffectivePreferences(propPrefs?: TripPreferences | null): TripPreferences | null {
+  if (propPrefs && (propPrefs.travelerType || propPrefs.budget || (propPrefs.activities && propPrefs.activities.length > 0))) {
+    return propPrefs;
+  }
+  try {
+    const stored = sessionStorage.getItem("pixinerary_active_preferences");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && typeof parsed === "object") return parsed;
+    }
+  } catch {}
+  return propPrefs || null;
+}
+
+const TripPreferencesForm = ({
+  onSubmit,
+  destinationName = "",
+  onBack,
+  initialPreferences,
+  hasExistingItinerary = false,
+  onViewExistingItinerary,
+}: TripPreferencesFormProps) => {
   const today = new Date();
   const defaultStart = new Date(today);
   defaultStart.setDate(today.getDate() + 1);
   const defaultEnd = new Date(defaultStart);
   defaultEnd.setDate(defaultStart.getDate() + 2);
 
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: defaultStart,
-    to: defaultEnd,
+  const effectivePrefs = getEffectivePreferences(initialPreferences);
+
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+    if (effectivePrefs?.startDate && effectivePrefs?.endDate) {
+      return {
+        from: new Date(effectivePrefs.startDate),
+        to: new Date(effectivePrefs.endDate),
+      };
+    }
+    return {
+      from: defaultStart,
+      to: defaultEnd,
+    };
   });
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [travelerType, setTravelerType] = useState("");
-  const [budget, setBudget] = useState("");
-  const [budgetRange, setBudgetRange] = useState<number[]>([10000, 50000]);
-  const [activities, setActivities] = useState<string[]>([]);
-  const [pace, setPace] = useState("");
+  const [travelerType, setTravelerType] = useState(() => normalizeTravelerType(effectivePrefs?.travelerType));
+  const [budget, setBudget] = useState(() => normalizeBudget(effectivePrefs?.budget));
+  const [budgetRange, setBudgetRange] = useState<number[]>(() => normalizeBudgetRange(effectivePrefs));
+  const [activities, setActivities] = useState<string[]>(() => normalizeActivities(effectivePrefs?.activities));
+  const [pace, setPace] = useState(() => normalizePace(effectivePrefs?.pace));
 
   // Flight fields
-  const [hasFlight, setHasFlight] = useState<"yes" | "no" | null>(null);
-  const [flightCode, setFlightCode] = useState("");   // e.g. TG682 (AviationStack)
-  const [originIata, setOriginIata] = useState("");   // e.g. BKK (Google Flights)
+  const [hasFlight, setHasFlight] = useState<"yes" | "no" | null>(() => effectivePrefs?.hasFlight ?? null);
+  const [flightCode, setFlightCode] = useState(() => effectivePrefs?.flightCode || "");
+  const [originIata, setOriginIata] = useState(() => effectivePrefs?.originIata || "");
 
   // Hotel fields
-  const [hasHotel, setHasHotel] = useState<"yes" | "no" | null>(null);
-  const [hotelName, setHotelName] = useState("");
-  const [hotelCheckInTime, setHotelCheckInTime] = useState("15:00");
-  const [hotelCheckOutTime, setHotelCheckOutTime] = useState("11:00");
-  const [hotelLat, setHotelLat] = useState<number | undefined>(undefined);
-  const [hotelLng, setHotelLng] = useState<number | undefined>(undefined);
-  const [hotelPhotoUrl, setHotelPhotoUrl] = useState<string | undefined>(undefined);
-  const [hotelPlaceId, setHotelPlaceId] = useState<string | undefined>(undefined);
+  const [hasHotel, setHasHotel] = useState<"yes" | "no" | null>(() => effectivePrefs?.hasHotel ?? null);
+  const [hotelName, setHotelName] = useState(() => effectivePrefs?.hotelName || "");
+  const [hotelCheckInTime, setHotelCheckInTime] = useState(() => effectivePrefs?.hotelCheckInTime || "15:00");
+  const [hotelCheckOutTime, setHotelCheckOutTime] = useState(() => effectivePrefs?.hotelCheckOutTime || "11:00");
+  const [hotelLat, setHotelLat] = useState<number | undefined>(() => effectivePrefs?.hotelLat);
+  const [hotelLng, setHotelLng] = useState<number | undefined>(() => effectivePrefs?.hotelLng);
+  const [hotelPhotoUrl, setHotelPhotoUrl] = useState<string | undefined>(() => effectivePrefs?.hotelPhotoUrl);
+  const [hotelPlaceId, setHotelPlaceId] = useState<string | undefined>(() => effectivePrefs?.hotelPlaceId);
+
+  // Synchronize state if initialPreferences update
+  useEffect(() => {
+    const p = getEffectivePreferences(initialPreferences);
+    if (p) {
+      if (p.startDate && p.endDate) {
+        setDateRange({
+          from: new Date(p.startDate),
+          to: new Date(p.endDate),
+        });
+      }
+      if (p.travelerType) {
+        setTravelerType(normalizeTravelerType(p.travelerType));
+      }
+      if (p.budget) {
+        setBudget(normalizeBudget(p.budget));
+      }
+      setBudgetRange(normalizeBudgetRange(p));
+      if (p.activities) {
+        setActivities(normalizeActivities(p.activities));
+      }
+      if (p.pace) {
+        setPace(normalizePace(p.pace));
+      }
+      if (p.hasFlight !== undefined) setHasFlight(p.hasFlight);
+      if (p.flightCode) setFlightCode(p.flightCode);
+      if (p.originIata) setOriginIata(p.originIata);
+      if (p.hasHotel !== undefined) setHasHotel(p.hasHotel);
+      if (p.hotelName) setHotelName(p.hotelName);
+      if (p.hotelCheckInTime) setHotelCheckInTime(p.hotelCheckInTime);
+      if (p.hotelCheckOutTime) setHotelCheckOutTime(p.hotelCheckOutTime);
+      if (p.hotelLat) setHotelLat(p.hotelLat);
+      if (p.hotelLng) setHotelLng(p.hotelLng);
+      if (p.hotelPhotoUrl) setHotelPhotoUrl(p.hotelPhotoUrl);
+      if (p.hotelPlaceId) setHotelPlaceId(p.hotelPlaceId);
+    }
+  }, [initialPreferences]);
+
+
 
   // Price trends state
   const [trendsData, setTrendsData] = useState<FlightTrend[]>([]);
@@ -174,11 +316,15 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
     { id: "culture", label: "Culture", emoji: "🏛️" },
     { id: "food", label: "Food", emoji: "🍜" },
     { id: "nature", label: "Nature", emoji: "🌳" },
-    { id: "adventure", label: "Adventure", emoji: "🎢" },
+    { id: "adventure", label: "Adventure", emoji: "🧗" },
     { id: "shopping", label: "Shopping", emoji: "🛍️" },
     { id: "nightlife", label: "Nightlife", emoji: "🍸" },
     { id: "relax", label: "Relax", emoji: "💆" },
+    { id: "landmark", label: "Landmark & Photo", emoji: "📸" },
+    { id: "entertainment", label: "Entertainment", emoji: "🎪" },
+    { id: "spiritual", label: "Spiritual & Mutelu", emoji: "🔮" },
   ];
+
 
   const paceOptions = [
     { id: "relaxed", label: "Relaxed", desc: "1–2 spots/day · slow & scenic", icon: Turtle },
@@ -239,7 +385,156 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
   };
 
   return (
-    <form onSubmit={handleSubmit} className="animate-slide-up max-w-2xl mx-auto space-y-8 py-4">
+    <form onSubmit={handleSubmit} className="space-y-8 animate-in fade-in duration-300">
+      {/* ── Applied Preferences Summary Card (Pixinerary_33) ── */}
+      {hasExistingItinerary && initialPreferences && (
+        <div className="rounded-3xl border border-primary/25 bg-gradient-to-br from-primary/5 via-secondary/30 to-background p-4 sm:p-5 space-y-4 shadow-sm animate-in fade-in duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-3.5">
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-9 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 shadow-2xs">
+                <CheckCircle2 className="size-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <span>Preferences ที่ใช้สร้างแผนการท่องเที่ยวปัจจุบัน</span>
+                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px] font-semibold">
+                    Applied in Itinerary
+                  </Badge>
+                </h4>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  ตารางเที่ยวปัจจุบันถูกสร้างขึ้นตามความต้องการด้านล่างนี้ (สามารถแก้ไขฟอร์มด้านล่างแล้วกดสร้างใหม่ได้)
+                </p>
+              </div>
+            </div>
+
+            {onViewExistingItinerary && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={onViewExistingItinerary}
+                className="h-8 px-3.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-semibold text-xs gap-1.5 self-start sm:self-auto shadow-2xs shrink-0"
+              >
+                <Compass className="size-3.5" />
+                <span>ดูตาราง Itinerary ปัจจุบัน</span>
+                <ArrowRight className="size-3" />
+              </Button>
+            )}
+          </div>
+
+          {/* Details 4-Column Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+            {/* 1. Dates & Duration */}
+            <div className="p-3 rounded-2xl bg-card border border-border/60 flex flex-col justify-between shadow-2xs">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                📅 วันที่ & ระยะเวลา
+              </span>
+              <span className="font-bold text-foreground text-sm mt-1">
+                {initialPreferences.days ? `${initialPreferences.days} วัน` : "–"}
+              </span>
+              {initialPreferences.startDate && initialPreferences.endDate ? (
+                <span className="text-[11px] text-muted-foreground truncate">
+                  {format(new Date(initialPreferences.startDate), "d MMM")} – {format(new Date(initialPreferences.endDate), "d MMM yyyy")}
+                </span>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">–</span>
+              )}
+            </div>
+
+            {/* 2. Traveler Type */}
+            <div className="p-3 rounded-2xl bg-card border border-border/60 flex flex-col justify-between shadow-2xs">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                👥 กลุ่มผู้เดินทาง
+              </span>
+              <span className="font-bold text-foreground text-sm mt-1 capitalize">
+                {initialPreferences.travelerType || "–"}
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                {travelerTypes.find(t => t.id === initialPreferences.travelerType?.toLowerCase())?.desc || "Traveler style"}
+              </span>
+            </div>
+
+            {/* 3. Budget & Range */}
+            <div className="p-3 rounded-2xl bg-card border border-border/60 flex flex-col justify-between shadow-2xs">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                💰 งบประมาณ
+              </span>
+              <span className="font-bold text-foreground text-sm mt-1 capitalize">
+                {initialPreferences.budget || "–"}
+              </span>
+              {initialPreferences.budgetMinTHB !== undefined && initialPreferences.budgetMaxTHB !== undefined ? (
+                <span className="text-[10px] text-primary font-mono font-bold">
+                  ฿{initialPreferences.budgetMinTHB.toLocaleString()} - ฿{initialPreferences.budgetMaxTHB.toLocaleString()}
+                </span>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">Standard value</span>
+              )}
+            </div>
+
+            {/* 4. Pace */}
+            <div className="p-3 rounded-2xl bg-card border border-border/60 flex flex-col justify-between shadow-2xs">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                🏃 จังหวะเดินทาง (Pace)
+              </span>
+              <span className="font-bold text-foreground text-sm mt-1 capitalize">
+                {initialPreferences.pace || "–"}
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                {initialPreferences.pace?.toLowerCase() === "relaxed"
+                  ? "1–2 ที่/วัน (ชิลๆ)"
+                  : initialPreferences.pace?.toLowerCase() === "packed"
+                  ? "5+ ที่/วัน (อัดแน่น)"
+                  : "3–4 ที่/วัน (สมดุล)"}
+              </span>
+            </div>
+          </div>
+
+          {/* Activities Badges */}
+          {initialPreferences.activities && initialPreferences.activities.length > 0 && (
+            <div className="p-3 rounded-2xl bg-card border border-border/60 flex flex-col sm:flex-row sm:items-center gap-2 shadow-2xs">
+              <span className="text-xs font-bold text-foreground shrink-0 flex items-center gap-1.5">
+                <Sparkles className="size-3.5 text-amber-500" />
+                <span>หมวดหมู่กิจกรรมที่เลือก:</span>
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {initialPreferences.activities.map((act) => {
+                  const opt = activityOptions.find(o => o.id === act);
+                  return (
+                    <span
+                      key={act}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-secondary text-foreground text-xs font-semibold border border-border/70 shadow-2xs"
+                    >
+                      <span>{opt?.emoji || "✨"}</span>
+                      <span>{opt?.label || act}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Flight & Hotel Extra Metadata */}
+          {(initialPreferences.hotelName || initialPreferences.flightCode || initialPreferences.originIata) && (
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              {initialPreferences.hotelName && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 font-medium">
+                  🏨 ที่พัก: {initialPreferences.hotelName} ({initialPreferences.hotelCheckInTime || "15:00"} – {initialPreferences.hotelCheckOutTime || "11:00"})
+                </span>
+              )}
+              {initialPreferences.flightCode && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 font-medium">
+                  ✈️ เที่ยวบิน: {initialPreferences.flightCode}
+                </span>
+              )}
+              {initialPreferences.originIata && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 font-medium">
+                  🛫 เดินทางจาก: {initialPreferences.originIata}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="text-center mb-8">
         <h3 className="text-2xl font-bold text-foreground">Trip Preferences</h3>
         <p className="text-muted-foreground mt-2">Tell us more about how you like to travel</p>
@@ -523,44 +818,64 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
       <div className="space-y-4">
         <Label className="text-base font-semibold">Who are you traveling with?</Label>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {travelerTypes.map((type) => (
-            <button
-              key={type.id}
-              type="button"
-              onClick={() => setTravelerType(type.id)}
-              className={`flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 transition-all text-center ${travelerType === type.id
-                ? "border-primary bg-primary/5 text-primary"
-                : "border-border hover:border-primary/20 bg-card"
+          {travelerTypes.map((type) => {
+            const isSelected = travelerType === type.id;
+            return (
+              <button
+                key={type.id}
+                type="button"
+                onClick={() => setTravelerType(type.id)}
+                className={`relative flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 transition-all text-center ${
+                  isSelected
+                    ? "border-primary bg-primary/10 text-primary scale-[1.02] shadow-sm ring-1 ring-primary/40"
+                    : "border-border hover:border-primary/20 bg-card text-foreground"
                 }`}
-            >
-              <type.icon className="w-6 h-6" />
-              <span className="text-sm font-medium leading-tight">{type.label}</span>
-              <span className={`text-[10px] leading-tight ${travelerType === type.id ? "text-primary/70" : "text-muted-foreground"
-                }`}>{type.desc}</span>
-            </button>
-          ))}
+              >
+                {isSelected && (
+                  <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-0.5 shadow-xs">
+                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                  </div>
+                )}
+                <type.icon className="w-6 h-6" />
+                <span className="text-sm font-semibold leading-tight">{type.label}</span>
+                <span className={`text-[10px] leading-tight ${isSelected ? "text-primary/80 font-medium" : "text-muted-foreground"}`}>
+                  {type.desc}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       <div className="space-y-4">
         <Label className="text-base font-semibold">What is your travel style?</Label>
         <div className="grid grid-cols-3 gap-3">
-          {budgetLevels.map((level) => (
-            <button
-              key={level.id}
-              type="button"
-              onClick={() => setBudget(level.id)}
-              className={`flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 transition-all text-center ${budget === level.id
-                ? "border-primary bg-primary/5 text-primary"
-                : "border-border hover:border-primary/20 bg-card"
+          {budgetLevels.map((level) => {
+            const isSelected = budget === level.id;
+            return (
+              <button
+                key={level.id}
+                type="button"
+                onClick={() => setBudget(level.id)}
+                className={`relative flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 transition-all text-center ${
+                  isSelected
+                    ? "border-primary bg-primary/10 text-primary scale-[1.02] shadow-sm ring-1 ring-primary/40"
+                    : "border-border hover:border-primary/20 bg-card text-foreground"
                 }`}
-            >
-              <level.icon className="w-6 h-6" />
-              <span className="text-sm font-medium">{level.label}</span>
-              <span className={`text-[10px] ${budget === level.id ? "text-primary/70" : "text-muted-foreground"
-                }`}>{level.desc}</span>
-            </button>
-          ))}
+              >
+                {isSelected && (
+                  <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-0.5 shadow-xs">
+                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                  </div>
+                )}
+                <level.icon className="w-6 h-6" />
+                <span className="text-sm font-semibold">{level.label}</span>
+                <span className={`text-[10px] ${isSelected ? "text-primary/80 font-medium" : "text-muted-foreground"}`}>
+                  {level.desc}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Hybrid Min-Max Budget Range Slider (THB) */}
@@ -628,49 +943,64 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
       <div className="space-y-4">
         <Label className="text-base font-semibold text-center block">What activities do you prefer?</Label>
         <div className="flex flex-wrap justify-center gap-3">
-          {activityOptions.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => toggleActivity(opt.id)}
-              className={`flex flex-col items-center justify-center gap-2 p-3 w-[100px] sm:w-[110px] h-[95px] rounded-2xl border-2 transition-all relative overflow-hidden ${activities.includes(opt.id)
-                ? "border-primary bg-primary/10 text-primary scale-[1.02] shadow-md"
-                : "border-border hover:border-primary/30 bg-card text-foreground hover:-translate-y-1 hover:shadow-sm"
+          {activityOptions.map((opt) => {
+            const isSelected = activities.includes(opt.id);
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => toggleActivity(opt.id)}
+                className={`flex flex-col items-center justify-center gap-2 p-3 w-[100px] sm:w-[110px] h-[95px] rounded-2xl border-2 transition-all relative overflow-hidden ${
+                  isSelected
+                    ? "border-primary bg-primary/10 text-primary scale-[1.02] shadow-md ring-1 ring-primary/40"
+                    : "border-border hover:border-primary/30 bg-card text-foreground hover:-translate-y-1 hover:shadow-sm"
                 }`}
-            >
-              {activities.includes(opt.id) && (
-                <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-0.5 shadow-sm">
-                  <Check className="w-3 h-3 stroke-[3]" />
-                </div>
-              )}
-              <span className="text-3xl drop-shadow-sm">{opt.emoji}</span>
-              <span className="text-xs font-semibold">{opt.label}</span>
-            </button>
-          ))}
+              >
+                {isSelected && (
+                  <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-0.5 shadow-sm">
+                    <Check className="w-3 h-3 stroke-[3]" />
+                  </div>
+                )}
+                <span className="text-3xl drop-shadow-sm">{opt.emoji}</span>
+                <span className="text-xs font-semibold">{opt.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       <div className="space-y-4">
         <Label className="text-base font-semibold">What is your preferred travel pace?</Label>
         <div className="grid grid-cols-3 gap-3">
-          {paceOptions.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setPace(option.id)}
-              className={`flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 transition-all text-center ${pace === option.id
-                ? "border-primary bg-primary/5 text-primary"
-                : "border-border hover:border-primary/20 bg-card"
+          {paceOptions.map((option) => {
+            const isSelected = pace === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setPace(option.id)}
+                className={`relative flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 transition-all text-center ${
+                  isSelected
+                    ? "border-primary bg-primary/10 text-primary scale-[1.02] shadow-sm ring-1 ring-primary/40"
+                    : "border-border hover:border-primary/20 bg-card text-foreground"
                 }`}
-            >
-              <option.icon className={`w-6 h-6 ${option.id === "packed" ? "animate-pulse" : ""}`} />
-              <span className="text-sm font-medium">{option.label}</span>
-              <span className={`text-[10px] leading-tight ${pace === option.id ? "text-primary/70" : "text-muted-foreground"
-                }`}>{option.desc}</span>
-            </button>
-          ))}
+              >
+                {isSelected && (
+                  <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-0.5 shadow-xs">
+                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                  </div>
+                )}
+                <option.icon className={`w-6 h-6 ${option.id === "packed" ? "animate-pulse" : ""}`} />
+                <span className="text-sm font-semibold">{option.label}</span>
+                <span className={`text-[10px] leading-tight ${isSelected ? "text-primary/80 font-medium" : "text-muted-foreground"}`}>
+                  {option.desc}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
+
 
       <div className="pt-6 flex flex-col sm:flex-row items-center gap-3">
         {onBack && (
@@ -681,16 +1011,29 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
             className="w-full sm:w-auto h-11 px-5 rounded-xl border-border/80 hover:bg-muted/60 text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
-            <span>Back to Vision Results</span>
+            <span>ย้อนกลับ</span>
           </Button>
         )}
+
+        {hasExistingItinerary && onViewExistingItinerary && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onViewExistingItinerary}
+            className="w-full sm:w-auto h-11 px-5 rounded-xl border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary font-semibold text-sm flex items-center justify-center gap-2 transition-colors shadow-2xs"
+          >
+            <Compass className="w-4 h-4" />
+            <span>ดูแผนการท่องเที่ยวปัจจุบัน</span>
+          </Button>
+        )}
+
         <Button
           type="submit"
           disabled={!canSubmit}
           className="flex-1 w-full h-11 px-6 rounded-xl travel-gradient text-white font-semibold text-sm shadow-md disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-95 transition-opacity"
         >
           <Sparkles className="w-4 h-4" />
-          <span>Generate Itinerary</span>
+          <span>{hasExistingItinerary ? "สร้างแผนการท่องเที่ยวใหม่ (Regenerate)" : "สร้างแผนการท่องเที่ยว (Generate Itinerary)"}</span>
         </Button>
       </div>
     </form>
@@ -698,3 +1041,4 @@ const TripPreferencesForm = ({ onSubmit, destinationName = "", onBack }: TripPre
 };
 
 export default TripPreferencesForm;
+
