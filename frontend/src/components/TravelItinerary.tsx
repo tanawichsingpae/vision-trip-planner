@@ -133,11 +133,47 @@ export const PLACEHOLDER_IMAGES: Record<string, string> = {
   "Mount Batur": "https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=600&h=400&fit=crop",
 };
 
+export const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
+  food: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&h=600&fit=crop",
+  culture: "https://images.unsplash.com/photo-1548013146-72479768bada?w=800&h=600&fit=crop",
+  nature: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&h=600&fit=crop",
+  adventure: "https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=800&h=600&fit=crop",
+  activity: "https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=800&h=600&fit=crop",
+  shopping: "https://images.unsplash.com/photo-1555529771-835f59fc5efe?w=800&h=600&fit=crop",
+  nightlife: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&h=600&fit=crop",
+  relax: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&h=600&fit=crop",
+  rest: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&h=600&fit=crop",
+  landmark: "https://images.unsplash.com/photo-1508807526345-15e9b5f4eaff?w=800&h=600&fit=crop",
+  photo: "https://images.unsplash.com/photo-1508807526345-15e9b5f4eaff?w=800&h=600&fit=crop",
+  entertainment: "https://images.unsplash.com/photo-1513151233558-d860c5398176?w=800&h=600&fit=crop",
+  spiritual: "https://images.unsplash.com/photo-1563492065599-3520f775eeed?w=800&h=600&fit=crop",
+  hotel: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&h=600&fit=crop",
+  transport: "https://images.unsplash.com/photo-1436491865332-7a61a109db56?w=800&h=600&fit=crop",
+  attraction: "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=800&h=600&fit=crop",
+};
+
 export const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=600&h=400&fit=crop";
 
 export function getActivityImage(activity: Activity): string {
-  return activity.image_url || activity.photo_url || activity.image || PLACEHOLDER_IMAGES[activity.title] || DEFAULT_IMAGE;
+  if (activity.photo_url && typeof activity.photo_url === "string" && activity.photo_url.trim().length > 0 && !activity.photo_url.includes("undefined")) {
+    return activity.photo_url;
+  }
+  if (activity.image_url && typeof activity.image_url === "string" && activity.image_url.trim().length > 0 && !activity.image_url.includes("undefined")) {
+    return activity.image_url;
+  }
+  if (activity.image && typeof activity.image === "string" && activity.image.trim().length > 0 && !activity.image.includes("undefined")) {
+    return activity.image;
+  }
+  if (activity.title && PLACEHOLDER_IMAGES[activity.title]) {
+    return PLACEHOLDER_IMAGES[activity.title];
+  }
+  const typeKey = (activity.type || "attraction").toLowerCase();
+  if (CATEGORY_FALLBACK_IMAGES[typeKey]) {
+    return CATEGORY_FALLBACK_IMAGES[typeKey];
+  }
+  return DEFAULT_IMAGE;
 }
+
 
 // ─────────────────────────────────────────
 // Helpers
@@ -458,7 +494,10 @@ const SortableCard = ({
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
           onError={(e) => {
-            e.currentTarget.src = "https://picsum.photos/seed/travel/800/600";
+            const fallback = CATEGORY_FALLBACK_IMAGES[activity.type?.toLowerCase() || "attraction"] || DEFAULT_IMAGE;
+            if (e.currentTarget.src !== fallback) {
+              e.currentTarget.src = fallback;
+            }
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
@@ -962,10 +1001,10 @@ const AddActivityPopover = ({
                         onClick={() => setSelectedPlace(place)}
                       >
                         <img
-                          src={place.image_url || `https://picsum.photos/seed/${encodeURIComponent(place.name)}/400/300`}
+                          src={place.photo_url || place.image_url || place.image || CATEGORY_FALLBACK_IMAGES[place.category?.toLowerCase() || "attraction"] || DEFAULT_IMAGE}
                           alt={place.name}
                           className="w-10 h-10 rounded-md object-cover shrink-0"
-                          onError={(e) => { e.currentTarget.src = "https://picsum.photos/seed/travel/400/300"; }}
+                          onError={(e) => { e.currentTarget.src = CATEGORY_FALLBACK_IMAGES[place.category?.toLowerCase() || "attraction"] || DEFAULT_IMAGE; }}
                         />
                         <div className="flex-1 overflow-hidden">
                           <p className="text-xs font-semibold truncate">{place.name}</p>
@@ -994,10 +1033,10 @@ const AddActivityPopover = ({
                           onClick={() => setSelectedPlace(place)}
                         >
                           <img
-                            src={place.image_url || `https://picsum.photos/seed/${encodeURIComponent(place.name)}/400/300`}
+                            src={place.photo_url || place.image_url || place.image || CATEGORY_FALLBACK_IMAGES[place.category?.toLowerCase() || "attraction"] || DEFAULT_IMAGE}
                             alt={place.name}
                             className="w-10 h-10 rounded-md object-cover shrink-0"
-                            onError={(e) => { e.currentTarget.src = "https://picsum.photos/seed/travel/400/300"; }}
+                            onError={(e) => { e.currentTarget.src = CATEGORY_FALLBACK_IMAGES[place.category?.toLowerCase() || "attraction"] || DEFAULT_IMAGE; }}
                           />
                           <div className="flex-1 overflow-hidden">
                             <p className="text-xs font-semibold truncate">{place.name}</p>

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { DEFAULT_IMAGE } from "@/components/TravelItinerary";
+import { DEFAULT_IMAGE, CATEGORY_FALLBACK_IMAGES } from "@/components/TravelItinerary";
 
 export interface SuggestedPlace {
   id: string;
@@ -27,6 +27,21 @@ export interface SuggestedPlace {
   website?: string | null;
   phoneNumber?: string | null;
 }
+
+const getSuggestedPlaceImage = (place: SuggestedPlace): string => {
+  if (place.photo_url && typeof place.photo_url === "string" && place.photo_url.trim().length > 0 && !place.photo_url.includes("undefined")) {
+    return place.photo_url;
+  }
+  if (place.image_url && typeof place.image_url === "string" && place.image_url.trim().length > 0 && !place.image_url.includes("undefined")) {
+    return place.image_url;
+  }
+  if (place.image && typeof place.image === "string" && place.image.trim().length > 0 && !place.image.includes("undefined") && !place.image.includes("picsum")) {
+    return place.image;
+  }
+  const cat = (place.category || "attraction").toLowerCase();
+  return CATEGORY_FALLBACK_IMAGES[cat] || DEFAULT_IMAGE;
+};
+
 
 const categoryConfig: Record<string, { label: string; color: string }> = {
   culture: { label: "Culture", color: "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border-purple-200" },
@@ -59,12 +74,13 @@ function getFallbackSuggestions(locationName: string): SuggestedPlace[] {
   ];
 
   return defaults.map((item, i) => ({
-
     id: `fallback-sug-${i}-${Date.now()}`,
     name: item.name,
     category: item.category,
     description: item.description,
-    image: `https://picsum.photos/seed/${encodeURIComponent(item.name)}/800/600`,
+    image: CATEGORY_FALLBACK_IMAGES[item.category] || DEFAULT_IMAGE,
+    photo_url: CATEGORY_FALLBACK_IMAGES[item.category] || DEFAULT_IMAGE,
+    image_url: CATEGORY_FALLBACK_IMAGES[item.category] || DEFAULT_IMAGE,
     lat: 0,
     lng: 0,
     rating: 4.5 + (i % 3) * 0.2,
@@ -106,12 +122,13 @@ const DraggableSuggestion = ({ place, onAdd, daysCount }: DraggableSuggestionPro
     >
       <div className="relative h-36 overflow-hidden">
         <img
-          src={place.image_url || `https://picsum.photos/seed/${encodeURIComponent(place.name)}/800/600`}
+          src={getSuggestedPlaceImage(place)}
           alt={place.name}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
           onError={(e) => {
-            e.currentTarget.src = "https://picsum.photos/seed/travel/800/600";
+            const cat = (place.category || "attraction").toLowerCase();
+            e.currentTarget.src = CATEGORY_FALLBACK_IMAGES[cat] || DEFAULT_IMAGE;
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/50 to-transparent" />
@@ -201,11 +218,12 @@ export const SuggestionDragOverlay = ({ place }: { place: SuggestedPlace }) => {
     <div className="w-64 rounded-2xl overflow-hidden bg-card border border-primary shadow-2xl scale-105 rotate-1">
       <div className="relative h-36 overflow-hidden">
         <img
-          src={place.image_url || `https://picsum.photos/seed/${encodeURIComponent(place.name)}/800/600`}
+          src={getSuggestedPlaceImage(place)}
           alt={place.name}
           className="w-full h-full object-cover"
           onError={(e) => {
-            e.currentTarget.src = "https://picsum.photos/seed/travel/800/600";
+            const cat = (place.category || "attraction").toLowerCase();
+            e.currentTarget.src = CATEGORY_FALLBACK_IMAGES[cat] || DEFAULT_IMAGE;
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />

@@ -897,8 +897,16 @@ const Index = () => {
           setLoadingStep(`Plotting Itinerary Map: ${activity.title}...`);
           await delay(100); // ← 100 ms gap prevents Google Places API rate-limit failures
           try {
-            const activityCoords = await geocodeWithValidation(activity.title);
-            enrichedActivities.push({ ...activity, lat: activityCoords.lat, lng: activityCoords.lng });
+            const activityDetails = await geocodeWithValidation(activity.title);
+            enrichedActivities.push({
+              ...activity,
+              lat: activityDetails.lat,
+              lng: activityDetails.lng,
+              photo_url: activity.photo_url || activityDetails.photoUrl || null,
+              image_url: activity.image_url || activityDetails.photoUrl || null,
+              rating: activity.rating || activityDetails.rating || undefined,
+              userRatingsTotal: activity.userRatingsTotal || activityDetails.userRatingsTotal || undefined,
+            });
           } catch (e) {
             console.warn(`[geocode] All strategies failed for: "${activity.title}"`, e);
             // Fallback: city centre (marked with _geocodeFailed so MapSection can handle)

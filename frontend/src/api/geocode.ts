@@ -3,6 +3,14 @@ export interface Coordinates {
   lng: number;
 }
 
+export interface GeocodePlaceResult extends Coordinates {
+  photoUrl?: string | null;
+  rating?: number | null;
+  userRatingsTotal?: number | null;
+  placeId?: string | null;
+  formattedAddress?: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Haversine distance (metres) between two coordinates
 // ---------------------------------------------------------------------------
@@ -27,7 +35,7 @@ function textSearchAsync(
   service: google.maps.places.PlacesService,
   query: string,
   bias?: Coordinates
-): Promise<Coordinates> {
+): Promise<GeocodePlaceResult> {
   return new Promise((resolve, reject) => {
     const request: google.maps.places.TextSearchRequest = {
       query,
@@ -37,8 +45,21 @@ function textSearchAsync(
     };
     service.textSearch(request, (results, status) => {
       if (status === google.maps.places.PlacesServiceStatus.OK && results?.length) {
-        const loc = results[0].geometry?.location;
-        if (loc) { resolve({ lat: loc.lat(), lng: loc.lng() }); return; }
+        const first = results[0];
+        const loc = first.geometry?.location;
+        if (loc) {
+          const photoUrl = first.photos?.[0]?.getUrl?.({ maxWidth: 800, maxHeight: 600 }) || null;
+          resolve({
+            lat: loc.lat(),
+            lng: loc.lng(),
+            photoUrl,
+            rating: first.rating || null,
+            userRatingsTotal: first.user_ratings_total || null,
+            placeId: first.place_id || null,
+            formattedAddress: first.formatted_address || null,
+          });
+          return;
+        }
       }
       reject(new Error(`textSearch failed [${status}]: ${query}`));
     });
@@ -50,11 +71,11 @@ function findPlaceAsync(
   service: google.maps.places.PlacesService,
   query: string,
   bias?: Coordinates
-): Promise<Coordinates> {
+): Promise<GeocodePlaceResult> {
   return new Promise((resolve, reject) => {
     const request: google.maps.places.FindPlaceFromQueryRequest = {
       query,
-      fields: ["geometry"],
+      fields: ["geometry", "photos", "rating", "user_ratings_total", "place_id", "formatted_address"],
     };
     if (bias) {
       (request as any).locationBias = new google.maps.Circle({
@@ -64,8 +85,21 @@ function findPlaceAsync(
     }
     service.findPlaceFromQuery(request, (results, status) => {
       if (status === google.maps.places.PlacesServiceStatus.OK && results?.length) {
-        const loc = results[0].geometry?.location;
-        if (loc) { resolve({ lat: loc.lat(), lng: loc.lng() }); return; }
+        const first = results[0];
+        const loc = first.geometry?.location;
+        if (loc) {
+          const photoUrl = first.photos?.[0]?.getUrl?.({ maxWidth: 800, maxHeight: 600 }) || null;
+          resolve({
+            lat: loc.lat(),
+            lng: loc.lng(),
+            photoUrl,
+            rating: first.rating || null,
+            userRatingsTotal: first.user_ratings_total || null,
+            placeId: first.place_id || null,
+            formattedAddress: first.formatted_address || null,
+          });
+          return;
+        }
       }
       reject(new Error(`findPlaceFromQuery failed [${status}]: ${query}`));
     });
@@ -73,18 +107,24 @@ function findPlaceAsync(
 }
 
 /** Geocoder — address-based fallback */
-function geocodeAsync(geocoder: google.maps.Geocoder, address: string): Promise<Coordinates> {
+function geocodeAsync(geocoder: google.maps.Geocoder, address: string): Promise<GeocodePlaceResult> {
   return new Promise((resolve, reject) => {
     geocoder.geocode({ address }, (results, status) => {
       if (status === google.maps.GeocoderStatus.OK && results?.length) {
         const loc = results[0].geometry.location;
-        resolve({ lat: loc.lat(), lng: loc.lng() });
+        resolve({
+          lat: loc.lat(),
+          lng: loc.lng(),
+          formattedAddress: results[0].formatted_address || null,
+          placeId: results[0].place_id || null,
+        });
       } else {
         reject(new Error(`Geocoder failed [${status}]: ${address}`));
       }
     });
   });
 }
+
 
 // ---------------------------------------------------------------------------
 // Place-name normalisation
@@ -140,7 +180,7 @@ export async function getCoordinates(
   placeName: string,
   bias?: Coordinates,
   cityName?: string
-): Promise<Coordinates> {
+): Promise<GeocodePlaceResult> {
   if (typeof google === "undefined" || !google.maps) {
     throw new Error("Google Maps SDK not loaded.");
   }
