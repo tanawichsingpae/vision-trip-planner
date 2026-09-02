@@ -9,7 +9,19 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+
 import { type SuggestedPlace } from "@/components/AISuggestedPlaces";
 import { useDistanceMatrix } from "@/hooks/useDistanceMatrix";
 import { type ForecastHour } from "@/services/environmentService";
@@ -59,7 +71,10 @@ interface TravelItineraryProps {
   tripStartDate?: Date;
   hourlyWeather?: ForecastHour[]; // Hourly forecast for per-activity weather
   coherenceResult?: ItineraryCoherence | null;
+  onAIRefine?: () => void;
+  isAIRefining?: boolean;
 }
+
 
 export const typeConfig: Record<string, { label: string; color: string }> = {
   attraction: { label: "Attraction", color: "bg-primary/15 text-primary border-primary/20" },
@@ -1213,7 +1228,21 @@ interface TravelItineraryProps {
   destinationName?: string;
 }
 
-const TravelItinerary = ({ itinerary, onUpdate, onSelectActivity, onHoverActivity, activeDragId, onReloadMap, suggestions = [], tripStartDate, hourlyWeather = [], coherenceResult, destinationName }: TravelItineraryProps) => {
+const TravelItinerary = ({
+  itinerary,
+  onUpdate,
+  onSelectActivity,
+  onHoverActivity,
+  activeDragId,
+  onReloadMap,
+  suggestions = [],
+  tripStartDate,
+  hourlyWeather = [],
+  coherenceResult,
+  destinationName,
+  onAIRefine,
+  isAIRefining = false,
+}: TravelItineraryProps) => {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -1294,29 +1323,86 @@ const TravelItinerary = ({ itinerary, onUpdate, onSelectActivity, onHoverActivit
           <Calendar className="w-6 h-6 text-primary" />
           Your Travel Itinerary
         </h2>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2.5 sm:gap-4 flex-wrap">
           {tripStartDate ? (() => {
             const endDate = new Date(tripStartDate);
             endDate.setDate(endDate.getDate() + itinerary.length - 1);
             return (
-              <span className="text-sm text-muted-foreground">
+              <span className="text-xs sm:text-sm text-muted-foreground">
                 {tripStartDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – {endDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · {itinerary.length} days
               </span>
             );
           })() : (
-            <span className="text-sm text-muted-foreground">{itinerary.length} days</span>
+            <span className="text-xs sm:text-sm text-muted-foreground">{itinerary.length} days</span>
           )}
+
+          {/* AI Self-Review & Auto-Optimize Button with Confirmation Dialog */}
+          {onAIRefine && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={isAIRefining}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-primary-foreground text-xs sm:text-sm font-semibold rounded-full shadow-2xs hover:bg-primary/90 active:scale-95 transition-all pdf-hidden disabled:opacity-50 cursor-pointer"
+                  title="ให้ AI ตรวจสอบกฎการเดินทาง เส้นทาง และจัดระเบียบตารางใหม่อัตโนมัติ"
+                >
+                  {isAIRefining ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>กำลังตรวจ & จัดระเบียบ...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>AI Review & Auto-Optimize</span>
+                    </>
+                  )}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="max-w-md rounded-2xl p-6 bg-card border-border shadow-lg">
+                <AlertDialogHeader className="text-left space-y-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+                      <Sparkles className="size-5" />
+                    </div>
+                    <AlertDialogTitle className="text-base sm:text-lg font-bold text-foreground">
+                      ยืนยันให้ AI จัดระเบียบตารางเที่ยว?
+                    </AlertDialogTitle>
+                  </div>
+                  <AlertDialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed pt-1">
+                    AI จะช่วยตรวจสอบความต่อเนื่องของเส้นทาง จัดกลุ่มสถานที่ใกล้เคียง ปรับเวลาอาหาร (เที่ยง/เย็น) และแก้จุดที่เดินทางวกวนให้อัตโนมัติ
+                    <span className="block mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] sm:text-xs font-medium text-amber-700 dark:text-amber-300">
+                      💡 <strong>ข้อแนะนำ:</strong> ลำดับเวลาและกิจกรรมที่คุณเคยลากสลับไว้อาจถูกปรับแต่งใหม่เพื่อให้เส้นทางราบรื่นที่สุด
+                    </span>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter className="flex-row items-center justify-end gap-2 pt-3">
+                  <AlertDialogCancel className="rounded-xl text-xs h-9 px-4 mt-0">
+                    ยกเลิก
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={onAIRefine}
+                    className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-xs h-9 px-4 font-semibold"
+                  >
+                    เริ่มจัดระเบียบแผน ✨
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+
+
           {onReloadMap && (
             <button
               onClick={onReloadMap}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-full shadow hover:bg-primary/90 transition-colors pdf-hidden"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-secondary text-secondary-foreground border border-border text-xs sm:text-sm font-medium rounded-full shadow-2xs hover:bg-secondary/80 transition-colors pdf-hidden"
             >
-              <RefreshCw className="w-4 h-4" />
-              Reload Map
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Reload Map</span>
             </button>
           )}
         </div>
       </div>
+
 
       <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5 items-start pdf-grid-cols-2">
 

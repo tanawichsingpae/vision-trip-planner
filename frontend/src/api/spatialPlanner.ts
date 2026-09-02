@@ -1040,6 +1040,26 @@ export function calculateCoherenceScore(
 }
 
 /**
+ * Extracts a clean structured audit report of itinerary flaws for AI Self-Refinement.
+ */
+export function auditItineraryIssues(
+  itinerary: DayPlanItem[],
+  pace: string = "Moderate",
+  tripStartDate?: Date
+): { score: number; warnings: string[]; summary: string } {
+  const result = calculateCoherenceScore(itinerary, pace, tripStartDate);
+  const summary = result.warnings.length === 0
+    ? "Itinerary is fully coherent and satisfies all spatial and timing constraints."
+    : `Detected ${result.warnings.length} itinerary optimization issues:\n${result.warnings.map((w, idx) => `${idx + 1}. ${w}`).join("\n")}`;
+  return {
+    score: result.totalScore,
+    warnings: result.warnings,
+    summary,
+  };
+}
+
+
+/**
  * Checks if an activity is inherently an evening/night activity
  */
 export function isEveningActivity(act: Activity | ActivityItem): boolean {

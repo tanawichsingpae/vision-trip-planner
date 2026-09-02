@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Plane,
@@ -17,7 +17,10 @@ import {
   Compass,
   FolderHeart,
   Plus,
+  Loader2,
+  Check,
 } from "lucide-react";
+
 import { useAuth } from "@/context/AuthContext";
 import html2pdf from "html2pdf.js";
 import { getPlaceImage } from "@/utils/getPlaceImage";
@@ -63,8 +66,9 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getCoordinates, distanceMetres } from "@/api/geocode";
 import { getNearbyAttractions, fetchPlaceDetails, fetchPlaceDetailsByPlaceId } from "@/api/places";
-import { gatherCandidatePOIs, kMeansCluster, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, rebalanceCrossDayPOIs, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
-import { generateTravelPlan, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
+import { gatherCandidatePOIs, kMeansCluster, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, rebalanceCrossDayPOIs, auditItineraryIssues, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
+import { generateTravelPlan, refineItineraryWithAI, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
+
 import { getEnvironmentData, type EnvironmentData } from "@/services/environmentService";
 import { toast } from "sonner";
 import { useAI, AI_MODEL_OPTIONS, getAIModelInfo, MODEL_ID_MAP } from "@/context/AIProviderContext";
@@ -323,6 +327,10 @@ const Index = () => {
   const [currentTripTitle, setCurrentTripTitle] = useState<string | null>(null);
   const [isSavedTripsModalOpen, setIsSavedTripsModalOpen] = useState<boolean>(false);
   const [isSavingTrip, setIsSavingTrip] = useState<boolean>(false);
+  const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<Date | null>(null);
+  const lastSavedHashRef = useRef<string>("");
+  const [isAIRefining, setIsAIRefining] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   useEffect(() => {
@@ -333,13 +341,32 @@ const Index = () => {
     }
   }, [itinerary, preferences?.pace, tripStartDate]);
 
-  const handleSaveCurrentTrip = useCallback(async () => {
+  const handleSaveCurrentTrip = useCallback(async (isSilent: boolean = false) => {
     if (!itinerary || itinerary.length === 0) {
-      toast.warning("ไม่มีข้อมูลตารางการเดินทางให้บันทึก");
+      if (!isSilent) toast.warning("ไม่มีข้อมูลตารางการเดินทางให้บันทึก");
       return;
     }
 
-    setIsSavingTrip(true);
+    // Hash check to prevent redundant writes
+    const currentPayloadContent = JSON.stringify({
+      itinerary,
+      chatMessages,
+      detectedLocations,
+      preferences,
+      suggestions,
+      accommodations,
+    });
+
+    if (isSilent && lastSavedHashRef.current === currentPayloadContent) {
+      return; // No changes since last save
+    }
+
+    if (!isSilent) {
+      setIsSavingTrip(true);
+    } else {
+      setIsAutoSaving(true);
+    }
+
     try {
       const destination = detectedLocations[0]?.place || (preferences ? "Travel Destination" : "ทริปท่องเที่ยว");
       const currentModel = preferences?.aiModel || preferences?.ai_model || model;
@@ -366,12 +393,22 @@ const Index = () => {
 
       setCurrentTripId(saved.id);
       setCurrentTripTitle(saved.title);
-      toast.success(`บันทึก "${saved.title}" ลงฐานข้อมูลเรียบร้อยแล้ว ✨`);
+      lastSavedHashRef.current = currentPayloadContent;
+      setLastAutoSavedAt(new Date());
+
+      if (!isSilent) {
+        toast.success(`บันทึก "${saved.title}" ลงฐานข้อมูลเรียบร้อยแล้ว ✨`);
+      }
     } catch (err: any) {
-      console.error("Save trip error:", err);
-      toast.error(err.message || "เกิดข้อผิดพลาดในการบันทึกทริป");
+      if (!isSilent) {
+        console.error("Save trip error:", err);
+        toast.error(err.message || "เกิดข้อผิดพลาดในการบันทึกทริป");
+      } else {
+        console.warn("[AutoSave] Silent auto-save skipped:", err?.message || err);
+      }
     } finally {
       setIsSavingTrip(false);
+      setIsAutoSaving(false);
     }
   }, [
     currentTripId,
@@ -386,6 +423,18 @@ const Index = () => {
     coherenceResult,
     environmentData,
   ]);
+
+  // ── Auto-save every 1 minute (60,000 ms) when on step 4 ──
+  useEffect(() => {
+    if (itinerary.length === 0 || step !== 4) return;
+
+    const intervalId = setInterval(() => {
+      handleSaveCurrentTrip(true);
+    }, 60000); // 1 minute
+
+    return () => clearInterval(intervalId);
+  }, [handleSaveCurrentTrip, itinerary.length, step]);
+
 
   const handleSelectTrip = useCallback((trip: TripRecord) => {
     setCurrentTripId(trip.id);
@@ -530,6 +579,77 @@ const Index = () => {
     });
   }, []);
 
+  const handleAIRefineItinerary = useCallback(async () => {
+
+    if (!itinerary || itinerary.length === 0) {
+      toast.warning("ไม่มีข้อมูลตารางเที่ยวให้จัดระเบียบ");
+      return;
+    }
+
+    setIsAIRefining(true);
+    toast.loading("พิกซ์กำลังตรวจสอบกฎและจัดระเบียบตารางเที่ยว...", { id: "ai-refine" });
+
+    try {
+      const currentPace = preferences?.pace || "Moderate";
+      const auditReport = auditItineraryIssues(itinerary, currentPace, tripStartDate ?? undefined);
+
+      const prefsWithModel: TripPreferences = preferences || {
+        days: itinerary.length,
+        pace: currentPace,
+        travelerType: "Solo",
+        budget: "Medium",
+        activities: ["Sightseeing", "Food"],
+        startDate: tripStartDate || new Date(),
+        endDate: tripStartDate || new Date(),
+      };
+
+      const refined = await refineItineraryWithAI(
+        itinerary,
+        auditReport.warnings,
+        prefsWithModel,
+        model
+      );
+
+      // Re-apply 2-Opt TSP & hours fitting
+      const hotelLoc = prefsWithModel.hasHotel === "yes" && prefsWithModel.hotelLat && prefsWithModel.hotelLng
+        ? { lat: prefsWithModel.hotelLat, lng: prefsWithModel.hotelLng }
+        : (selectedPlace || { lat: 13.7563, lng: 100.5018 });
+
+      const rebalanced = rebalanceCrossDayPOIs(refined);
+      const optimized = rebalanced.map((day, dIdx) => {
+        const prevDayLastAct = dIdx > 0 ? rebalanced[dIdx - 1]?.activities.slice(-1)[0] : undefined;
+        const dayStart = (prefsWithModel.hasHotel === "yes" && prefsWithModel.hotelLat && prefsWithModel.hotelLng)
+          ? hotelLoc
+          : (dIdx === 0
+            ? hotelLoc
+            : (prevDayLastAct?.lat && prevDayLastAct?.lng ? { lat: prevDayLastAct.lat, lng: prevDayLastAct.lng } : hotelLoc));
+
+        const dayDate = new Date(tripStartDate || new Date());
+        dayDate.setDate(dayDate.getDate() + dIdx);
+        const dayOfWeek = dayDate.getDay();
+
+        const optActivities = optimizeDayActivities(day.activities, currentPace, dayStart, dayOfWeek);
+        return {
+          ...day,
+          activities: [...optActivities].sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00")),
+        };
+      });
+
+      setItinerary(optimized);
+      setMapItinerary(optimized);
+      toast.success("AI ตรวจสอบและจัดระเบียบตารางเที่ยวให้สมบูรณ์แล้ว ✨", {
+        id: "ai-refine",
+        description: "จัดกลุ่มสถานที่ใกล้เคียง ปรับเวลาอาหาร และเรียงลำดับเส้นทางให้ราบรื่นเรียบร้อย",
+      });
+    } catch (e: any) {
+      console.error("AI Refinement failed:", e);
+      toast.error("ไม่สามารถปรับแต่งตารางเที่ยวได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง", { id: "ai-refine" });
+    } finally {
+      setIsAIRefining(false);
+    }
+  }, [itinerary, preferences, tripStartDate, model, selectedPlace]);
+
+
   const handleImagesUploaded = useCallback(async (files: File[]) => {
     setOverlayType("vision");
     setIsAnalyzing(true);
@@ -658,6 +778,28 @@ const Index = () => {
       const { itinerary: generatedItinerary, suggestions: generatedSuggestions, accommodations: generatedAccommodations, typicalWeather: aiTypicalWeather } =
         await generateTravelPlan(locationNames, prefsWithModel, model, dayClusters);
 
+      // Step 2a: AI Self-Review & Refinement Loop (Critic-Actor Quality Gate)
+      let workingItinerary = generatedItinerary;
+      try {
+        const auditReport = auditItineraryIssues(generatedItinerary, prefsWithModel.pace, prefsWithModel.startDate);
+        if (auditReport.warnings.length > 0 || auditReport.score < 88) {
+          setLoadingStep("AI Self-Reviewing & Refining Itinerary Flow...");
+          console.log("[AISelfReview] Detected draft issues, auto-refining with AI:", auditReport.warnings);
+          const refined = await refineItineraryWithAI(
+            generatedItinerary,
+            auditReport.warnings,
+            prefsWithModel,
+            model
+          );
+          if (refined && refined.length > 0) {
+            workingItinerary = refined;
+            console.log("[AISelfReview] Refined itinerary successfully applied");
+          }
+        }
+      } catch (selfReviewErr) {
+        console.warn("[AISelfReview] Self-review error fallback to draft:", selfReviewErr);
+      }
+
       // Step 2b: Get the nearest IATA airport code for flight search / offers
       try {
         const iataPrompt = `What is the IATA 3-letter airport code for the main international airport closest to "${mainLocation.place}, ${mainLocation.country}"? Reply with ONLY the 3-letter code in uppercase, nothing else. Example: NRT`;
@@ -718,9 +860,10 @@ const Index = () => {
 
       const enrichedItinerary: typeof generatedItinerary = [];
 
-      for (let dayIndex = 0; dayIndex < generatedItinerary.length; dayIndex++) {
-        const day = generatedItinerary[dayIndex];
+      for (let dayIndex = 0; dayIndex < workingItinerary.length; dayIndex++) {
+        const day = workingItinerary[dayIndex];
         const enrichedActivities: typeof day.activities = [];
+
 
         // Calculate actual date for this day to check opening hours
         const dayDate = new Date(prefs.startDate);
@@ -1872,10 +2015,30 @@ const Index = () => {
                     <span>Export PDF</span>
                   </Button>
 
+                  {/* Auto-Save Live Status Badge */}
+                  {lastAutoSavedAt && (
+                    <span
+                      className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary/80 border border-border/70 text-[11px] text-muted-foreground font-medium"
+                      title="ระบบบันทึกความคืบหน้าของทริปลงฐานข้อมูลอัตโนมัติทุก 1 นาที"
+                    >
+                      {isAutoSaving ? (
+                        <>
+                          <Loader2 className="size-3 animate-spin text-primary" />
+                          <span>กำลังบันทึกอัตโนมัติ...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span>บันทึกอัตโนมัติแล้ว ({lastAutoSavedAt.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })})</span>
+                        </>
+                      )}
+                    </span>
+                  )}
+
                   <Button
                     type="button"
                     size="sm"
-                    onClick={handleSaveCurrentTrip}
+                    onClick={() => handleSaveCurrentTrip(false)}
                     disabled={isSavingTrip}
                     className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-medium text-xs h-7 px-2.5 gap-1 shadow-2xs"
                   >
@@ -1888,6 +2051,7 @@ const Index = () => {
                   </Button>
                 </div>
               </div>
+
 
               {/* 2-Column Responsive Dashboard */}
               <div className="grid gap-6 lg:grid-cols-12 items-start">
@@ -1908,7 +2072,10 @@ const Index = () => {
                     tripStartDate={tripStartDate ?? undefined}
                     hourlyWeather={environmentData?.hourly ?? []}
                     coherenceResult={coherenceResult}
+                    onAIRefine={handleAIRefineItinerary}
+                    isAIRefining={isAIRefining}
                   />
+
                 </div>
 
                 {/* Right Column (5/12 on lg, 4/12 on xl, Sticky): Interactive Map & Live Weather */}

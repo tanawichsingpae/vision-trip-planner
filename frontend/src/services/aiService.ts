@@ -80,6 +80,141 @@ export async function generateTravelPlan(
   return callOpenRouterPlan(places, preferences, modelId, dayClusters);
 }
 
+/**
+ * AI Self-Review & Refinement: Analyzes rule audit issues and repairs the itinerary
+ */
+export async function refineItineraryWithAI(
+  currentItinerary: DayPlan[],
+  auditIssues: string[],
+  preferences: TripPreferences,
+  model: AIModelType
+): Promise<DayPlan[]> {
+  const modelId = MODEL_ID_MAP[model];
+
+  const simplifiedItinerary = currentItinerary.map(d => ({
+    day: d.day,
+    date: d.date,
+    activities: d.activities.map(a => ({
+      id: a.id,
+      time: a.time,
+      title: a.title,
+      description: a.description,
+      type: a.type,
+      lat: a.lat,
+      lng: a.lng,
+      openingHours: a.openingHours,
+      priceLevel: a.priceLevel,
+    }))
+  }));
+
+  const prompt = `You are an Expert AI Travel Route Auditor & Master Itinerary Optimizer.
+We analyzed the following draft travel itinerary and detected several planning flaws & rule violations:
+
+DETECTED AUDIT ISSUES TO REPAIR (CRITICAL):
+${auditIssues.length > 0 ? auditIssues.map((issue, idx) => `${idx + 1}. ${issue}`).join("\n") : "1. Review overall daily geographic flow and ensure perfectly timed meal slots (lunch 11:30-13:30, dinner 18:00-20:00)."}
+
+CURRENT ITINERARY:
+${JSON.stringify(simplifiedItinerary, null, 2)}
+
+TRAVELER PREFERENCES:
+- Pace: ${preferences.pace}
+- Traveler Type: ${preferences.travelerType}
+- Preferred Activities: ${preferences.activities?.join(", ") || "Sightseeing"}
+
+YOUR OPTIMIZATION MISSION:
+1. UNTANGLE GEOGRAPHIC PATHS: Sequence activities in each day so the route flows smoothly in one direction (no zigzagging across town or backtracking).
+2. DISTRICT GROUPING: If attractions are in the same neighborhood (within ~2.5 km), ensure they are scheduled together on the SAME day rather than split across days.
+3. FIX MEALS & TIMING:
+   - Ensure EVERY day has a lunch stop (11:30 - 13:30) near morning attractions.
+   - NEVER place consecutive food/restaurant stops back-to-back without a sightseeing/cultural activity in between.
+   - Sunset viewpoints/observation decks MUST be at 17:00 - 18:30 (Golden Hour).
+   - Night markets/bars/nightlife MUST be in the evening (after 18:30).
+4. RESPECT REAL OPERATING HOURS: Do not schedule closed or late-night visits to daytime temples/museums.
+5. PRESERVE ESSENTIALS: Retain the user's key landmark places and coordinates wherever possible. Fix times and re-order sequence.
+
+Return ONLY the refined itinerary strictly in this JSON format:
+{
+  "itinerary": [
+    {
+      "day": 1,
+      "date": "Day 1 - ...",
+      "activities": [
+        {
+          "time": "09:00",
+          "title": "...",
+          "description": "...",
+          "type": "attraction",
+          "lat": 0,
+          "lng": 0
+        }
+      ]
+    }
+  ]
+}`;
+
+  try {
+    const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: "user", content: prompt }],
+        expect_json: true,
+      }),
+    });
+
+    const text = data.text?.trim() ?? "";
+    const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    if (parsed && Array.isArray(parsed.itinerary) && parsed.itinerary.length > 0) {
+      // Map original details (photos, ratings, etc.) onto the refined itinerary
+      const originalActivityMap = new Map<string, Activity>();
+      currentItinerary.forEach(d => {
+        d.activities.forEach(a => {
+          originalActivityMap.set(a.title.toLowerCase().trim(), a);
+          if (a.id) originalActivityMap.set(a.id, a);
+        });
+      });
+
+      const refinedDays: DayPlan[] = parsed.itinerary.map((day: any, dIdx: number) => {
+        const originalDay = currentItinerary[dIdx];
+        const activities: Activity[] = (day.activities || []).map((act: any, aIdx: number) => {
+          const matched = originalActivityMap.get(act.title?.toLowerCase().trim()) || (act.id ? originalActivityMap.get(act.id) : null);
+          return {
+            ...act,
+            id: matched?.id || act.id || `refine-${dIdx}-${aIdx}-${Date.now()}`,
+            image_url: matched?.image_url || null,
+            photo_url: matched?.photo_url || null,
+            rating: matched?.rating ?? null,
+            userRatingsTotal: matched?.userRatingsTotal ?? null,
+            openNow: matched?.openNow ?? null,
+            openingHours: matched?.openingHours ?? null,
+            priceLevel: matched?.priceLevel ?? null,
+            website: matched?.website ?? null,
+            phoneNumber: matched?.phoneNumber ?? null,
+            lat: (act.lat && act.lat !== 0) ? act.lat : (matched?.lat ?? 0),
+            lng: (act.lng && act.lng !== 0) ? act.lng : (matched?.lng ?? 0),
+          };
+        });
+
+        return {
+          day: day.day || dIdx + 1,
+          date: day.date || originalDay?.date || `Day ${dIdx + 1}`,
+          activities,
+        };
+      });
+
+      return refinedDays;
+    }
+  } catch (err) {
+    console.warn("[refineItineraryWithAI] AI refinement fallback to original itinerary:", err);
+  }
+
+  return currentItinerary;
+}
+
+
 export async function generateMoreSuggestions(
   locationName: string,
   existingPlaces: string[],
