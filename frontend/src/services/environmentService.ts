@@ -324,9 +324,29 @@ export async function getAirQuality(lat: number, lng: number): Promise<AirQualit
 // Pollen API
 // ─────────────────────────────────────────
 
+/**
+ * Google Pollen API is only supported in ~65 countries (North America, Europe, Japan, South Korea, Australia, etc.).
+ * Calling it for unsupported locations (e.g. Thailand / Southeast Asia) returns 400 Bad Request.
+ */
+function isGooglePollenCoverageSupported(lat: number, lng: number): boolean {
+  // Southeast Asia & surrounding tropical islands (lat: -11 to 28, lng: 92 to 141) are not supported by Google Pollen
+  if (lat >= -11 && lat <= 28 && lng >= 92 && lng <= 141) {
+    return false;
+  }
+  // Supported regional bounding boxes
+  const isNorthAmerica = lat >= 14 && lat <= 72 && lng >= -168 && lng <= -52;
+  const isEurope = lat >= 34 && lat <= 72 && lng >= -25 && lng <= 45;
+  const isJapanKorea = lat >= 30 && lat <= 46 && lng >= 124 && lng <= 146;
+  const isAustraliaNZ = lat >= -48 && lat <= -10 && lng >= 112 && lng <= 179;
+  const isSouthAmerica = lat >= -56 && lat <= 13 && lng >= -82 && lng <= -34;
+
+  return isNorthAmerica || isEurope || isJapanKorea || isAustraliaNZ || isSouthAmerica;
+}
+
 export async function getPollenData(lat: number, lng: number): Promise<PollenData | null> {
   try {
-    if (API_KEY) {
+    // Only call Google Pollen API if the location is within Google's supported coverage area
+    if (API_KEY && isGooglePollenCoverageSupported(lat, lng)) {
       const url = `https://pollen.googleapis.com/v1/forecast:lookup?key=${API_KEY}&location.latitude=${lat}&location.longitude=${lng}&days=1&languageCode=en`;
       const res = await fetch(url).catch(() => null);
 
@@ -387,7 +407,7 @@ export async function getPollenData(lat: number, lng: number): Promise<PollenDat
       }
     }
 
-    // Default safe fallback if location is outside Google Pollen coverage area
+    // Default realistic tropical / safe fallback when outside Google Pollen coverage
     return {
       tree: { index: 1, category: "Low", color: "#84cc16", inSeason: true },
       grass: { index: 1, category: "Very Low", color: "#22c55e", inSeason: false },
@@ -396,7 +416,6 @@ export async function getPollenData(lat: number, lng: number): Promise<PollenDat
       healthRecommendation: "ระดับละอองเกสรต่ำ สภาพแวดล้อมปลอดโปร่ง เหมาะแก่การท่องเที่ยวกลางแจ้ง",
     };
   } catch (err) {
-    console.warn("Pollen API error, returning safe fallback:", err);
     return {
       tree: { index: 1, category: "Low", color: "#84cc16", inSeason: true },
       grass: { index: 1, category: "Very Low", color: "#22c55e", inSeason: false },

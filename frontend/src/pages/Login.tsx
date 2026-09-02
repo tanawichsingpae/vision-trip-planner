@@ -105,9 +105,19 @@ export default function Login() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password })
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/`
+          }
+        })
         if (error) throw error
-        setMessage('Check your email to confirm your account and get started!')
+        if (data?.session) {
+          navigate('/')
+        } else {
+          setMessage('ระบบได้ส่งลิงก์ยืนยันไปยังอีเมลของคุณแล้ว (โปรดตรวจสอบในกล่องจดหมาย หรือโฟลเดอร์ Spam / ขยะ)')
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
