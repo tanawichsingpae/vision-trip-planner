@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabaseClient";
+import { supabaseClient } from "@/lib/supabaseClient";
 import { type DayPlan } from "@/components/TravelItinerary";
 import { type SuggestedPlace } from "@/components/AISuggestedPlaces";
 import { type TripPreferences, type VisionResult } from "@/services/aiService";
@@ -56,7 +56,7 @@ export interface SaveTripPayload {
  * Saves a new trip or updates an existing trip in Supabase.
  */
 export async function saveTrip(payload: SaveTripPayload): Promise<TripRecord> {
-  const { data: userData, error: userError } = await supabase.auth.getUser();
+  const { data: userData, error: userError } = await supabaseClient.auth.getUser();
   if (userError || !userData?.user) {
     throw new Error("กรุณาเข้าสู่ระบบก่อนทำการบันทึกทริป");
   }
@@ -118,14 +118,14 @@ export async function saveTrip(payload: SaveTripPayload): Promise<TripRecord> {
 
   const executeSave = async (dataToSave: Record<string, any>) => {
     if (payload.id) {
-      return supabase
+      return supabaseClient
         .from("trips")
         .update(dataToSave)
         .eq("id", payload.id)
         .select()
         .single();
     } else {
-      return supabase
+      return supabaseClient
         .from("trips")
         .insert([dataToSave])
         .select()
@@ -159,12 +159,12 @@ export async function saveTrip(payload: SaveTripPayload): Promise<TripRecord> {
  * Fetches all saved trips for the authenticated user.
  */
 export async function getUserTrips(): Promise<TripRecord[]> {
-  const { data: userData, error: userError } = await supabase.auth.getUser();
+  const { data: userData, error: userError } = await supabaseClient.auth.getUser();
   if (userError || !userData?.user) {
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("trips")
     .select("*")
     .order("updated_at", { ascending: false });
@@ -191,7 +191,7 @@ export async function getUserTrips(): Promise<TripRecord[]> {
  * Fetches a single trip by ID.
  */
 export async function getTripById(tripId: string): Promise<TripRecord | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("trips")
     .select("*")
     .eq("id", tripId)
@@ -221,7 +221,7 @@ export async function getTripById(tripId: string): Promise<TripRecord | null> {
  * Deletes a trip by ID.
  */
 export async function deleteTrip(tripId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from("trips")
     .delete()
     .eq("id", tripId);

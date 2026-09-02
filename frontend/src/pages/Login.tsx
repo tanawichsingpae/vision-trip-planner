@@ -14,7 +14,7 @@ import {
   X,
   AlertCircle
 } from 'lucide-react'
-import { supabase } from '@/lib/supabaseClient'
+import { supabaseClient } from '@/lib/supabaseClient'
 import { useAuth } from '@/context/AuthContext'
 import './Login.css'
 
@@ -84,7 +84,7 @@ export default function Login() {
     setError(null)
     setMessage(null)
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: window.location.origin }
       })
@@ -105,11 +105,11 @@ export default function Login() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password })
+        const { error } = await supabaseClient.auth.signUp({ email, password })
         if (error) throw error
         setMessage('Check your email to confirm your account and get started!')
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { error } = await supabaseClient.auth.signInWithPassword({ email, password })
         if (error) throw error
         navigate('/')
       }
@@ -128,7 +128,7 @@ export default function Login() {
     setLoading(true)
     setError(null)
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/`
       })
       if (error) throw error
