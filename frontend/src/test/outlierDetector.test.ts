@@ -145,6 +145,77 @@ describe("Vision AI Outlier Detection & Geo-Distance Rules", () => {
     expect(outliers[0].category).toBe("NON_TRAVEL");
   });
 
+  it("should detect portrait_selfie and is_identifiable_place=false as NON_TRAVEL with custom rejection reason", () => {
+    const results: GeoVisionResult[] = [
+      {
+        place: "Wat Phra Kaew",
+        country: "Thailand",
+        type: "culture",
+        confidence: 0.92,
+        lat: 13.7510,
+        lng: 100.4920,
+        similar_locations: [],
+      },
+      {
+        place: "ภาพไม่ระบุสถานที่ท่องเที่ยว",
+        country: "-",
+        type: "portrait_selfie",
+        confidence: 0,
+        is_identifiable_place: false,
+        rejection_reason: "ภาพนี้เป็นภาพถ่ายบุคคล (Selfie) ไม่สามารถระบุแลนด์มาร์กได้",
+        similar_locations: [],
+      },
+      {
+        place: "ภาพไม่ระบุสถานที่ท่องเที่ยว",
+        country: "-",
+        type: "document_screenshot",
+        confidence: 0,
+        is_identifiable_place: false,
+        rejection_reason: "ภาพนี้เป็นเอกสารหรือสลิป ไม่ใช่สถานที่ท่องเที่ยว",
+        similar_locations: [],
+      },
+    ];
+
+    const { kept, outliers } = detectVisionOutliers(results, true);
+
+    expect(kept.length).toBe(1);
+    expect(outliers.length).toBe(2);
+    expect(outliers[0].category).toBe("NON_TRAVEL");
+    expect(outliers[0].reasonDescription).toContain("Selfie");
+    expect(outliers[1].category).toBe("NON_TRAVEL");
+    expect(outliers[1].reasonDescription).toContain("เอกสาร");
+  });
+
+  it("should not salvage non-travel images into kept when all uploads are non-travel", () => {
+    const results: GeoVisionResult[] = [
+      {
+        place: "ภาพไม่ระบุสถานที่ท่องเที่ยว",
+        country: "-",
+        type: "portrait_selfie",
+        confidence: 0,
+        is_identifiable_place: false,
+        rejection_reason: "ภาพบุคคล",
+        similar_locations: [],
+      },
+      {
+        place: "ภาพไม่ระบุสถานที่ท่องเที่ยว",
+        country: "-",
+        type: "document",
+        confidence: 0,
+        is_identifiable_place: false,
+        rejection_reason: "สลิปโอนเงิน",
+        similar_locations: [],
+      },
+    ];
+
+    const { kept, outliers } = detectVisionOutliers(results, true);
+
+    expect(kept.length).toBe(0);
+    expect(outliers.length).toBe(2);
+    expect(outliers[0].category).toBe("NON_TRAVEL");
+    expect(outliers[1].category).toBe("NON_TRAVEL");
+  });
+
   it("should detect low visual confidence outliers", () => {
     const results: GeoVisionResult[] = [
       {

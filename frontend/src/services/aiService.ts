@@ -37,6 +37,8 @@ export interface VisionResult {
   initial_candidates?: ImageCandidate[];
   top_candidates?: ImageCandidate[];
   uploadedImageUrl?: string;
+  is_identifiable_place?: boolean;
+  rejection_reason?: string;
 }
 
 export interface ImageCandidate {
@@ -281,21 +283,57 @@ export async function analyzeImage(
   const modelId = MODEL_ID_MAP[model];
   console.log(`Starting Retrieval-LLM pipeline (OpenRouter model: ${modelId}, CLIP: ${useClip})...`);
 
-  // 2. Get initial candidates from LLM (to narrow down search)
+  // 2. Get initial candidates from LLM (to narrow down search & guard against non-travel images)
   const base64Image = await fileToBase64(file);
   const base64Data = base64Image.split(",")[1];
 
-  const candidatePrompt = `Analyze this image and provide a list of 5 specific potential landmark or city matches. 
-  Include the most likely one first.
-  Return STRICT JSON in this format:
-  {
-    "places": ["place1","place2","place3","place4","place5"]
+  const candidatePrompt = `Analyze this image carefully.
+First, determine if this image depicts a real physical travel destination, outdoor scenery, landmark, temple, museum, cityscape, tourist attraction, or nature view that can be geolocated.
+
+Reject images that are: close-up selfies/portraits of people, receipts/documents, screenshots, food close-ups without recognizable venue architecture, household objects, memes, or pets.
+
+Return STRICT JSON in this format:
+{
+  "is_identifiable_place": true,
+  "image_category": "landmark",
+  "places": ["Specific Landmark Name 1", "Place 2", "Place 3", "Place 4", "Place 5"],
+  "rejection_reason": ""
+}
+
+If the image is NOT a recognizable travel landmark, scenery, or place:
+{
+  "is_identifiable_place": false,
+  "image_category": "portrait_selfie",
+  "places": [],
+  "rejection_reason": "The image is a portrait/selfie and does not depict a recognizable landmark or scenery."
+}
+
+Valid image_category values: "landmark", "nature_scenery", "city_street", "portrait_selfie", "food_drink", "document_screenshot", "object", "other".
+Do not return markdown or explanations outside JSON.`;
+
+  const initialGuessResult = await getInitialGuessesOpenRouter(base64Data, file.type, candidatePrompt, modelId);
+  console.log("Initial evaluation from LLM:", initialGuessResult);
+
+  // Short-circuit: If the image is not a recognizable travel place, skip Google Places API and CLIP
+  if (!initialGuessResult.isIdentifiablePlace || initialGuessResult.places.length === 0) {
+    onProgress?.("Non-travel or unidentifiable image detected...");
+    return {
+      place: "ภาพไม่ระบุสถานที่ท่องเที่ยว",
+      country: "-",
+      type: initialGuessResult.imageCategory || "non_travel",
+      confidence: 0,
+      similar_locations: [],
+      ai_reasoning: [
+        initialGuessResult.rejectionReason || "ระบบประเมินว่าภาพนี้เป็นภาพบุคคล เอกสาร วัตถุ หรือไม่ใช่สถานที่ท่องเที่ยวสำหรับการเดินทาง"
+      ],
+      initial_candidates: [],
+      top_candidates: [],
+      is_identifiable_place: false,
+      rejection_reason: initialGuessResult.rejectionReason,
+    };
   }
-  Do not return markdown or explanations.`;
 
-  const initialGuesses = await getInitialGuessesOpenRouter(base64Data, file.type, candidatePrompt, modelId);
-
-  console.log("Initial guesses from LLM:", initialGuesses);
+  const initialGuesses = initialGuessResult.places;
   onProgress?.("Fetching Google Places candidates...");
 
   // 1. Get uploaded image embedding — only when CLIP is enabled
@@ -807,7 +845,19 @@ function cosineSimilarity(query: number[], candidate: number[]): number {
   return dotProduct / (Math.sqrt(queryMag) * Math.sqrt(candidateMag));
 }
 
-async function getInitialGuessesOpenRouter(base64: string, mimeType: string, prompt: string, modelId: string): Promise<string[]> {
+export interface InitialGuessResult {
+  isIdentifiablePlace: boolean;
+  imageCategory: string;
+  places: string[];
+  rejectionReason?: string;
+}
+
+async function getInitialGuessesOpenRouter(
+  base64: string,
+  mimeType: string,
+  prompt: string,
+  modelId: string
+): Promise<InitialGuessResult> {
   const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -827,12 +877,47 @@ async function getInitialGuessesOpenRouter(base64: string, mimeType: string, pro
   });
   const raw = data.text?.trim() ?? "";
   const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
-  const result = JSON.parse(cleaned);
-  if (!result || !Array.isArray(result.places)) {
-    console.error("OpenRouter Vision returned invalid format for places:", result);
-    throw new Error("Vision API returned invalid format for places.");
+  let result: any;
+  try {
+    result = JSON.parse(cleaned);
+  } catch (e) {
+    console.error("Failed to parse JSON from Vision API:", cleaned, e);
+    throw new Error("Vision API returned non-JSON response.");
   }
-  return result.places;
+
+  // Backward compatibility: if result is directly an array
+  if (Array.isArray(result)) {
+    return {
+      isIdentifiablePlace: result.length > 0,
+      imageCategory: "landmark",
+      places: result,
+    };
+  }
+
+  // Extract places array safely
+  const places: string[] = Array.isArray(result.places) ? result.places : [];
+
+  // Determine if this is an identifiable travel place
+  const isIdentifiable =
+    result.is_identifiable_place !== false &&
+    places.length > 0 &&
+    !["portrait_selfie", "selfie", "document_screenshot", "document", "receipt", "meme", "object"].includes(
+      (result.image_category || "").toLowerCase()
+    );
+
+  const imageCategory = result.image_category || (isIdentifiable ? "landmark" : "non_travel");
+  const rejectionReason =
+    result.rejection_reason ||
+    (!isIdentifiable
+      ? "ระบบประเมินว่าภาพนี้อาจเป็นภาพบุคคล เอกสาร วัตถุสิ่งของ หรือภาพที่ไม่สามารถระบุสถานที่ท่องเที่ยวได้"
+      : undefined);
+
+  return {
+    isIdentifiablePlace: isIdentifiable,
+    imageCategory,
+    places,
+    rejectionReason,
+  };
 }
 
 async function fetchCandidateFromGoogle(name: string): Promise<Omit<ImageCandidate, 'similarity'> | null> {

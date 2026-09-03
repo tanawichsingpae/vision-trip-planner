@@ -529,7 +529,50 @@ const Index = () => {
     const outlier = outliers.find(o => o.id === outlierId);
     setOutliers(prev => prev.filter(o => o.id !== outlierId));
     if (outlier) {
-      toast.info(`ตัดสถานที่ "${outlier.place}" ออกจากรายการแล้ว`);
+      toast.info(`ตัดภาพ "${outlier.place}" ออกจากรายการแล้ว`);
+    }
+  }, [outliers]);
+
+  const handleDiscardAllNonTravel = useCallback(() => {
+    const nonTravelItems = outliers.filter(o => o.category === "NON_TRAVEL");
+    if (nonTravelItems.length === 0) return;
+    setOutliers(prev => prev.filter(o => o.category !== "NON_TRAVEL"));
+    toast.info(`ตัดภาพที่ไม่ใช่สถานที่ท่องเที่ยวออกทั้งหมด ${nonTravelItems.length} ภาพเรียบร้อยแล้ว`);
+  }, [outliers]);
+
+  const handleManualOverridePlace = useCallback(async (outlierId: string, customPlaceName: string) => {
+    const trimmed = customPlaceName.trim();
+    if (!trimmed) return;
+    const outlier = outliers.find(o => o.id === outlierId);
+    if (!outlier) return;
+
+    setOutliers(prev => prev.filter(o => o.id !== outlierId));
+
+    try {
+      const coords = await getCoordinates(trimmed);
+      const updatedResult: VisionResult & { lat?: number; lng?: number } = {
+        ...outlier.originalResult,
+        place: trimmed,
+        country: outlier.majorityCountry || outlier.country || "Thailand",
+        type: "custom_place",
+        confidence: 1.0,
+        lat: coords.lat,
+        lng: coords.lng,
+        uploadedImageUrl: outlier.originalResult.uploadedImageUrl || outlier.photoUrl || undefined,
+      };
+      setDetectedLocations(prev => [...prev, updatedResult]);
+      toast.success(`เพิ่ม "${trimmed}" เข้าสู่แผนการเดินทางแล้ว ✨`);
+    } catch {
+      const updatedResult: VisionResult = {
+        ...outlier.originalResult,
+        place: trimmed,
+        country: outlier.majorityCountry || outlier.country || "Thailand",
+        type: "custom_place",
+        confidence: 1.0,
+        uploadedImageUrl: outlier.originalResult.uploadedImageUrl || outlier.photoUrl || undefined,
+      };
+      setDetectedLocations(prev => [...prev, updatedResult]);
+      toast.success(`เพิ่ม "${trimmed}" เข้าสู่แผนการเดินทางแล้ว ✨`);
     }
   }, [outliers]);
 
@@ -1881,15 +1924,17 @@ const Index = () => {
         )}
 
         {/* ── STEP 1: Identified Locations (Pixinerary_2) ── */}
-        {detectedLocations.length > 0 && step === 1 && !isAnalyzing && (
+        {(detectedLocations.length > 0 || outliers.length > 0) && step === 1 && !isAnalyzing && (
           <section className="animate-in fade-in mx-auto flex max-w-3xl flex-col gap-6 duration-500 mb-12">
             <LocationDisplay
               locations={detectedLocations}
+              outliers={outliers}
               useClip={useClip}
               outliersCount={outliers.length}
               onOpenOutliersReport={() => setIsOutlierModalOpen(true)}
               onRemoveLocation={handleRemoveLocation}
               onSwitchCandidate={handleSwitchCandidateFromLocation}
+              onUploadNewPhotos={() => setStep(0)}
             />
 
             {/* Navigation Actions */}
@@ -1908,12 +1953,17 @@ const Index = () => {
               <Button
                 type="button"
                 size="sm"
+                disabled={detectedLocations.length === 0}
                 onClick={() => {
+                  if (detectedLocations.length === 0) {
+                    toast.info("กรุณากู้คืนหรือระบุสถานที่อย่างน้อย 1 แห่งก่อนดำเนินการต่อครับ");
+                    return;
+                  }
                   setStep(2);
                   setMaxUnlockedStep(prev => Math.max(prev, 2));
                   window.scrollTo({ top: 100, behavior: "smooth" });
                 }}
-                className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-medium text-xs h-8 px-3 gap-1.5 shadow-xs"
+                className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-medium text-xs h-8 px-3 gap-1.5 shadow-xs disabled:opacity-50"
               >
                 <span>Continue to preferences</span>
                 <ArrowRight className="size-3.5" />
@@ -1990,6 +2040,8 @@ const Index = () => {
           keptLocations={detectedLocations}
           onRestoreLocation={handleRestoreLocation}
           onDiscardOutlier={handleDiscardOutlier}
+          onDiscardAllNonTravel={handleDiscardAllNonTravel}
+          onManualOverridePlace={handleManualOverridePlace}
           onSwitchCandidate={handleSwitchCandidateFromOutlier}
         />
 

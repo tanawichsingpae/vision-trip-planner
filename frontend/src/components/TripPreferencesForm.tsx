@@ -271,13 +271,32 @@ const TripPreferencesForm = ({
   const [trendsData, setTrendsData] = useState<FlightTrend[]>([]);
   const [trendsLoading, setTrendsLoading] = useState(false);
 
+  // Infer destination IATA airport from destinationName
+  const inferDestinationAirport = (destName?: string): string => {
+    if (!destName) return "NRT";
+    const lower = destName.toLowerCase();
+    if (lower.includes("tokyo") || lower.includes("japan") || lower.includes("ญี่ปุ่น")) return "NRT";
+    if (lower.includes("osaka") || lower.includes("โอซาก้า") || lower.includes("kyoto")) return "KIX";
+    if (lower.includes("phuket") || lower.includes("ภูเก็ต")) return "HKT";
+    if (lower.includes("chiang mai") || lower.includes("เชียงใหม่")) return "CNX";
+    if (lower.includes("bangkok") || lower.includes("กรุงเทพ")) return "BKK";
+    if (lower.includes("singapore") || lower.includes("สิงคโปร์")) return "SIN";
+    if (lower.includes("seoul") || lower.includes("korea") || lower.includes("เกาหลี")) return "ICN";
+    if (lower.includes("hong kong") || lower.includes("ฮ่องกง")) return "HKG";
+    if (lower.includes("taiwan") || lower.includes("taipei") || lower.includes("ไต้หวัน")) return "TPE";
+    if (lower.includes("london") || lower.includes("ลอนดอน")) return "LHR";
+    if (lower.includes("paris") || lower.includes("ปารีส")) return "CDG";
+    return "NRT";
+  };
+
+  const targetDestIata = inferDestinationAirport(destinationName);
+
   // Fetch price trends whenever origin airport + dateRange are ready
   useEffect(() => {
-    if (hasFlight !== "no" || !dateRange?.from) return;
+    if (!dateRange?.from) return;
 
     const fetchTrends = async () => {
       setTrendsLoading(true);
-      setTrendsData([]);
       try {
         const date = dateRange.from!;
         const year = date.getFullYear();
@@ -285,7 +304,7 @@ const TripPreferencesForm = ({
         const day = String(date.getDate()).padStart(2, "0");
         const dateStr = `${year}-${month}-${day}`;
         const queryOrigin = originIata.trim().length >= 3 ? originIata.trim().toUpperCase() : "BKK";
-        const result = await getFlightTrends(queryOrigin, "NRT", dateStr);
+        const result = await getFlightTrends(queryOrigin, targetDestIata, dateStr);
         setTrendsData(result.trends ?? []);
       } catch {
         setTrendsData([]);
@@ -296,7 +315,7 @@ const TripPreferencesForm = ({
 
     const debounce = setTimeout(fetchTrends, 400);
     return () => clearTimeout(debounce);
-  }, [originIata, dateRange?.from, hasFlight]);
+  }, [originIata, targetDestIata, dateRange?.from]);
 
   const travelerTypes = [
     { id: "solo", label: "Solo", desc: "Going alone", icon: UserRound },
@@ -637,6 +656,7 @@ const TripPreferencesForm = ({
                     : undefined
                 }
                 origin={originIata.trim().toUpperCase() || "BKK"}
+                destination={targetDestIata}
                 onSelectDate={(dateStr) => {
                   try {
                     const selected = new Date(dateStr + "T00:00:00");
@@ -652,7 +672,7 @@ const TripPreferencesForm = ({
                   if (dateRange?.from) {
                     const date = dateRange.from;
                     const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-                    getFlightTrends(originIata.trim().toUpperCase() || "BKK", "NRT", dateStr)
+                    getFlightTrends(originIata.trim().toUpperCase() || "BKK", targetDestIata, dateStr)
                       .then((res) => setTrendsData(res.trends ?? []))
                       .catch(() => setTrendsData([]));
                   }

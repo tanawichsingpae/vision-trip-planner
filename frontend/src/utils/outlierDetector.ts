@@ -148,22 +148,42 @@ export function detectVisionOutliers(
       return;
     }
 
-    // Check 2: Non-Travel Image Detection (e.g. unknown or generic text)
-    const isGenericOrNonTravel =
+    // Check 2: Non-Travel Image Detection (e.g. unknown, unidentifiable, selfie, documents, objects)
+    const isExplicitNonTravel =
+      res.is_identifiable_place === false ||
+      lowerPlace.includes("ภาพไม่ระบุสถานที่") ||
+      lowerPlace.includes("ภาพที่ไม่ใช่สถานที่") ||
       lowerPlace.includes("unknown") ||
       lowerPlace.includes("unidentified") ||
       lowerPlace === "n/a" ||
       lowerPlace === "none" ||
-      (res.type && ["document", "receipt", "screenshot", "meme", "object"].includes(res.type.toLowerCase()));
+      (res.type &&
+        [
+          "document",
+          "receipt",
+          "screenshot",
+          "document_screenshot",
+          "meme",
+          "object",
+          "selfie",
+          "portrait_selfie",
+          "food_drink",
+          "food",
+          "non_travel",
+          "other",
+        ].includes(res.type.toLowerCase()));
 
-    if (isGenericOrNonTravel) {
+    if (isExplicitNonTravel) {
       outliers.push({
         id,
         place: res.place || "ภาพที่ไม่ระบุสถานที่",
         country: res.country || "-",
         category: "NON_TRAVEL",
         reasonTitle: "ภาพไม่ตรงกับสถานที่ท่องเที่ยว",
-        reasonDescription: "ระบบประเมินว่าภาพนี้อาจเป็นเอกสาร วัตถุสิ่งของ หรือภาพที่ไม่ใช่แลนด์มาร์กสำหรับการท่องเที่ยว",
+        reasonDescription:
+          res.rejection_reason ||
+          (res.ai_reasoning && res.ai_reasoning[0]) ||
+          "ระบบประเมินว่าภาพนี้อาจเป็นภาพบุคคล เอกสาร วัตถุสิ่งของ หรือภาพที่ไม่ใช่วิว/แลนด์มาร์กสำหรับการท่องเที่ยว",
         confidence: res.confidence,
         distanceKm: distanceToCentroid !== undefined ? Math.round(distanceToCentroid) : undefined,
         photoUrl,
@@ -253,18 +273,25 @@ export function detectVisionOutliers(
   });
 
   // Safety fallback: If all locations were marked as outliers, restore the highest confidence one
+  // ONLY if it is a real place candidate (not an explicit non-travel image)
   if (kept.length === 0 && outliers.length > 0) {
-    const highestConfidenceIdx = outliers.reduce((bestIdx, item, idx) => {
-      const bestConf = outliers[bestIdx].confidence ?? 0;
-      const curConf = item.confidence ?? 0;
-      return curConf > bestConf ? idx : bestIdx;
-    }, 0);
+    const candidateIndices = outliers
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ item }) => item.category !== "NON_TRAVEL" && item.originalResult.is_identifiable_place !== false);
 
-    const [salvaged] = outliers.splice(highestConfidenceIdx, 1);
-    kept.push({
-      ...salvaged.originalResult,
-      distanceKm: salvaged.distanceKm,
-    });
+    if (candidateIndices.length > 0) {
+      const bestCandidate = candidateIndices.reduce((best, curr) => {
+        const bestConf = best.item.confidence ?? 0;
+        const curConf = curr.item.confidence ?? 0;
+        return curConf > bestConf ? curr : best;
+      });
+
+      const [salvaged] = outliers.splice(bestCandidate.idx, 1);
+      kept.push({
+        ...salvaged.originalResult,
+        distanceKm: salvaged.distanceKm,
+      });
+    }
   }
 
   return { kept, outliers };

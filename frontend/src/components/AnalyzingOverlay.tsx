@@ -60,7 +60,7 @@ interface FloatingEmoji {
 // ─── Step Definitions ──────────────────────────────────────────────────────────
 
 const STEPS_WITH_CLIP: PipelineStep[] = [
-  { id: "vision", icon: Camera, label: "Analyzing Image with Vision AI", detail: "Scanning architecture, scenery & landmarks...", color: "text-blue-500", bgColor: "bg-blue-500/10" },
+  { id: "vision", icon: Camera, label: "Place & Scenery Verification Guard", detail: "Scanning architecture, verifying identifiable landmarks & filtering non-travel...", color: "text-blue-500", bgColor: "bg-blue-500/10" },
   { id: "candidates", icon: Brain, label: "Generating Location Candidates", detail: "Matching visual features against world POIs...", color: "text-violet-500", bgColor: "bg-violet-500/10" },
   { id: "places", icon: Map, label: "Fetching Google Places Data", detail: "Resolving verified coordinates, ratings & photos...", color: "text-emerald-500", bgColor: "bg-emerald-500/10" },
   { id: "clip", icon: Cpu, label: "Computing CLIP Visual Similarity", detail: "Measuring 512-dim embedding cosine similarity...", color: "text-amber-500", bgColor: "bg-amber-500/10" },
@@ -68,7 +68,7 @@ const STEPS_WITH_CLIP: PipelineStep[] = [
 ];
 
 const STEPS_WITHOUT_CLIP: PipelineStep[] = [
-  { id: "vision", icon: Camera, label: "Analyzing Image with Vision AI", detail: "Scanning architecture, scenery & landmarks...", color: "text-blue-500", bgColor: "bg-blue-500/10" },
+  { id: "vision", icon: Camera, label: "Place & Scenery Verification Guard", detail: "Scanning architecture, verifying identifiable landmarks & filtering non-travel...", color: "text-blue-500", bgColor: "bg-blue-500/10" },
   { id: "candidates", icon: Brain, label: "Generating Location Candidates", detail: "Matching visual features against world POIs...", color: "text-violet-500", bgColor: "bg-violet-500/10" },
   { id: "places", icon: Map, label: "Fetching Google Places Data", detail: "Resolving verified coordinates, ratings & photos...", color: "text-emerald-500", bgColor: "bg-emerald-500/10" },
   { id: "finalize", icon: Sparkles, label: "Finalizing Best Landmark Match", detail: "Ranking candidates & preparing recommendations...", color: "text-pink-500", bgColor: "bg-pink-500/10" },
@@ -88,13 +88,22 @@ const TRAVEL_TRIVIA: TriviaTip[] = [
     id: 1,
     category: "photo",
     icon: CameraIcon,
+    badge: "Place Verification Guard",
+    badgeColor: "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30",
+    title: "ระบบคัดกรองภาพสถานที่อัจฉริยะ",
+    description: "AI จะแยกภาพเซลฟี่ สลิป หรือภาพสิ่งของทั่วไปออกจากตารางเที่ยวโดยอัตโนมัติ เพื่อให้ได้เส้นทางท่องเที่ยวที่ตรงจุดหมายจริง",
+  },
+  {
+    id: 2,
+    category: "photo",
+    icon: CameraIcon,
     badge: "Golden Hour Photo Tip",
     badgeColor: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
     title: "ช่วงเวลาแสงทอง 17:00 – 18:30 น.",
     description: "AI จะจัดจุดชมวิวและแลนด์มาร์กสวยๆ ไว้ช่วงเวลานี้ เพื่อให้ได้แสงพระอาทิตย์ตกนุ่มนวลและภาพถ่ายที่น่าประทับใจที่สุด",
   },
   {
-    id: 2,
+    id: 3,
     category: "food",
     icon: Utensils,
     badge: "Foodie Smart Route",
@@ -103,7 +112,7 @@ const TRAVEL_TRIVIA: TriviaTip[] = [
     description: "ระบบจับคู่ร้านอาหารเด็ดประจำย่านที่อยู่ใกล้สถานที่เที่ยวช่วงเช้าเสมอ เพื่อให้คุณอิ่มอร่อยโดยไม่ต้องนั่งรถไกล",
   },
   {
-    id: 3,
+    id: 4,
     category: "route",
     icon: Compass,
     badge: "Non-Backtracking AI",
@@ -112,22 +121,13 @@ const TRAVEL_TRIVIA: TriviaTip[] = [
     description: "ด้วยอัลกอริทึม Macro-TSP สถานที่ในวันเดียวกันจะถูกจัดให้อยู่ในโซนติดกัน ช่วยประหยัดเวลาเดินทางได้ถึง 40%",
   },
   {
-    id: 4,
+    id: 5,
     category: "weather",
     icon: SunMedium,
     badge: "Weather Adaptive",
     badgeColor: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
     title: "พยากรณ์อากาศและคำแนะนำกิจกรรม",
     description: "ดึงข้อมูลสภาพอากาศ อุณหภูมิ และค่า UV รายชั่วโมงล่วงหน้า เพื่อให้คุณเตรียมอุปกรณ์และเสื้อผ้าได้อย่างมั่นใจ",
-  },
-  {
-    id: 5,
-    category: "tip",
-    icon: Lightbulb,
-    badge: "Travel Pace Balance",
-    badgeColor: "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30",
-    title: "สมดุลเวลาและการพักผ่อน",
-    description: "มีการเว้นช่วงเวลาสบายๆ สำหรับเดินทางและเดินเล่นชมบรรยากาศ เพื่อไม่ให้ทริปของคุณแน่นและเหนื่อยเกินไป",
   },
 ];
 
