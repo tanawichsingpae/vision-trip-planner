@@ -11,7 +11,25 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
 import { analyzeImage, type VisionResult } from "@/services/aiService";
-import { Upload, Sparkles, Save, Trash2, BarChart3, TrendingDown, CheckCircle2, XCircle } from "lucide-react";
+import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import {
+  Upload,
+  Sparkles,
+  Save,
+  Trash2,
+  BarChart3,
+  TrendingDown,
+  CheckCircle2,
+  XCircle,
+  Sun,
+  CloudRain,
+  Camera,
+  Layers,
+  FileCode2,
+  Check,
+  Play,
+  RotateCcw,
+} from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -21,6 +39,11 @@ import {
   Tooltip as RechartsTooltip,
   Cell,
   Legend,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Radar,
 } from "recharts";
 
 interface RobustnessImageItem {
@@ -41,6 +64,7 @@ interface Exp3Result {
   confidence: number;
   time_ms: number;
   is_correct: boolean;
+  matched_alias?: string | null;
 }
 
 interface Exp3History {
@@ -60,26 +84,34 @@ const CONDITION_CATEGORIES = [
   {
     id: "Lighting",
     name: "Lighting / Time of Day",
+    icon: Sun,
     labels: ["daytime", "nighttime", "golden_hour", "overcast", "harsh_shadows"],
     color: "#f59e0b",
+    bgColor: "bg-amber-50 border-amber-200 text-amber-900",
   },
   {
     id: "Weather",
     name: "Weather & Environment",
+    icon: CloudRain,
     labels: ["sunny", "foggy", "rainy", "snowy", "hazy"],
     color: "#3b82f6",
+    bgColor: "bg-blue-50 border-blue-200 text-blue-900",
   },
   {
     id: "ViewAngle",
     name: "Perspective & Angle",
+    icon: Camera,
     labels: ["front_view", "side_view", "aerial_view", "close_up", "extreme_angle"],
     color: "#8b5cf6",
+    bgColor: "bg-purple-50 border-purple-200 text-purple-900",
   },
   {
     id: "Quality",
-    name: "Image Quality & Distortions",
+    name: "Image Quality & Degradations",
+    icon: Layers,
     labels: ["high_res", "low_res", "blurred", "occluded_partially", "noisy"],
     color: "#ef4444",
+    bgColor: "bg-rose-50 border-rose-200 text-rose-900",
   },
 ];
 
@@ -100,12 +132,16 @@ export default function Exp3RobustnessTest() {
   const [selectedModels, setSelectedModels] = useState<AIModelType[]>([
     "google-gemini-25-flash",
     "openai-gpt4o-mini",
+    "google-gemini-25-pro",
+    "openai-gpt4o",
   ]);
 
   const [isRunning, setIsRunning] = useState(false);
   const [progressLabel, setProgressLabel] = useState("");
   const [currentResults, setCurrentResults] = useState<Exp3Result[]>([]);
   const [dbLogs, setDbLogs] = useState<Exp3History[]>([]);
+  const [copiedLatex, setCopiedLatex] = useState(false);
+  const [chartView, setChartView] = useState<"radar" | "degradation">("radar");
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -131,7 +167,9 @@ export default function Exp3RobustnessTest() {
     }
   }, []);
 
-  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
   const handleMultipleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -178,12 +216,13 @@ export default function Exp3RobustnessTest() {
     setCurrentResults([]);
     const temp: Exp3Result[] = [];
 
-    for (const item of imageList) {
+    for (let i = 0; i < imageList.length; i++) {
+      const item = imageList[i];
       for (const modelId of selectedModels) {
         const modelOpt = AI_MODEL_OPTIONS.find((m) => m.value === modelId);
         const label = modelOpt ? modelOpt.label : modelId;
 
-        setProgressLabel(`Testing [${item.file.name}] (${item.label}) with ${label}...`);
+        setProgressLabel(`Testing [${item.file.name}] (${item.label}) on ${label}...`);
         const start = performance.now();
         let res: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
         try {
@@ -195,6 +234,9 @@ export default function Exp3RobustnessTest() {
 
         const pred = res.place || "Unknown";
 
+        // Automated multi-alias evaluation
+        const match = evaluatePredictionWithAliases(pred, groundTruth, res.similar_locations || [], 0.70);
+
         temp.push({
           image_name: item.file.name,
           condition_category: item.category,
@@ -204,7 +246,8 @@ export default function Exp3RobustnessTest() {
           predicted: pred,
           confidence: res.confidence || 0.0,
           time_ms: duration,
-          is_correct: false, // default pending — user grades manually
+          is_correct: match.isCorrect,
+          matched_alias: match.matchedAlias,
         });
 
         setCurrentResults([...temp]);
@@ -213,7 +256,7 @@ export default function Exp3RobustnessTest() {
 
     setIsRunning(false);
     setProgressLabel("");
-    toast.success("Robustness Test Complete! Please grade each prediction below.");
+    toast.success("Robustness Test Complete! Results evaluated with aliases.");
   };
 
   const updateCorrectness = (index: number, value: boolean) => {
@@ -249,7 +292,7 @@ export default function Exp3RobustnessTest() {
       });
 
       if (res.ok) {
-        toast.success("Exp3 results saved to CSV!");
+        toast.success("Robustness results committed to database!");
         fetchHistory();
         setCurrentResults([]);
       }
@@ -258,46 +301,58 @@ export default function Exp3RobustnessTest() {
     }
   };
 
-  // ── Analytics ──
+  // Analytics Computation
   const analytics = useMemo(() => {
     if (dbLogs.length === 0) return null;
 
-    // Per-label stats
-    const labelStats: Record<string, { total: number; correct: number; category: string }> = {};
-    dbLogs.forEach((row) => {
-      const lbl = row.condition_label || "unknown";
-      const cat = row.condition_category || "Unknown";
-      if (!labelStats[lbl]) labelStats[lbl] = { total: 0, correct: 0, category: cat };
-      labelStats[lbl].total += 1;
-      if (isTruthy(row.is_correct)) labelStats[lbl].correct += 1;
+    // Category breakdown
+    const catMap: Record<string, { total: number; correct: number }> = {};
+    CONDITION_CATEGORIES.forEach((c) => {
+      catMap[c.id] = { total: 0, correct: 0 };
     });
 
-    const labelBreakdown = Object.entries(labelStats)
+    dbLogs.forEach((row) => {
+      const cat = row.condition_category || "Lighting";
+      if (!catMap[cat]) catMap[cat] = { total: 0, correct: 0 };
+      catMap[cat].total += 1;
+      if (isTruthy(row.is_correct)) catMap[cat].correct += 1;
+    });
+
+    const categoryBreakdown = CONDITION_CATEGORIES.map((cat) => {
+      const d = catMap[cat.id] || { total: 0, correct: 0 };
+      return {
+        category: cat.name,
+        categoryId: cat.id,
+        icon: cat.icon,
+        total: d.total,
+        correct: d.correct,
+        accuracy: d.total > 0 ? Math.round((d.correct / d.total) * 100) : 0,
+        color: cat.color,
+        bgColor: cat.bgColor,
+      };
+    });
+
+    // Label level breakdown
+    const labelMap: Record<string, { total: number; correct: number; category: string }> = {};
+    dbLogs.forEach((row) => {
+      const lbl = row.condition_label || "unknown";
+      if (!labelMap[lbl]) {
+        labelMap[lbl] = { total: 0, correct: 0, category: row.condition_category || "Lighting" };
+      }
+      labelMap[lbl].total += 1;
+      if (isTruthy(row.is_correct)) labelMap[lbl].correct += 1;
+    });
+
+    const labelBreakdown = Object.entries(labelMap)
       .map(([label, d]) => ({
         label,
         category: d.category,
-        accuracy: Math.round((d.correct / d.total) * 100),
-        correct: d.correct,
         total: d.total,
-        color: CATEGORY_COLOR[d.category] || "#64748b",
+        correct: d.correct,
+        accuracy: d.total > 0 ? Math.round((d.correct / d.total) * 100) : 0,
+        color: CATEGORY_COLOR[d.category] || "#94a3b8",
       }))
-      .sort((a, b) => b.accuracy - a.accuracy);
-
-    // Per-category stats
-    const catStats: Record<string, { total: number; correct: number }> = {};
-    dbLogs.forEach((row) => {
-      const cat = row.condition_category || "Unknown";
-      if (!catStats[cat]) catStats[cat] = { total: 0, correct: 0 };
-      catStats[cat].total += 1;
-      if (isTruthy(row.is_correct)) catStats[cat].correct += 1;
-    });
-
-    const categoryBreakdown = Object.entries(catStats).map(([cat, d]) => ({
-      category: cat,
-      accuracy: Math.round((d.correct / d.total) * 100),
-      total: d.total,
-      color: CATEGORY_COLOR[cat] || "#64748b",
-    }));
+      .sort((a, b) => a.accuracy - b.accuracy); // lowest first to show degradation
 
     // Per-model stats
     const modelStats: Record<string, { total: number; correct: number }> = {};
@@ -308,266 +363,410 @@ export default function Exp3RobustnessTest() {
     });
 
     const modelBreakdown = Object.entries(modelStats)
-      .map(([model, d]) => ({
-        model,
-        shortModel: model.split("-").slice(-2).join("-"),
-        accuracy: Math.round((d.correct / d.total) * 100),
-        total: d.total,
-      }))
+      .map(([model, d]) => {
+        const opt = AI_MODEL_OPTIONS.find((o) => o.value === model);
+        return {
+          model,
+          modelLabel: opt ? opt.label : model,
+          shortModel: opt ? opt.label.split(" ")[0] : model.split("-").slice(-2).join("-"),
+          accuracy: Math.round((d.correct / d.total) * 100),
+          total: d.total,
+        };
+      })
       .sort((a, b) => b.accuracy - a.accuracy);
 
     const overallAcc = Math.round(
       (dbLogs.filter((r) => isTruthy(r.is_correct)).length / dbLogs.length) * 100
     );
 
-    return { labelBreakdown, categoryBreakdown, modelBreakdown, overallAcc, total: dbLogs.length };
+    // 4-Axis Robustness Radar Data
+    const radarData = CONDITION_CATEGORIES.map((cat) => ({
+      subject: cat.name.split(" / ")[0],
+      accuracy: catMap[cat.id]?.total > 0 ? Math.round((catMap[cat.id].correct / catMap[cat.id].total) * 100) : 0,
+      fullMark: 100,
+    }));
+
+    return { labelBreakdown, categoryBreakdown, modelBreakdown, radarData, overallAcc, total: dbLogs.length };
   }, [dbLogs]);
+
+  const copyRobustnessLatex = () => {
+    if (!analytics) return;
+    const catRows = analytics.categoryBreakdown.map((c) => {
+      return `    ${c.category} & ${c.total} & ${c.accuracy}\\% \\\\`;
+    }).join("\n");
+
+    const latex = `\\begin{table}[htbp]
+  \\centering
+  \\caption{Environmental Robustness & Perturbation Analysis (VPR Accuracy)}
+  \\label{tab:robustness_eval}
+  \\begin{tabular}{l r r}
+    \\toprule
+    \\textbf{Perturbation Category} & \\textbf{Trials (N)} & \\textbf{Accuracy (\\%)} \\\\
+    \\midrule
+${catRows}
+    \\midrule
+    \\textbf{Overall Robustness} & \\textbf{${analytics.total}} & \\textbf{${analytics.overallAcc}\\%} \\\\
+    \\bottomrule
+  \\end{tabular}
+\\end{table}`;
+
+    navigator.clipboard.writeText(latex);
+    setCopiedLatex(true);
+    toast.success("Robustness LaTeX Table copied to clipboard!");
+    setTimeout(() => setCopiedLatex(false), 2000);
+  };
 
   return (
     <ExperimentLayout>
       <div className="space-y-8">
-        {/* ── Title ── */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">Experiment 3: Robustness & Degradation Test</h2>
-            <p className="text-xs text-slate-500">
-              Evaluate vision models under environmental perturbations (lighting, weather, camera angles, occlusion).
+        {/* Header Title & Academic Badges */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="text-left">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                Experiment 3: Environmental Robustness & Degradation
+              </h2>
+              <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-xs font-semibold">
+                Thesis Chap. 4.3
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Stress-test VPR performance under variable lighting, extreme weather, camera viewpoints, and occlusion noise.
             </p>
           </div>
-          <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700 px-3 py-1 font-medium">
-            <Sparkles className="w-3.5 h-3.5 mr-1.5 text-amber-600" />
-            Environmental Stress Test
-          </Badge>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyRobustnessLatex}
+              disabled={!analytics}
+              className="text-xs bg-white text-amber-700 border-amber-200 hover:bg-amber-50 shadow-2xs h-8"
+            >
+              {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-amber-600" />}
+              {copiedLatex ? "Copied LaTeX" : "Export Robustness LaTeX"}
+            </Button>
+          </div>
         </div>
 
-        {/* ── Analytics Dashboard ── */}
+        {/* Top Hero KPI Dashboard */}
         {analytics && (
-          <>
-            {/* Category Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {/* Overall */}
-              <Card className="bg-white border-slate-200 shadow-sm col-span-2 sm:col-span-1">
+          <div className="space-y-4">
+            {/* 4 Environmental Category Gauges */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
+              {/* Card 1: Overall */}
+              <Card className="bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-xs text-left col-span-2 md:col-span-1">
                 <CardContent className="p-4">
-                  <p className="text-xs text-slate-500 font-medium">Overall Accuracy</p>
-                  <p className="text-3xl font-bold text-slate-900 mt-1">{analytics.overallAcc}%</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">{analytics.total} total trials</p>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Overall Robustness
+                  </span>
+                  <p className="text-3xl font-extrabold text-white mt-2">
+                    {analytics.overallAcc}%
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    {analytics.total} total trials evaluated
+                  </p>
                 </CardContent>
               </Card>
-              {analytics.categoryBreakdown.map((cat) => (
-                <Card key={cat.category} className="bg-white border-slate-200 shadow-sm">
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium" style={{ color: cat.color }}>{cat.category}</p>
-                    <p className="text-2xl font-bold mt-1" style={{ color: cat.color }}>{cat.accuracy}%</p>
-                    <div className="mt-1.5 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${cat.accuracy}%`, backgroundColor: cat.color }}
-                      />
+
+              {/* Category Cards */}
+              {analytics.categoryBreakdown.map((cat) => {
+                const Icon = cat.icon;
+                return (
+                  <Card key={cat.categoryId} className="bg-white border-slate-200/90 shadow-xs text-left">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 truncate max-w-[110px]" title={cat.category}>
+                          {cat.category.split(" / ")[0]}
+                        </span>
+                        <Icon className="w-4 h-4" style={{ color: cat.color }} />
+                      </div>
+                      <p className="text-2xl font-extrabold mt-2" style={{ color: cat.color }}>
+                        {cat.accuracy}%
+                      </p>
+                      <div className="mt-2 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${cat.accuracy}%`, backgroundColor: cat.color }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                        {cat.correct}/{cat.total} correct
+                      </p>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Degradation Chart & Leaderboard */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Degradation Ranking / Radar Chart (7 cols) */}
+              <Card className="lg:col-span-7 bg-white border-slate-200 shadow-sm text-left">
+                <CardHeader className="pb-2 border-b border-slate-100">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <TrendingDown className="w-4 h-4 text-amber-600" />
+                        {chartView === "radar" ? "Multi-Axis Environmental Robustness Radar" : "Degradation Ranking by Label"}
+                      </CardTitle>
+                      <CardDescription className="text-xs text-slate-500">
+                        {chartView === "radar"
+                          ? "4-dimensional resilience profile (Lighting, Weather, Perspective, Quality)."
+                          : "Ordered from lowest accuracy to highest — highlights failure modes and vulnerabilities."}
+                      </CardDescription>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{cat.total} trials</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
 
-            {/* Degradation Bar Chart + Model Breakdown */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Label-level accuracy chart */}
-              <Card className="bg-white border-slate-200 shadow-sm">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                    <TrendingDown className="w-4 h-4 text-amber-600" />
-                    Accuracy by Condition Label
-                  </CardTitle>
-                  <CardDescription className="text-xs text-slate-500">
-                    Ranked from highest to lowest — reveals which conditions cause the most failures.
-                  </CardDescription>
+                    <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                      <Button
+                        variant={chartView === "radar" ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setChartView("radar")}
+                        className={`text-[10px] h-6 px-2 rounded-lg font-semibold ${
+                          chartView === "radar" ? "bg-white text-amber-700 shadow-xs hover:bg-white" : "text-slate-600"
+                        }`}
+                      >
+                        Radar Profile
+                      </Button>
+                      <Button
+                        variant={chartView === "degradation" ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setChartView("degradation")}
+                        className={`text-[10px] h-6 px-2 rounded-lg font-semibold ${
+                          chartView === "degradation" ? "bg-white text-amber-700 shadow-xs hover:bg-white" : "text-slate-600"
+                        }`}
+                      >
+                        Degradation Bar
+                      </Button>
+                    </div>
+                  </div>
                 </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart
-                      data={analytics.labelBreakdown}
-                      layout="vertical"
-                      margin={{ top: 4, right: 32, left: 80, bottom: 4 }}
-                    >
-                      <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} />
-                      <YAxis type="category" dataKey="label" tick={{ fontSize: 10 }} width={76} />
-                      <RechartsTooltip
-                        formatter={(v: number) => [`${v}%`, "Accuracy"]}
-                        contentStyle={{ fontSize: 11 }}
-                      />
-                      <Bar dataKey="accuracy" radius={[0, 4, 4, 0]}>
-                        {analytics.labelBreakdown.map((entry, idx) => (
-                          <Cell key={idx} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                <CardContent className="pt-4">
+                  {chartView === "radar" ? (
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RadarChart data={analytics.radarData} margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
+                          <PolarGrid stroke="#e2e8f0" />
+                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "#475569", fontWeight: 600 }} />
+                          <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 9 }} stroke="#94a3b8" />
+                          <RechartsTooltip
+                            formatter={(v: any) => [`${v}%`, "Accuracy"]}
+                            contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px" }}
+                          />
+                          <Radar
+                            name="Overall Robustness"
+                            dataKey="accuracy"
+                            stroke="#f59e0b"
+                            fill="#f59e0b"
+                            fillOpacity={0.4}
+                          />
+                        </RadarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={analytics.labelBreakdown}
+                          layout="vertical"
+                          margin={{ top: 5, right: 30, left: 70, bottom: 5 }}
+                        >
+                          <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} />
+                          <YAxis type="category" dataKey="label" tick={{ fontSize: 10 }} width={75} />
+                          <RechartsTooltip
+                            formatter={(v: number) => [`${v}%`, "Accuracy"]}
+                            contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px", borderColor: "#e2e8f0" }}
+                          />
+                          <Bar dataKey="accuracy" radius={[0, 4, 4, 0]}>
+                            {analytics.labelBreakdown.map((entry, idx) => (
+                              <Cell key={idx} fill={entry.color} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Model breakdown */}
-              <Card className="bg-white border-slate-200 shadow-sm">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              {/* Model Robustness Ranking (5 cols) */}
+              <Card className="lg:col-span-5 bg-white border-slate-200 shadow-sm text-left">
+                <CardHeader className="pb-2 border-b border-slate-100">
+                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <BarChart3 className="w-4 h-4 text-indigo-600" />
-                    Accuracy by Model (All Conditions)
+                    Model Robustness Leaderboard
                   </CardTitle>
                   <CardDescription className="text-xs text-slate-500">
-                    Which model is most robust across all perturbation types?
+                    Average accuracy across all degraded condition types.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={analytics.modelBreakdown} margin={{ top: 4, right: 16, left: 0, bottom: 24 }}>
-                      <XAxis dataKey="shortModel" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" interval={0} />
-                      <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} domain={[0, 100]} />
-                      <RechartsTooltip formatter={(v: number) => [`${v}%`, "Accuracy"]} contentStyle={{ fontSize: 11 }} />
-                      <Bar dataKey="accuracy" fill="#6366f1" radius={[4, 4, 0, 0]}>
-                        {analytics.modelBreakdown.map((entry, idx) => (
-                          <Cell key={idx} fill={`hsl(${240 - idx * 20}, 70%, 55%)`} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <Table className="mt-2">
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-[11px]">Model</TableHead>
-                        <TableHead className="text-[11px]">Accuracy</TableHead>
-                        <TableHead className="text-[11px]">Trials</TableHead>
-                        <TableHead className="text-[11px]">Rank</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {analytics.modelBreakdown.map((row, i) => (
-                        <TableRow key={i}>
-                          <TableCell className="text-[11px] font-mono text-slate-700">{row.model}</TableCell>
-                          <TableCell className="text-[11px] font-bold text-indigo-700">{row.accuracy}%</TableCell>
-                          <TableCell className="text-[11px] text-slate-500">{row.total}</TableCell>
-                          <TableCell className="text-[11px]">
-                            {i === 0 && <Badge className="bg-yellow-50 text-yellow-700 border-yellow-200 text-[10px]">🥇 Best</Badge>}
-                            {i === analytics.modelBreakdown.length - 1 && analytics.modelBreakdown.length > 1 && (
-                              <Badge className="bg-red-50 text-red-600 border-red-200 text-[10px]">Worst</Badge>
-                            )}
-                          </TableCell>
+                <CardContent className="pt-4">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <Table>
+                      <TableHeader className="bg-slate-50">
+                        <TableRow className="border-b border-slate-200 text-xs">
+                          <TableHead className="py-2">Rank</TableHead>
+                          <TableHead className="py-2">Model</TableHead>
+                          <TableHead className="py-2 text-right">Accuracy</TableHead>
+                          <TableHead className="py-2 text-right">Trials</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {analytics.modelBreakdown.map((row, i) => (
+                          <TableRow key={row.model} className="border-b border-slate-100 text-xs">
+                            <TableCell className="font-bold py-2">
+                              {i === 0 ? (
+                                <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]">#1 Top</Badge>
+                              ) : (
+                                <span className="text-slate-500 font-mono text-[11px]">#{i + 1}</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="font-medium text-slate-800 py-2">{row.modelLabel}</TableCell>
+                            <TableCell className="text-right font-extrabold text-indigo-700 py-2">{row.accuracy}%</TableCell>
+                            <TableCell className="text-right text-slate-500 py-2">{row.total}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </CardContent>
               </Card>
             </div>
-          </>
+          </div>
         )}
 
-        {/* ── Main Setup Grid ── */}
+        {/* Main 2-Column Test Area */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left: Image Dataset (6 cols) */}
+          {/* Left: MULTI-IMAGE DATASET SETUP (6 cols) */}
           <div className="lg:col-span-6 space-y-6">
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold text-slate-900">Multi-Condition Image Dataset</CardTitle>
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="border-b border-slate-100 pb-4">
+                <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  1. Multi-Condition Photo Dataset
+                </CardTitle>
                 <CardDescription className="text-xs text-slate-500">
-                  Upload multiple photos of the same landmark captured in different conditions.
+                  Upload multiple photos of the target landmark under varying conditions (Day, Night, Blur, Angles).
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+
+              <CardContent className="pt-6 space-y-5">
                 {/* Ground Truth */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Landmark Ground Truth</Label>
+                  <Label className="text-xs font-semibold text-slate-700">Landmark Ground Truth (Multi-Alias)</Label>
                   <Input
                     value={groundTruth}
                     onChange={(e) => setGroundTruth(e.target.value)}
-                    placeholder="e.g. Eiffel Tower"
-                    className="bg-white text-xs border-slate-200"
+                    placeholder="e.g. Wat Pho | วัดโพธิ์ | Temple of the Reclining Buddha"
+                    className="bg-white text-xs border-slate-200 text-slate-900"
+                    disabled={isRunning}
                   />
                 </div>
 
-                {/* Upload Button */}
+                {/* Upload Zone */}
                 <div>
-                  <Input type="file" accept="image/*" multiple onChange={handleMultipleFiles} className="hidden" id="exp3-files" />
+                  <Input type="file" accept="image/*" multiple onChange={handleMultipleFiles} className="hidden" id="exp3-files" disabled={isRunning} />
                   <label
                     htmlFor="exp3-files"
-                    className="flex items-center justify-center space-x-2 border-2 border-dashed border-slate-200 hover:border-amber-400 p-3 rounded-lg cursor-pointer bg-slate-50 text-xs text-slate-600 font-medium transition-colors"
+                    className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 hover:border-amber-400 p-5 rounded-2xl cursor-pointer bg-amber-50/20 transition-all text-center"
                   >
-                    <Upload className="w-4 h-4 text-amber-600" />
-                    <span>Upload Multiple Condition Images</span>
+                    <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mb-1.5">
+                      <Upload className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800">Add Degraded / Perturbation Images</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5">Select 2-20 photos with different light, weather, or angles</span>
                   </label>
                 </div>
 
-                {/* Image List */}
-                <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                  {imageList.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-8">No images added yet.</p>
-                  ) : (
-                    imageList.map((item) => {
-                      const catObj = CONDITION_CATEGORIES.find((c) => c.id === item.category);
-                      return (
-                        <div key={item.id} className="flex items-center space-x-3 p-2 border border-slate-200 rounded-lg bg-slate-50">
-                          <img src={item.preview} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0" />
-                          <div className="flex-1 min-w-0 space-y-1">
-                            <p className="text-xs font-semibold text-slate-800 truncate">{item.file.name}</p>
-                            <div className="flex items-center space-x-2">
-                              <Select value={item.category} onValueChange={(val) => updateImageCategory(item.id, val)}>
-                                <SelectTrigger className="h-7 text-[11px] bg-white border-slate-200 w-32">
+                {/* Image List Preview & Tagging */}
+                {imageList.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                      <span>Condition Tagging Queue ({imageList.length} images)</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setImageList([])}
+                        className="text-[10px] h-6 px-1.5 text-rose-600 hover:bg-rose-50"
+                        disabled={isRunning}
+                      >
+                        Clear All
+                      </Button>
+                    </div>
+
+                    <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                      {imageList.map((item) => (
+                        <div key={item.id} className="flex items-center gap-3 p-2 bg-slate-50 rounded-xl border border-slate-200/80">
+                          <img src={item.preview} alt="" className="w-12 h-12 object-cover rounded-lg shrink-0 border border-slate-200" />
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <p className="text-xs font-mono text-slate-700 truncate">{item.file.name}</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Select
+                                value={item.category}
+                                onValueChange={(v) => updateImageCategory(item.id, v)}
+                                disabled={isRunning}
+                              >
+                                <SelectTrigger className="h-6 text-[10px] bg-white">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {CONDITION_CATEGORIES.map((c) => (
-                                    <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>
+                                  {CONDITION_CATEGORIES.map((cat) => (
+                                    <SelectItem key={cat.id} value={cat.id} className="text-xs">
+                                      {cat.name.split(" / ")[0]}
+                                    </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
-                              <Select value={item.label} onValueChange={(val) => updateImageLabel(item.id, val)}>
-                                <SelectTrigger className="h-7 text-[11px] bg-white border-slate-200 w-32">
+
+                              <Select
+                                value={item.label}
+                                onValueChange={(v) => updateImageLabel(item.id, v)}
+                                disabled={isRunning}
+                              >
+                                <SelectTrigger className="h-6 text-[10px] bg-white font-mono">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {(catObj?.labels || []).map((lb) => (
-                                    <SelectItem key={lb} value={lb} className="text-xs">{lb}</SelectItem>
+                                  {(CONDITION_CATEGORIES.find((c) => c.id === item.category)?.labels || []).map((lbl) => (
+                                    <SelectItem key={lbl} value={lbl} className="text-xs font-mono">
+                                      {lbl}
+                                    </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
                             </div>
                           </div>
-                          <Button onClick={() => removeImage(item.id)} variant="ghost" size="sm" className="text-red-500 hover:bg-red-50 p-1.5 h-auto">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
 
-                {/* Model Selector */}
-                <div className="space-y-2 pt-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold text-slate-700">Models to Test</Label>
-                    <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedModels(AI_MODEL_OPTIONS.map((m) => m.value))}
-                        className="text-[10px] h-6 px-1.5 hover:bg-slate-200/60 text-slate-500 hover:text-slate-900"
-                        disabled={isRunning}
-                      >
-                        Select All
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedModels([])}
-                        className="text-[10px] h-6 px-1.5 hover:bg-slate-200/60 text-slate-500 hover:text-slate-900"
-                        disabled={isRunning}
-                      >
-                        Clear
-                      </Button>
+                          {!isRunning && (
+                            <button
+                              type="button"
+                              onClick={() => removeImage(item.id)}
+                              className="text-slate-400 hover:text-rose-600 p-1"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1 border border-slate-200 rounded-xl p-2 bg-slate-50">
+                )}
+
+                {/* Model Selector */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-slate-700">Models to Test ({selectedModels.length})</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedModels(AI_MODEL_OPTIONS.map((m) => m.value))}
+                      className="text-[10px] h-6 px-1 text-slate-500"
+                      disabled={isRunning}
+                    >
+                      Select All
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
                     {AI_MODEL_OPTIONS.map((opt) => {
                       const isChecked = selectedModels.includes(opt.value);
                       return (
@@ -579,31 +778,17 @@ export default function Exp3RobustnessTest() {
                               prev.includes(opt.value) ? prev.filter((m) => m !== opt.value) : [...prev, opt.value]
                             );
                           }}
-                          className={`flex items-center gap-2.5 p-2 rounded-lg border transition-all duration-150 cursor-pointer ${
-                            isChecked
-                              ? "bg-amber-50/50 border-amber-200 shadow-2xs"
-                              : "bg-white border-slate-200/80 hover:bg-slate-100/60 hover:border-slate-300"
+                          className={`flex items-center gap-2 p-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${
+                            isChecked ? "bg-amber-50/60 border-amber-200" : "bg-slate-50/60 border-slate-200"
                           }`}
                         >
                           <Checkbox
                             checked={isChecked}
                             onCheckedChange={() => {}}
-                            className="border-slate-300 data-[state=checked]:bg-amber-600 data-[state=checked]:border-amber-600 shrink-0"
+                            className="border-slate-300 data-[state=checked]:bg-amber-600 data-[state=checked]:border-amber-600"
                             disabled={isRunning}
                           />
-                          <img
-                            src={opt.icon}
-                            className="w-4 h-4 rounded-full object-cover shrink-0 bg-slate-100 border border-slate-200"
-                            alt=""
-                          />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-xs font-semibold text-slate-800 block text-left truncate">
-                              {opt.label}
-                            </span>
-                            <span className="text-[10px] text-slate-400 block text-left font-mono truncate">
-                              {opt.description}
-                            </span>
-                          </div>
+                          <span className="truncate text-slate-800 font-medium text-[11px]">{opt.label}</span>
                         </div>
                       );
                     })}
@@ -613,112 +798,93 @@ export default function Exp3RobustnessTest() {
                 {/* Run Button */}
                 <Button
                   onClick={runRobustnessTest}
-                  disabled={isRunning}
-                  className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs py-2.5 rounded-lg shadow-sm"
+                  disabled={isRunning || imageList.length === 0 || !groundTruth.trim() || selectedModels.length === 0}
+                  className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-semibold text-xs py-5 rounded-xl shadow-md flex items-center justify-center gap-2"
                 >
-                  {isRunning ? progressLabel : `Run Robustness Test (${imageList.length} images × ${selectedModels.length} models)`}
+                  <Play className="w-4 h-4" />
+                  <span>{isRunning ? progressLabel : `Start Robustness Evaluation (${imageList.length} Images × ${selectedModels.length} Models)`}</span>
                 </Button>
               </CardContent>
             </Card>
           </div>
 
-          {/* Right: Results (6 cols) */}
+          {/* Right: LIVE EVALUATION & PREDICTIONS FEED (6 cols) */}
           <div className="lg:col-span-6 space-y-6">
-            {/* Current results */}
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-slate-100">
                 <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Current Evaluation Results</CardTitle>
+                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-amber-600" />
+                    Live Robustness Results Feed
+                  </CardTitle>
                   <CardDescription className="text-xs text-slate-500">
-                    Model predictions across different image conditions.
+                    Multi-alias evaluated predictions under specific perturbation conditions.
                   </CardDescription>
                 </div>
                 {currentResults.length > 0 && (
-                  <Button onClick={commitResults} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs">
-                    <Save className="w-3.5 h-3.5 mr-1" /> Save to CSV
+                  <Button
+                    onClick={commitResults}
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-xs"
+                  >
+                    <Save className="w-3.5 h-3.5 mr-1" />
+                    Commit to CSV
                   </Button>
                 )}
               </CardHeader>
-              <CardContent className="max-h-96 overflow-y-auto">
-                {currentResults.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-12">Run evaluation to view robustness breakdown.</p>
-                ) : (
-                  <>
-                    {/* Live grading summary bar */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3 p-3 bg-gradient-to-r from-amber-50 via-slate-50 to-emerald-50 rounded-xl border border-slate-200 shadow-xs">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                        <span className="text-xs font-bold text-slate-800">Manual Verification</span>
-                      </div>
-                      <div className="flex items-center space-x-2.5 text-xs">
-                        <span className="font-semibold text-emerald-700 bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px]">
-                          ✓ {currentResults.filter(r => r.is_correct).length} Correct
-                        </span>
-                        <span className="font-semibold text-rose-700 bg-rose-100/90 px-2 py-0.5 rounded-md border border-rose-200 text-[11px]">
-                          ✗ {currentResults.filter(r => !r.is_correct).length} Wrong
-                        </span>
-                        <span className="font-bold text-slate-900 bg-white px-2.5 py-0.5 rounded-md border border-slate-200 shadow-2xs text-[11px]">
-                          Score: {currentResults.length > 0
-                            ? `${Math.round((currentResults.filter(r => r.is_correct).length / currentResults.length) * 100)}%`
-                            : "0%"}
-                        </span>
-                      </div>
-                    </div>
 
+              <CardContent className="pt-6">
+                {currentResults.length === 0 ? (
+                  <div className="text-center py-16 text-slate-400 border border-dashed border-slate-200 rounded-2xl">
+                    <Sparkles className="w-8 h-8 mx-auto mb-2 text-slate-350" />
+                    <p className="text-xs font-semibold text-slate-600">No robustness evaluations generated yet.</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Upload degraded photos and click Start Evaluation.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white max-h-80">
                     <Table>
-                      <TableHeader>
-                        <TableRow className="bg-slate-50">
-                          <TableHead className="text-xs">Image</TableHead>
-                          <TableHead className="text-xs">Condition</TableHead>
-                          <TableHead className="text-xs">Model</TableHead>
-                          <TableHead className="text-xs">Prediction</TableHead>
-                          <TableHead className="text-xs text-center">Evaluation</TableHead>
+                      <TableHeader className="bg-slate-50 sticky top-0 z-10">
+                        <TableRow className="border-b border-slate-200 text-xs">
+                          <TableHead className="py-2.5">Condition</TableHead>
+                          <TableHead className="py-2.5">Model</TableHead>
+                          <TableHead className="py-2.5">Prediction</TableHead>
+                          <TableHead className="py-2.5 text-center">Status</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {currentResults.map((r, idx) => (
-                          <TableRow key={idx} className={r.is_correct ? "bg-emerald-50/30 transition-colors" : "transition-colors"}>
-                            <TableCell className="text-xs font-mono text-slate-600 truncate max-w-[80px]">{r.image_name}</TableCell>
-                            <TableCell className="text-xs">
-                              <Badge
-                                variant="outline"
-                                style={{
-                                  backgroundColor: `${CATEGORY_COLOR[r.condition_category]}15`,
-                                  borderColor: `${CATEGORY_COLOR[r.condition_category]}40`,
-                                  color: CATEGORY_COLOR[r.condition_category],
-                                }}
-                              >
+                          <TableRow key={idx} className="border-b border-slate-100 text-xs">
+                            <TableCell className="py-2">
+                              <Badge variant="outline" className="text-[10px] font-mono border-slate-200 bg-slate-50 text-slate-700">
                                 {r.condition_label}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-xs font-semibold text-slate-900">{r.modelLabel}</TableCell>
-                            <TableCell className="text-xs text-slate-800 font-medium">{r.predicted}</TableCell>
-                            <TableCell className="text-center">
-                              {/* Segmented Pill Toggle Buttons */}
-                              <div className="inline-flex items-center p-0.5 bg-slate-100/90 rounded-lg border border-slate-200/80 shadow-2xs">
+                            <TableCell className="font-semibold text-slate-800 py-2">{r.modelLabel}</TableCell>
+                            <TableCell className="py-2">
+                              <span className="block font-medium text-slate-900 truncate max-w-[130px]">{r.predicted}</span>
+                              {r.matched_alias && (
+                                <span className="text-[10px] text-emerald-600 block">Matched: "{r.matched_alias}"</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center py-2">
+                              <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
                                 <button
                                   type="button"
                                   onClick={() => updateCorrectness(idx, true)}
-                                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 ${
-                                    r.is_correct
-                                      ? "bg-emerald-600 text-white shadow-xs font-bold scale-105"
-                                      : "text-slate-500 hover:text-emerald-700 hover:bg-slate-200/60"
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    r.is_correct ? "bg-emerald-600 text-white" : "text-slate-500"
                                   }`}
                                 >
-                                  <CheckCircle2 className={`w-3.5 h-3.5 ${r.is_correct ? "text-white" : "text-slate-400"}`} />
-                                  <span>Correct</span>
+                                  ✓
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => updateCorrectness(idx, false)}
-                                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 ${
-                                    !r.is_correct
-                                      ? "bg-rose-600 text-white shadow-xs font-bold scale-105"
-                                      : "text-slate-500 hover:text-rose-700 hover:bg-slate-200/60"
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    !r.is_correct ? "bg-rose-600 text-white" : "text-slate-500"
                                   }`}
                                 >
-                                  <XCircle className={`w-3.5 h-3.5 ${!r.is_correct ? "text-white" : "text-slate-400"}`} />
-                                  <span>Wrong</span>
+                                  ✗
                                 </button>
                               </div>
                             </TableCell>
@@ -726,52 +892,45 @@ export default function Exp3RobustnessTest() {
                         ))}
                       </TableBody>
                     </Table>
-                  </>
+                  </div>
                 )}
               </CardContent>
             </Card>
 
             {/* Historical Log */}
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold text-slate-900">Exp3 History (exp3_robustness.csv)</CardTitle>
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="pb-3 border-b border-slate-100">
+                <CardTitle className="text-sm font-bold text-slate-900">
+                  Historical Robustness Logs ({dbLogs.length} records)
+                </CardTitle>
               </CardHeader>
-              <CardContent className="max-h-64 overflow-y-auto">
+              <CardContent className="pt-4 max-h-60 overflow-y-auto">
                 {dbLogs.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-6">No historical records saved.</p>
+                  <p className="text-xs text-slate-400 text-center py-6">No historical records saved yet.</p>
                 ) : (
                   <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Timestamp</TableHead>
-                        <TableHead className="text-xs">Landmark</TableHead>
-                        <TableHead className="text-xs">Condition</TableHead>
-                        <TableHead className="text-xs">Model</TableHead>
-                        <TableHead className="text-xs">Result</TableHead>
+                    <TableHeader className="bg-slate-50 sticky top-0 z-10">
+                      <TableRow className="border-b border-slate-200 text-xs">
+                        <TableHead className="py-2">Condition</TableHead>
+                        <TableHead className="py-2">Model</TableHead>
+                        <TableHead className="py-2">Prediction</TableHead>
+                        <TableHead className="py-2 text-right">Result</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {dbLogs.map((row, i) => (
-                        <TableRow key={i}>
-                          <TableCell className="text-[11px] text-slate-500">{row.timestamp}</TableCell>
-                          <TableCell className="text-xs font-semibold text-slate-800">{row.ground_truth}</TableCell>
-                          <TableCell className="text-xs">
-                            <Badge
-                              variant="outline"
-                              style={{
-                                backgroundColor: `${CATEGORY_COLOR[row.condition_category] || "#64748b"}15`,
-                                borderColor: `${CATEGORY_COLOR[row.condition_category] || "#64748b"}40`,
-                                color: CATEGORY_COLOR[row.condition_category] || "#64748b",
-                              }}
-                            >
-                              {row.condition_label}
-                            </Badge>
+                        <TableRow key={i} className="border-b border-slate-100 text-xs">
+                          <TableCell className="py-2 font-mono text-[10px] text-slate-600">
+                            {row.condition_label}
                           </TableCell>
-                          <TableCell className="text-xs text-slate-700">{row.model}</TableCell>
-                          <TableCell className="text-xs">
-                            <Badge variant="outline" className={isTruthy(row.is_correct) ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}>
-                              {row.predicted}
-                            </Badge>
+                          <TableCell className="py-2 font-medium text-slate-800">{row.model}</TableCell>
+                          <TableCell className="py-2 text-slate-700 truncate max-w-[120px]">{row.predicted}</TableCell>
+                          <TableCell className="py-2 text-right">
+                            {isTruthy(row.is_correct) ? (
+                              <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px]">✓ Correct</Badge>
+                            ) : (
+                              <Badge className="bg-rose-50 text-rose-700 border-none text-[9px]">✗ Miss</Badge>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}

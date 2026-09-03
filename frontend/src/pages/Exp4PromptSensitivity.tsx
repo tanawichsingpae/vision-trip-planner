@@ -8,10 +8,27 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType, MODEL_ID_MAP } from "@/context/AIProviderContext";
 import { safeFetch } from "@/utils/apiUtils";
-import { Upload, Sliders, Save, Eye, Trophy, BarChart3, XCircle, CheckCircle2 } from "lucide-react";
+import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import {
+  Upload,
+  Sliders,
+  Save,
+  Eye,
+  Trophy,
+  BarChart3,
+  XCircle,
+  CheckCircle2,
+  FileCode2,
+  Check,
+  Play,
+  Sparkles,
+  MessageSquare,
+  BookOpen,
+} from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -29,6 +46,7 @@ import {
 interface PromptVariant {
   id: string;
   name: string;
+  tag: string;
   description: string;
   promptText: (gt: string) => string;
 }
@@ -37,35 +55,40 @@ const PROMPT_VARIANTS: PromptVariant[] = [
   {
     id: "P1",
     name: "P1: Direct Concise (EN)",
-    description: "Short direct request asking strictly for the place name.",
+    tag: "Zero-Shot",
+    description: "Short direct query asking strictly for the place name in JSON.",
     promptText: () =>
       `What specific landmark, city, or place is in this image? Return strictly valid JSON format: {"place": "Name", "country": "Country", "ai_reasoning": ["feature"]}.`,
   },
   {
     id: "P2",
-    name: "P2: Structured 5-Candidates",
-    description: "Standard pipeline prompt asking LLM to list 5 candidates first.",
+    name: "P2: 5-Candidates Ranked",
+    tag: "Multi-Candidate",
+    description: "Prompts the model to rank 5 potential candidates before deciding.",
     promptText: () =>
       `Analyze this image and provide a list of 5 specific potential landmark or city matches. Include the most likely one first. Return strictly valid JSON format: {"places": ["place1","place2","place3","place4","place5"]}.`,
   },
   {
     id: "P3",
     name: "P3: Chain-of-Thought (CoT)",
-    description: "Asks model to reason step-by-step through visual clues.",
+    tag: "Reasoning Step",
+    description: "Forces visual feature breakdown, comparison, and systematic deduction.",
     promptText: () =>
       `Analyze this image step-by-step: 1. Identify architectural style, landscape, or signage. 2. Compare with known global landmarks. 3. Conclude the place. Return strictly valid JSON format: {"place": "Name", "country": "Country", "ai_reasoning": ["step 1 visual detail", "step 2 comparison", "conclusion"]}.`,
   },
   {
     id: "P4",
     name: "P4: Thai Language Prompt",
-    description: "Prompt written in Thai language.",
+    tag: "Multilingual",
+    description: "Native Thai prompt to test multilingual visual alignment.",
     promptText: () =>
       `โปรดวิเคราะห์รูปภาพนี้แล้วระบุชื่อสถานที่ท่องเที่ยวหรือเมืองสำคัญ คืนค่าเป็น JSON รูปแบบนี้เท่านั้น: {"place": "ชื่อสถานที่", "country": "ประเทศ", "ai_reasoning": ["เหตุผล"]}`,
   },
   {
     id: "P5",
-    name: "P5: Few-Shot Examples",
-    description: "Provides 2 in-context examples of correct identification.",
+    name: "P5: Few-Shot In-Context",
+    tag: "Few-Shot",
+    description: "Provides 2 paired exemplar demonstrations in the prompt context.",
     promptText: () =>
       `Here are examples:\nInput: [Image of iron lattice tower in Paris] -> Output: {"place": "Eiffel Tower", "country": "France"}\nInput: [Image of white marble mausoleum in Agra] -> Output: {"place": "Taj Mahal", "country": "India"}\n\nNow analyze the provided image and return strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["reason"]}.`,
   },
@@ -89,6 +112,7 @@ interface Exp4Result {
   time_ms: number;
   is_correct: boolean;
   reasoning: string;
+  matched_alias?: string | null;
 }
 
 interface Exp4History {
@@ -121,6 +145,8 @@ export default function Exp4PromptSensitivity() {
   const [currentResults, setCurrentResults] = useState<Exp4Result[]>([]);
   const [dbLogs, setDbLogs] = useState<Exp4History[]>([]);
   const [activeReasoning, setActiveReasoning] = useState<{ name: string; text: string } | null>(null);
+  const [copiedLatex, setCopiedLatex] = useState(false);
+  const [promptView, setPromptView] = useState<"bar" | "matrix">("bar");
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -147,7 +173,9 @@ export default function Exp4PromptSensitivity() {
     }
   }, []);
 
-  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -190,7 +218,7 @@ export default function Exp4PromptSensitivity() {
 
     for (const vId of selectedVariants) {
       const vObj = PROMPT_VARIANTS.find((v) => v.id === vId)!;
-      setProgressLabel(`Running [${vObj.name}]...`);
+      setProgressLabel(`Testing [${vObj.name}]...`);
 
       const promptText = vObj.promptText(groundTruth);
       const start = performance.now();
@@ -218,7 +246,12 @@ export default function Exp4PromptSensitivity() {
         });
 
         const raw = data.text?.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim() || "";
-        const parsed = JSON.parse(raw);
+        let parsed: any = {};
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          parsed = { place: raw };
+        }
 
         if (parsed.place) {
           pred = parsed.place;
@@ -237,6 +270,9 @@ export default function Exp4PromptSensitivity() {
 
       const duration = Math.round(performance.now() - start);
 
+      // Automated Multi-alias evaluation
+      const match = evaluatePredictionWithAliases(pred, groundTruth, [], 0.70);
+
       temp.push({
         variant_id: vObj.id,
         variant_name: vObj.name,
@@ -245,8 +281,9 @@ export default function Exp4PromptSensitivity() {
         predicted: pred,
         confidence: 0,
         time_ms: duration,
-        is_correct: false, // default pending — user grades manually
+        is_correct: match.isCorrect,
         reasoning: reasoningText,
+        matched_alias: match.matchedAlias,
       });
 
       setCurrentResults([...temp]);
@@ -254,7 +291,7 @@ export default function Exp4PromptSensitivity() {
 
     setIsRunning(false);
     setProgressLabel("");
-    toast.success("Prompt Sensitivity Test Complete! Please grade each prediction below.");
+    toast.success("Prompt Sensitivity Test Complete! Predictions graded with aliases.");
   };
 
   const updateCorrectness = (index: number, value: boolean) => {
@@ -272,9 +309,9 @@ export default function Exp4PromptSensitivity() {
       image_name: imageFile?.name || "image.jpg",
       ground_truth: groundTruth,
       results: currentResults.map((r) => ({
-        model: r.model,
         variant_id: r.variant_id,
         variant_name: r.variant_name,
+        model: r.model,
         predicted: r.predicted,
         confidence: r.confidence,
         time_ms: r.time_ms,
@@ -291,7 +328,7 @@ export default function Exp4PromptSensitivity() {
       });
 
       if (res.ok) {
-        toast.success("Exp4 results saved to CSV!");
+        toast.success("Prompt sensitivity results committed!");
         fetchHistory();
         setCurrentResults([]);
       }
@@ -300,248 +337,314 @@ export default function Exp4PromptSensitivity() {
     }
   };
 
-  // ── Analytics from historical data ──
+  // Analytics Computation
   const analytics = useMemo(() => {
     if (dbLogs.length === 0) return null;
 
-    // Accuracy per variant
-    const variantStats: Record<string, { total: number; correct: number; totalMs: number }> = {};
-    dbLogs.forEach((row) => {
-      const vId = row.variant_id || "Unknown";
-      if (!variantStats[vId]) variantStats[vId] = { total: 0, correct: 0, totalMs: 0 };
-      variantStats[vId].total += 1;
-      if (isTruthy(row.is_correct)) variantStats[vId].correct += 1;
-      variantStats[vId].totalMs += Number(row.time_ms || 0);
+    const variantStats: Record<string, { total: number; correct: number; times: number[] }> = {};
+    PROMPT_VARIANTS.forEach((v) => {
+      variantStats[v.id] = { total: 0, correct: 0, times: [] };
     });
 
-    const variantBreakdown = Object.entries(variantStats)
-      .map(([vId, d]) => {
-        const varObj = PROMPT_VARIANTS.find((v) => v.id === vId);
-        return {
-          id: vId,
-          name: varObj?.name || vId,
-          shortName: vId,
-          accuracy: Math.round((d.correct / d.total) * 100),
-          correct: d.correct,
-          total: d.total,
-          avgMs: Math.round(d.totalMs / d.total),
-          color: VARIANT_COLORS[vId] || "#64748b",
-        };
-      })
-      .sort((a, b) => b.accuracy - a.accuracy);
+    dbLogs.forEach((row) => {
+      const vId = row.variant_id || "P1";
+      if (!variantStats[vId]) variantStats[vId] = { total: 0, correct: 0, times: [] };
+      variantStats[vId].total += 1;
+      if (isTruthy(row.is_correct)) variantStats[vId].correct += 1;
+      if (row.time_ms) variantStats[vId].times.push(Number(row.time_ms));
+    });
 
-    const bestVariant = variantBreakdown[0];
-    const worstVariant = variantBreakdown[variantBreakdown.length - 1];
-
-    // Radar data (all 5 variants, fill missing with 0)
-    const radarData = PROMPT_VARIANTS.map((v) => {
-      const found = variantBreakdown.find((x) => x.id === v.id);
+    const variantBreakdown = PROMPT_VARIANTS.map((v) => {
+      const d = variantStats[v.id] || { total: 0, correct: 0, times: [] };
+      const accuracy = d.total > 0 ? Math.round((d.correct / d.total) * 100) : 0;
+      const avgTime = d.times.length > 0 ? Math.round(d.times.reduce((a, b) => a + b, 0) / d.times.length) : 0;
       return {
-        variant: v.id,
-        accuracy: found?.accuracy || 0,
+        id: v.id,
+        name: v.name,
+        tag: v.tag,
+        accuracy,
+        avgTime,
+        total: d.total,
+        color: VARIANT_COLORS[v.id] || "#6366f1",
       };
     });
 
-    // Per-model accuracy breakdown
-    const modelStats: Record<string, { total: number; correct: number }> = {};
-    dbLogs.forEach((row) => {
-      if (!modelStats[row.model]) modelStats[row.model] = { total: 0, correct: 0 };
-      modelStats[row.model].total += 1;
-      if (isTruthy(row.is_correct)) modelStats[row.model].correct += 1;
+    const bestVariant = [...variantBreakdown].sort((a, b) => b.accuracy - a.accuracy)[0];
+
+    // Model x Variant Heatmap Matrix
+    const modelList = Array.from(new Set(dbLogs.map((r) => r.model)));
+    const matrixRows = modelList.map((m) => {
+      const opt = AI_MODEL_OPTIONS.find((o) => o.value === m);
+      const row: Record<string, any> = {
+        model: m,
+        modelLabel: opt ? opt.label : m,
+      };
+      PROMPT_VARIANTS.forEach((v) => {
+        const subset = dbLogs.filter((r) => r.model === m && (r.variant_id || "P1") === v.id);
+        const correct = subset.filter((r) => isTruthy(r.is_correct)).length;
+        row[v.id] = subset.length > 0 ? Math.round((correct / subset.length) * 100) : null;
+        row[`${v.id}_count`] = subset.length;
+      });
+      return row;
     });
 
-    return { variantBreakdown, bestVariant, worstVariant, radarData, modelStats, total: dbLogs.length };
+    return {
+      variantBreakdown,
+      bestVariant,
+      matrixRows,
+      total: dbLogs.length,
+    };
   }, [dbLogs]);
+
+  const copyPromptLatex = () => {
+    if (!analytics) return;
+    const rows = analytics.variantBreakdown.map((v) => {
+      return `    ${v.name} & ${v.tag} & ${v.total} & ${v.accuracy}\\% & ${v.avgTime} \\\\`;
+    }).join("\n");
+
+    const latex = `\\begin{table}[htbp]
+  \\centering
+  \\caption{Prompt Sensitivity Analysis: Comparison of Prompt Formulation Strategies}
+  \\label{tab:prompt_sensitivity}
+  \\begin{tabular}{l l r r r}
+    \\toprule
+    \\textbf{Prompt Strategy} & \\textbf{Paradigm} & \\textbf{N} & \\textbf{Accuracy (\\%)} & \\textbf{Avg Latency (ms)} \\\\
+    \\midrule
+${rows}
+    \\bottomrule
+  \\end{tabular}
+\\end{table}`;
+
+    navigator.clipboard.writeText(latex);
+    setCopiedLatex(true);
+    toast.success("Prompt Sensitivity LaTeX Table copied!");
+    setTimeout(() => setCopiedLatex(false), 2000);
+  };
 
   return (
     <ExperimentLayout>
       <div className="space-y-8">
-        {/* ── Title ── */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">Experiment 4: Prompt Engineering Sensitivity</h2>
-            <p className="text-xs text-slate-500">
-              Analyze how prompt formulation (Direct vs Structured vs Chain-of-Thought vs Thai vs Few-Shot) impacts accuracy.
+        {/* Header Title */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="text-left">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                Experiment 4: Prompt Engineering & Sensitivity Analysis
+              </h2>
+              <Badge className="bg-purple-50 text-purple-700 border-purple-200 text-xs font-semibold">
+                Thesis Chap. 4.4
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Evaluate how Prompt Formulations (Direct, Chain-of-Thought, Thai, Few-Shot) alter recognition accuracy and latency.
             </p>
           </div>
-          <Badge variant="outline" className="border-purple-200 bg-purple-50 text-purple-700 px-3 py-1 font-medium">
-            <Sliders className="w-3.5 h-3.5 mr-1.5 text-purple-600" />
-            Prompt Variant Analysis
-          </Badge>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyPromptLatex}
+              disabled={!analytics}
+              className="text-xs bg-white text-purple-700 border-purple-200 hover:bg-purple-50 shadow-2xs h-8"
+            >
+              {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-purple-600" />}
+              {copiedLatex ? "Copied LaTeX" : "Export Prompt LaTeX"}
+            </Button>
+          </div>
         </div>
 
-        {/* ── Analytics Dashboard ── */}
+        {/* Top Hero KPI Dashboard */}
         {analytics && (
-          <>
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Card className="bg-white border-slate-200 shadow-sm">
-                <CardContent className="p-4">
-                  <p className="text-xs text-slate-500 font-medium">Total Trials</p>
-                  <p className="text-2xl font-bold text-slate-900 mt-1">{analytics.total}</p>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+              {analytics.variantBreakdown.map((v) => (
+                <Card key={v.id} className="bg-white border-slate-200/90 shadow-xs text-left">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{v.id} Strategy</span>
+                      <Badge className="text-[9px] font-mono px-1.5 py-0" style={{ backgroundColor: `${v.color}15`, color: v.color, borderColor: `${v.color}30` }}>
+                        {v.tag}
+                      </Badge>
+                    </div>
+                    <p className="text-2xl font-extrabold mt-2" style={{ color: v.color }}>
+                      {v.accuracy}%
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                      Avg: {v.avgTime} ms ({v.total} tests)
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Winner Banner & Bar Chart / Matrix Switcher */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Variant Comparison Bar Chart / Matrix (8 cols) */}
+              <Card className="lg:col-span-8 bg-white border-slate-200 shadow-sm text-left">
+                <CardHeader className="pb-2 border-b border-slate-100">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-purple-600" />
+                      {promptView === "bar" ? "Accuracy by Prompt Formulation" : "Model × Prompt Strategy Matrix Heatmap"}
+                    </CardTitle>
+
+                    <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                      <Button
+                        variant={promptView === "bar" ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setPromptView("bar")}
+                        className={`text-[10px] h-6 px-2 rounded-lg font-semibold ${
+                          promptView === "bar" ? "bg-white text-purple-700 shadow-xs hover:bg-white" : "text-slate-600"
+                        }`}
+                      >
+                        Bar Chart
+                      </Button>
+                      <Button
+                        variant={promptView === "matrix" ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setPromptView("matrix")}
+                        className={`text-[10px] h-6 px-2 rounded-lg font-semibold ${
+                          promptView === "matrix" ? "bg-white text-purple-700 shadow-xs hover:bg-white" : "text-slate-600"
+                        }`}
+                      >
+                        Model Matrix
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  {promptView === "bar" ? (
+                    <div className="h-56 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={analytics.variantBreakdown} margin={{ top: 10, right: 20, left: -20, bottom: 20 }}>
+                          <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-10} textAnchor="end" interval={0} />
+                          <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} domain={[0, 100]} />
+                          <RechartsTooltip
+                            formatter={(v: any) => [`${v}%`, "Accuracy"]}
+                            contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px" }}
+                          />
+                          <Bar dataKey="accuracy" radius={[6, 6, 0, 0]}>
+                            {analytics.variantBreakdown.map((entry, idx) => (
+                              <Cell key={idx} fill={entry.color} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-slate-200">
+                      <Table>
+                        <TableHeader className="bg-slate-50">
+                          <TableRow className="border-b border-slate-200 text-xs">
+                            <TableHead className="py-2">Model</TableHead>
+                            {PROMPT_VARIANTS.map((v) => (
+                              <TableHead key={v.id} className="py-2 text-center" style={{ color: VARIANT_COLORS[v.id] }}>
+                                {v.id} ({v.tag})
+                              </TableHead>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {analytics.matrixRows.map((row) => (
+                            <TableRow key={row.model} className="border-b border-slate-100 text-xs">
+                              <TableCell className="font-semibold text-slate-800 py-2">{row.modelLabel}</TableCell>
+                              {PROMPT_VARIANTS.map((v) => {
+                                const val = row[v.id];
+                                return (
+                                  <TableCell key={v.id} className="text-center py-2">
+                                    {val !== null ? (
+                                      <Badge
+                                        className="text-[10px] font-mono px-2 py-0.5 border"
+                                        style={{
+                                          backgroundColor: val >= 80 ? "#dcfce7" : val >= 50 ? "#eff6ff" : "#fee2e2",
+                                          color: val >= 80 ? "#166534" : val >= 50 ? "#1e40af" : "#991b1b",
+                                          borderColor: val >= 80 ? "#86efac" : val >= 50 ? "#bfdbfe" : "#fca5a5",
+                                        }}
+                                      >
+                                        {val}%
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-slate-300 text-xs">-</span>
+                                    )}
+                                  </TableCell>
+                                );
+                              })}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
-              {analytics.bestVariant && (
-                <Card className="bg-emerald-50 border-emerald-200 shadow-sm">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-1 mb-1">
-                      <Trophy className="w-3.5 h-3.5 text-emerald-600" />
-                      <p className="text-xs text-emerald-700 font-semibold">Best Variant</p>
-                    </div>
-                    <p className="text-lg font-bold text-emerald-800">{analytics.bestVariant.shortName}</p>
-                    <p className="text-xs text-emerald-600">{analytics.bestVariant.accuracy}% accuracy</p>
-                    <p className="text-[11px] text-emerald-400 truncate">{analytics.bestVariant.name.split(":")[1]?.trim()}</p>
-                  </CardContent>
-                </Card>
-              )}
-              {analytics.worstVariant && analytics.variantBreakdown.length > 1 && (
-                <Card className="bg-rose-50 border-rose-200 shadow-sm">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-1 mb-1">
-                      <XCircle className="w-3.5 h-3.5 text-rose-600" />
-                      <p className="text-xs text-rose-700 font-semibold">Worst Variant</p>
-                    </div>
-                    <p className="text-lg font-bold text-rose-800">{analytics.worstVariant.shortName}</p>
-                    <p className="text-xs text-rose-600">{analytics.worstVariant.accuracy}% accuracy</p>
-                    <p className="text-[11px] text-rose-400 truncate">{analytics.worstVariant.name.split(":")[1]?.trim()}</p>
-                  </CardContent>
-                </Card>
-              )}
-              <Card className="bg-purple-50 border-purple-200 shadow-sm">
-                <CardContent className="p-4">
-                  <p className="text-xs text-purple-700 font-medium">Acc Range</p>
-                  <p className="text-xl font-bold text-purple-800 mt-1">
-                    {analytics.bestVariant?.accuracy ?? 0}% – {analytics.worstVariant?.accuracy ?? 0}%
-                  </p>
-                  <p className="text-[11px] text-purple-400 mt-0.5">
-                    Spread: {(analytics.bestVariant?.accuracy ?? 0) - (analytics.worstVariant?.accuracy ?? 0)}pp
+
+              {/* Best Strategy Callout */}
+              <Card className="lg:col-span-4 bg-gradient-to-br from-purple-900 to-indigo-950 text-white shadow-sm text-left flex flex-col justify-between">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-amber-400" />
+                    <CardTitle className="text-sm font-bold text-white">
+                      Recommended Formulation
+                    </CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 pb-6">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-purple-300">Optimal Prompt Paradigm</span>
+                    <p className="text-xl font-extrabold text-white mt-0.5">
+                      {analytics.bestVariant.name}
+                    </p>
+                    <p className="text-xs text-purple-200 mt-1 font-mono">
+                      Yielded {analytics.bestVariant.accuracy}% Accuracy ({analytics.bestVariant.avgTime} ms avg)
+                    </p>
+                  </div>
+                  <p className="text-[11px] text-purple-200/80 leading-relaxed">
+                    💡 <strong>Thesis Discussion:</strong> Step-by-step visual reasoning (CoT) & few-shot grounding significantly reduce hallucination on ambiguous tourism photos.
                   </p>
                 </CardContent>
               </Card>
             </div>
-
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Bar chart: variant accuracy ranking */}
-              <Card className="bg-white border-slate-200 shadow-sm">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-purple-500" />
-                    Accuracy Ranking per Prompt Variant
-                  </CardTitle>
-                  <CardDescription className="text-xs text-slate-500">
-                    Ranked from highest to lowest from historical trials.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={analytics.variantBreakdown} layout="vertical" margin={{ top: 4, right: 32, left: 40, bottom: 4 }}>
-                      <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} />
-                      <YAxis type="category" dataKey="shortName" tick={{ fontSize: 11, fontWeight: 600 }} width={36} />
-                      <RechartsTooltip
-                        formatter={(v: number, _name: string, props: any) => [`${v}% (${props.payload.correct}/${props.payload.total})`, "Accuracy"]}
-                        contentStyle={{ fontSize: 11 }}
-                      />
-                      <Bar dataKey="accuracy" radius={[0, 4, 4, 0]}>
-                        {analytics.variantBreakdown.map((entry, idx) => (
-                          <Cell key={idx} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-
-                  {/* Ranking table */}
-                  <Table className="mt-3">
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-[11px]">Rank</TableHead>
-                        <TableHead className="text-[11px]">Variant</TableHead>
-                        <TableHead className="text-[11px]">Accuracy</TableHead>
-                        <TableHead className="text-[11px]">Avg Latency</TableHead>
-                        <TableHead className="text-[11px]">Trials</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {analytics.variantBreakdown.map((row, i) => (
-                        <TableRow key={row.id}>
-                          <TableCell className="text-[11px] font-bold text-slate-600">
-                            {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: row.color }} />
-                              <span className="text-[11px] font-semibold text-slate-800">{row.id}</span>
-                              {i === 0 && <Badge className="text-[9px] bg-emerald-100 text-emerald-700 border-0 px-1">Best</Badge>}
-                            </div>
-                            <p className="text-[10px] text-slate-400 pl-3.5">{row.name.split(":")[1]?.trim()}</p>
-                          </TableCell>
-                          <TableCell className="text-[11px] font-bold" style={{ color: row.color }}>{row.accuracy}%</TableCell>
-                          <TableCell className="text-[11px] font-mono text-slate-500">{row.avgMs}ms</TableCell>
-                          <TableCell className="text-[11px] text-slate-500">{row.total}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-
-              {/* Radar chart */}
-              <Card className="bg-white border-slate-200 shadow-sm">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold text-slate-900">Prompt Variant Radar View</CardTitle>
-                  <CardDescription className="text-xs text-slate-500">
-                    Radial accuracy profile across all 5 prompt formulations.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <RadarChart data={analytics.radarData} margin={{ top: 16, right: 24, bottom: 16, left: 24 }}>
-                      <PolarGrid />
-                      <PolarAngleAxis dataKey="variant" tick={{ fontSize: 11, fontWeight: 600 }} />
-                      <Radar
-                        name="Accuracy"
-                        dataKey="accuracy"
-                        stroke="#8b5cf6"
-                        fill="#8b5cf6"
-                        fillOpacity={0.25}
-                        strokeWidth={2}
-                      />
-                      <RechartsTooltip formatter={(v: number) => [`${v}%`, "Accuracy"]} contentStyle={{ fontSize: 11 }} />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                  <p className="text-center text-[11px] text-slate-400 mt-1">
-                    A symmetric shape indicates consistent performance across all prompt styles.
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          </>
+          </div>
         )}
 
-        {/* ── Main Setup Grid ── */}
+        {/* Main 2-Column Test Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left: Setup (5 cols) */}
+          {/* Left Column: SETUP (5 cols) */}
           <div className="lg:col-span-5 space-y-6">
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold text-slate-900">Setup Prompt Sensitivity</CardTitle>
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="border-b border-slate-100 pb-4">
+                <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-purple-600" />
+                  1. Test Image & Prompt Variants
+                </CardTitle>
                 <CardDescription className="text-xs text-slate-500">
-                  Directly injects different prompt formulations to compare output quality.
+                  Select a single image to test across 5 prompt engineering variants.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Upload */}
+
+              <CardContent className="pt-6 space-y-5">
+                {/* Upload Image */}
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold text-slate-700">Query Image</Label>
-                  <div className="border-2 border-dashed border-slate-200 hover:border-purple-400 rounded-xl p-3 text-center cursor-pointer bg-slate-50">
-                    <Input type="file" accept="image/*" onChange={handleFileChange} className="hidden" id="exp4-file" />
+                  <div className="border-2 border-dashed border-slate-200 hover:border-purple-400 rounded-2xl p-4 text-center cursor-pointer transition-all bg-slate-50/50">
+                    <Input type="file" accept="image/*" onChange={handleFileChange} className="hidden" id="exp4-file" disabled={isRunning} />
                     <label htmlFor="exp4-file" className="cursor-pointer block">
                       {imagePreview ? (
-                        <img src={imagePreview} alt="Preview" className="max-h-36 mx-auto rounded-lg object-cover" />
+                        <div className="relative group">
+                          <img src={imagePreview} alt="Preview" className="max-h-40 mx-auto rounded-lg object-cover shadow-xs" />
+                          <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                            <span className="text-[11px] bg-white text-slate-700 px-2.5 py-1 rounded-full shadow-md font-medium">
+                              Change Image
+                            </span>
+                          </div>
+                        </div>
                       ) : (
-                        <div className="py-4 space-y-1">
-                          <Upload className="w-6 h-6 mx-auto text-purple-500" />
-                          <p className="text-xs text-slate-600 font-medium">Click to upload image</p>
+                        <div className="py-5 space-y-1.5">
+                          <div className="w-9 h-9 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mx-auto">
+                            <Upload className="w-4 h-4" />
+                          </div>
+                          <p className="text-xs font-bold text-slate-800">Upload Query Photo</p>
                         </div>
                       )}
                     </label>
@@ -550,248 +653,229 @@ export default function Exp4PromptSensitivity() {
 
                 {/* Ground Truth */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Ground Truth Location</Label>
+                  <Label className="text-xs font-semibold text-slate-700">Ground Truth (Multi-Alias)</Label>
                   <Input
                     value={groundTruth}
                     onChange={(e) => setGroundTruth(e.target.value)}
-                    placeholder="e.g. Kyoto Fushimi Inari"
-                    className="bg-white text-xs border-slate-200"
+                    placeholder="e.g. Wat Arun | วัดอรุณ"
+                    className="bg-white text-xs border-slate-200 text-slate-900"
+                    disabled={isRunning}
                   />
                 </div>
 
-                {/* Single Model Selector with Logos */}
+                {/* Model Selector */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">Evaluation Model</Label>
+                  <Select
+                    value={selectedModel}
+                    onValueChange={(v) => setSelectedModel(v as AIModelType)}
+                    disabled={isRunning}
+                  >
+                    <SelectTrigger className="bg-white text-xs border-slate-200">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AI_MODEL_OPTIONS.map((m) => (
+                        <SelectItem key={m.value} value={m.value} className="text-xs">
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Prompt Variants Checkboxes */}
                 <div className="space-y-2">
-                  <Label className="text-xs font-semibold text-slate-700">Target Model to Test</Label>
-                  <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1 border border-slate-200 rounded-xl p-2 bg-slate-50">
-                    {AI_MODEL_OPTIONS.map((opt) => {
-                      const isSelected = selectedModel === opt.value;
+                  <Label className="text-xs font-semibold text-slate-700">Prompt Variants to Compare ({selectedVariants.length})</Label>
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {PROMPT_VARIANTS.map((v) => {
+                      const isChecked = selectedVariants.includes(v.id);
                       return (
                         <div
-                          key={opt.value}
-                          onClick={() => !isRunning && setSelectedModel(opt.value)}
-                          className={`flex items-center gap-2.5 p-2 rounded-lg border transition-all duration-150 cursor-pointer ${
-                            isSelected
-                              ? "bg-purple-50/50 border-purple-300 shadow-2xs"
-                              : "bg-white border-slate-200/80 hover:bg-slate-100/60 hover:border-slate-300"
+                          key={v.id}
+                          onClick={() => {
+                            if (isRunning) return;
+                            setSelectedVariants((prev) =>
+                              prev.includes(v.id) ? prev.filter((id) => id !== v.id) : [...prev, v.id]
+                            );
+                          }}
+                          className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
+                            isChecked ? "bg-purple-50/40 border-purple-200" : "bg-slate-50/40 border-slate-200/60"
                           }`}
                         >
-                          <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
-                            isSelected ? "border-purple-600 bg-purple-600" : "border-slate-300 bg-white"
-                          }`}>
-                            {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                checked={isChecked}
+                                onCheckedChange={() => {}}
+                                className="border-slate-300 data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600 shrink-0"
+                                disabled={isRunning}
+                              />
+                              <span className="text-xs font-bold text-slate-800">{v.name}</span>
+                            </div>
+                            <Badge className="text-[9px] font-mono px-1 py-0" style={{ color: VARIANT_COLORS[v.id], backgroundColor: `${VARIANT_COLORS[v.id]}15` }}>
+                              {v.tag}
+                            </Badge>
                           </div>
-                          <img
-                            src={opt.icon}
-                            className="w-4 h-4 rounded-full object-cover shrink-0 bg-slate-100 border border-slate-200"
-                            alt=""
-                          />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-xs font-semibold text-slate-800 block text-left truncate">
-                              {opt.label}
-                            </span>
-                            <span className="text-[10px] text-slate-400 block text-left font-mono truncate">
-                              {opt.description}
-                            </span>
-                          </div>
+                          <p className="text-[10px] text-slate-400 mt-1 pl-6">{v.description}</p>
                         </div>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Prompt Variants Checkbox List */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Prompt Variants to Benchmark</Label>
-                  <div className="space-y-2 border border-slate-200 rounded-lg p-2.5 bg-slate-50 max-h-64 overflow-y-auto">
-                    {PROMPT_VARIANTS.map((v) => (
-                      <label key={v.id} className="flex items-start space-x-2 text-xs text-slate-700 cursor-pointer p-1.5 hover:bg-slate-100 rounded transition-colors">
-                        <Checkbox
-                          checked={selectedVariants.includes(v.id)}
-                          onCheckedChange={() =>
-                            setSelectedVariants((prev) =>
-                              prev.includes(v.id) ? prev.filter((id) => id !== v.id) : [...prev, v.id]
-                            )
-                          }
-                          className="mt-0.5 flex-shrink-0"
-                        />
-                        <div className="w-full space-y-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: VARIANT_COLORS[v.id] }} />
-                            <p className="font-semibold text-slate-900">{v.name}</p>
-                          </div>
-                          <p className="text-[11px] text-slate-500">{v.description}</p>
-                          {/* Prompt text snippet display */}
-                          <div className="mt-1 p-2 bg-white border border-slate-200 rounded text-[10px] font-mono text-purple-950 whitespace-pre-wrap leading-relaxed">
-                            {v.promptText(groundTruth || "[Location]")}
-                          </div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
                 {/* Run Button */}
                 <Button
                   onClick={runPromptSensitivityTest}
-                  disabled={isRunning}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs py-2.5 rounded-lg shadow-sm"
+                  disabled={isRunning || !imageFile || !groundTruth.trim() || selectedVariants.length === 0}
+                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold text-xs py-5 rounded-xl shadow-md flex items-center justify-center gap-2"
                 >
-                  {isRunning ? progressLabel : `Run Prompt Sensitivity Test (${selectedVariants.length} Variants)`}
+                  <Play className="w-4 h-4" />
+                  <span>{isRunning ? progressLabel : `Run Prompt Comparison (${selectedVariants.length} Variants)`}</span>
                 </Button>
               </CardContent>
             </Card>
           </div>
 
-          {/* Right: Results (7 cols) */}
+          {/* Right Column: RESULTS & AI REASONING INSPECTION (7 cols) */}
           <div className="lg:col-span-7 space-y-6">
-            {/* Current run */}
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-slate-100">
                 <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Prompt Sensitivity Comparison</CardTitle>
+                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-purple-600" />
+                    Prompt Variant Predictions & Reasoning
+                  </CardTitle>
                   <CardDescription className="text-xs text-slate-500">
-                    Output predictions and reasoning generated per prompt variant.
+                    Compare responses and inspect intermediate AI deduction logic.
                   </CardDescription>
                 </div>
                 {currentResults.length > 0 && (
-                  <Button onClick={commitResults} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs">
-                    <Save className="w-3.5 h-3.5 mr-1" /> Save to CSV
+                  <Button
+                    onClick={commitResults}
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-xs"
+                  >
+                    <Save className="w-3.5 h-3.5 mr-1" />
+                    Commit to CSV
                   </Button>
                 )}
               </CardHeader>
-              <CardContent>
-                {currentResults.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-12">Run test to compare prompt formulations.</p>
-                ) : (
-                  <>
-                    {/* Live grading summary bar */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3 p-3 bg-gradient-to-r from-purple-50 via-slate-50 to-emerald-50 rounded-xl border border-slate-200 shadow-xs">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
-                        <span className="text-xs font-bold text-slate-800">Manual Verification</span>
-                      </div>
-                      <div className="flex items-center space-x-2.5 text-xs">
-                        <span className="font-semibold text-emerald-700 bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px]">
-                          ✓ {currentResults.filter(r => r.is_correct).length} Correct
-                        </span>
-                        <span className="font-semibold text-rose-700 bg-rose-100/90 px-2 py-0.5 rounded-md border border-rose-200 text-[11px]">
-                          ✗ {currentResults.filter(r => !r.is_correct).length} Wrong
-                        </span>
-                        <span className="font-bold text-slate-900 bg-white px-2.5 py-0.5 rounded-md border border-slate-200 shadow-2xs text-[11px]">
-                          Score: {currentResults.length > 0
-                            ? `${Math.round((currentResults.filter(r => r.is_correct).length / currentResults.length) * 100)}%`
-                            : "0%"}
-                        </span>
-                      </div>
-                    </div>
 
+              <CardContent className="pt-6">
+                {currentResults.length === 0 ? (
+                  <div className="text-center py-16 text-slate-400 border border-dashed border-slate-200 rounded-2xl">
+                    <Sliders className="w-8 h-8 mx-auto mb-2 text-slate-350" />
+                    <p className="text-xs font-semibold text-slate-600">No prompt sensitivity results yet.</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Upload a photo and click Run Prompt Comparison.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                     <Table>
-                      <TableHeader>
-                        <TableRow className="bg-slate-50">
-                          <TableHead className="text-xs">Variant</TableHead>
-                          <TableHead className="text-xs">Prediction</TableHead>
-                          <TableHead className="text-xs">Latency</TableHead>
-                          <TableHead className="text-xs text-center">Evaluation</TableHead>
-                          <TableHead className="text-xs text-right">Reasoning</TableHead>
+                      <TableHeader className="bg-slate-50">
+                        <TableRow className="border-b border-slate-200 text-xs">
+                          <TableHead className="py-2.5">Variant</TableHead>
+                          <TableHead className="py-2.5">Prediction</TableHead>
+                          <TableHead className="py-2.5 text-center">Reasoning</TableHead>
+                          <TableHead className="py-2.5 text-center">Latency</TableHead>
+                          <TableHead className="py-2.5 text-center">Result</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {currentResults.map((r, idx) => (
-                          <TableRow key={idx} className={r.is_correct ? "bg-emerald-50/30 transition-colors" : "transition-colors"}>
-                            <TableCell className="text-xs">
-                              <div className="flex items-center gap-1.5">
-                                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: VARIANT_COLORS[r.variant_id] }} />
-                                <span className="font-semibold" style={{ color: VARIANT_COLORS[r.variant_id] }}>{r.variant_id}</span>
-                              </div>
+                          <TableRow key={idx} className="border-b border-slate-100 text-xs">
+                            <TableCell className="font-bold text-slate-800 py-2.5">
+                              <span style={{ color: VARIANT_COLORS[r.variant_id] }}>{r.variant_id}</span>
+                              <span className="text-[10px] text-slate-400 block font-normal">{r.variant_name.split(": ")[1]}</span>
                             </TableCell>
-                            <TableCell className="text-xs font-medium text-slate-800">{r.predicted}</TableCell>
-                            <TableCell className="text-xs font-mono text-slate-600">{r.time_ms}ms</TableCell>
-                            <TableCell className="text-center">
-                              {/* Segmented Pill Toggle Buttons */}
-                              <div className="inline-flex items-center p-0.5 bg-slate-100/90 rounded-lg border border-slate-200/80 shadow-2xs">
+                            <TableCell className="py-2.5">
+                              <span className="font-semibold text-slate-900 block truncate max-w-[130px]">{r.predicted}</span>
+                              {r.matched_alias && (
+                                <span className="text-[10px] text-emerald-600 block">Matched: "{r.matched_alias}"</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center py-2.5">
+                              {r.reasoning ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setActiveReasoning({ name: r.variant_name, text: r.reasoning })}
+                                  className="h-6 text-[10px] px-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                >
+                                  <Eye className="w-3 h-3 mr-1" /> View
+                                </Button>
+                              ) : (
+                                <span className="text-slate-400 text-[10px]">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center font-mono text-[11px] text-slate-600 py-2.5">
+                              {r.time_ms} ms
+                            </TableCell>
+                            <TableCell className="text-center py-2.5">
+                              <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
                                 <button
                                   type="button"
                                   onClick={() => updateCorrectness(idx, true)}
-                                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 ${
-                                    r.is_correct
-                                      ? "bg-emerald-600 text-white shadow-xs font-bold scale-105"
-                                      : "text-slate-500 hover:text-emerald-700 hover:bg-slate-200/60"
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    r.is_correct ? "bg-emerald-600 text-white" : "text-slate-500"
                                   }`}
                                 >
-                                  <CheckCircle2 className={`w-3.5 h-3.5 ${r.is_correct ? "text-white" : "text-slate-400"}`} />
-                                  <span>Correct</span>
+                                  ✓
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => updateCorrectness(idx, false)}
-                                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 ${
-                                    !r.is_correct
-                                      ? "bg-rose-600 text-white shadow-xs font-bold scale-105"
-                                      : "text-slate-500 hover:text-rose-700 hover:bg-slate-200/60"
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    !r.is_correct ? "bg-rose-600 text-white" : "text-slate-500"
                                   }`}
                                 >
-                                  <XCircle className={`w-3.5 h-3.5 ${!r.is_correct ? "text-white" : "text-slate-400"}`} />
-                                  <span>Wrong</span>
+                                  ✗
                                 </button>
                               </div>
-                            </TableCell>
-                            <TableCell className="text-xs text-right">
-                              <Button
-                                onClick={() => setActiveReasoning({ name: r.variant_name, text: r.reasoning })}
-                                variant="ghost"
-                                size="sm"
-                                className="text-xs text-blue-600 hover:bg-blue-50 h-7"
-                              >
-                                <Eye className="w-3.5 h-3.5 mr-1" /> View
-                              </Button>
                             </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
-                  </>
+                  </div>
                 )}
               </CardContent>
             </Card>
 
             {/* Historical Log */}
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold text-slate-900">Exp4 History (exp4_prompt_sensitivity.csv)</CardTitle>
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="pb-3 border-b border-slate-100">
+                <CardTitle className="text-sm font-bold text-slate-900">
+                  Historical Prompt Records ({dbLogs.length} trials)
+                </CardTitle>
               </CardHeader>
-              <CardContent className="max-h-64 overflow-y-auto">
+              <CardContent className="pt-4 max-h-60 overflow-y-auto">
                 {dbLogs.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-6">No historical records saved.</p>
+                  <p className="text-xs text-slate-400 text-center py-6">No historical records saved yet.</p>
                 ) : (
                   <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs">Timestamp</TableHead>
-                        <TableHead className="text-xs">Variant</TableHead>
-                        <TableHead className="text-xs">Ground Truth</TableHead>
-                        <TableHead className="text-xs">Prediction</TableHead>
+                    <TableHeader className="bg-slate-50 sticky top-0 z-10">
+                      <TableRow className="border-b border-slate-200 text-xs">
+                        <TableHead className="py-2">Variant</TableHead>
+                        <TableHead className="py-2">Model</TableHead>
+                        <TableHead className="py-2">Prediction</TableHead>
+                        <TableHead className="py-2 text-right">Result</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {dbLogs.map((row, i) => (
-                        <TableRow key={i}>
-                          <TableCell className="text-[11px] text-slate-500">{row.timestamp}</TableCell>
-                          <TableCell className="text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <div
-                                className="w-2 h-2 rounded-full flex-shrink-0"
-                                style={{ backgroundColor: VARIANT_COLORS[row.variant_id] || "#64748b" }}
-                              />
-                              <span className="font-semibold" style={{ color: VARIANT_COLORS[row.variant_id] || "#64748b" }}>
-                                {row.variant_name || row.variant_id}
-                              </span>
-                            </div>
+                        <TableRow key={i} className="border-b border-slate-100 text-xs">
+                          <TableCell className="py-2 font-bold" style={{ color: VARIANT_COLORS[row.variant_id] || "#6366f1" }}>
+                            {row.variant_id}
                           </TableCell>
-                          <TableCell className="text-xs text-slate-700">{row.ground_truth}</TableCell>
-                          <TableCell className="text-xs">
-                            <Badge variant="outline" className={isTruthy(row.is_correct) ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}>
-                              {row.predicted}
-                            </Badge>
+                          <TableCell className="py-2 font-medium text-slate-800">{row.model}</TableCell>
+                          <TableCell className="py-2 text-slate-700 truncate max-w-[130px]">{row.predicted}</TableCell>
+                          <TableCell className="py-2 text-right">
+                            {isTruthy(row.is_correct) ? (
+                              <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px]">✓ Correct</Badge>
+                            ) : (
+                              <Badge className="bg-rose-50 text-rose-700 border-none text-[9px]">✗ Miss</Badge>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -802,20 +886,25 @@ export default function Exp4PromptSensitivity() {
             </Card>
           </div>
         </div>
-
-        {/* Reasoning Dialog */}
-        <Dialog open={!!activeReasoning} onOpenChange={() => setActiveReasoning(null)}>
-          <DialogContent className="bg-white max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="text-base font-bold text-slate-900">{activeReasoning?.name}</DialogTitle>
-              <DialogDescription className="text-xs text-slate-500">AI Reasoning output text</DialogDescription>
-            </DialogHeader>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs font-mono text-slate-800 max-h-60 overflow-y-auto whitespace-pre-wrap">
-              {activeReasoning?.text || "No reasoning text available."}
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
+
+      {/* AI Reasoning Modal Dialog */}
+      <Dialog open={!!activeReasoning} onOpenChange={(open) => !open && setActiveReasoning(null)}>
+        <DialogContent className="max-w-xl bg-white text-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Eye className="w-4 h-4 text-purple-600" />
+              {activeReasoning?.name} — AI Reasoning Output
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Intermediate chain-of-thought deduction steps generated by the VLM.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 max-h-72 overflow-y-auto text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
+            {activeReasoning?.text}
+          </div>
+        </DialogContent>
+      </Dialog>
     </ExperimentLayout>
   );
 }

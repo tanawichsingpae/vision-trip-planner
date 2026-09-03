@@ -6,10 +6,27 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
 import { analyzeImage, type VisionResult } from "@/services/aiService";
-import { Upload, RefreshCw, CheckCircle2, XCircle, Save, TrendingUp, BarChart3, ShieldCheck } from "lucide-react";
+import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import {
+  Upload,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  Save,
+  TrendingUp,
+  BarChart3,
+  ShieldCheck,
+  Activity,
+  FileCode2,
+  Check,
+  Play,
+  RotateCcw,
+  Sparkles,
+} from "lucide-react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -18,10 +35,14 @@ import {
   YAxis,
   Tooltip as RechartsTooltip,
   ReferenceLine,
+  ReferenceArea,
   CartesianGrid,
   BarChart,
   Bar,
   Cell,
+  PieChart,
+  Pie,
+  Legend,
 } from "recharts";
 
 interface Exp5RunResult {
@@ -33,6 +54,7 @@ interface Exp5RunResult {
   confidence: number;
   time_ms: number;
   is_correct: boolean;
+  matched_alias?: string | null;
 }
 
 interface Exp5History {
@@ -64,6 +86,7 @@ export default function Exp5ConsistencyTest() {
   const [progressLabel, setProgressLabel] = useState("");
   const [currentResults, setCurrentResults] = useState<Exp5RunResult[]>([]);
   const [dbLogs, setDbLogs] = useState<Exp5History[]>([]);
+  const [copiedLatex, setCopiedLatex] = useState(false);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -90,7 +113,9 @@ export default function Exp5ConsistencyTest() {
     }
   }, []);
 
-  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -130,6 +155,9 @@ export default function Exp5ConsistencyTest() {
 
       const pred = res.place || "Unknown";
 
+      // Automated multi-alias evaluation
+      const match = evaluatePredictionWithAliases(pred, groundTruth, res.similar_locations || [], 0.70);
+
       temp.push({
         run_number: i,
         total_runs: numRuns,
@@ -138,7 +166,8 @@ export default function Exp5ConsistencyTest() {
         predicted: pred,
         confidence: res.confidence || 0.0,
         time_ms: duration,
-        is_correct: false, // default pending — user grades manually
+        is_correct: match.isCorrect,
+        matched_alias: match.matchedAlias,
       });
 
       setCurrentResults([...temp]);
@@ -146,7 +175,7 @@ export default function Exp5ConsistencyTest() {
 
     setIsRunning(false);
     setProgressLabel("");
-    toast.success(`Completed ${numRuns} repetition runs! Please grade each run below.`);
+    toast.success(`Completed ${numRuns} repetition runs! Graded with aliases.`);
   };
 
   const updateCorrectness = (index: number, value: boolean) => {
@@ -184,7 +213,7 @@ export default function Exp5ConsistencyTest() {
       });
 
       if (res.ok) {
-        toast.success(`Exp5 session (${sessionId}) saved to CSV!`);
+        toast.success(`Session (${sessionId}) committed!`);
         fetchHistory();
         setCurrentResults([]);
       }
@@ -193,287 +222,345 @@ export default function Exp5ConsistencyTest() {
     }
   };
 
-  // ── Current session metrics ──
+  // Current session metrics
   const sessionMetrics = useMemo(() => {
     if (currentResults.length === 0) return null;
     const N = currentResults.length;
 
     const counts: Record<string, number> = {};
-    currentResults.forEach((r) => { counts[r.predicted] = (counts[r.predicted] || 0) + 1; });
+    currentResults.forEach((r) => {
+      counts[r.predicted] = (counts[r.predicted] || 0) + 1;
+    });
     let modePred = "";
     let maxCount = 0;
     Object.entries(counts).forEach(([pred, cnt]) => {
-      if (cnt > maxCount) { maxCount = cnt; modePred = pred; }
+      if (cnt > maxCount) {
+        maxCount = cnt;
+        modePred = pred;
+      }
     });
 
     const agreementRate = ((maxCount / N) * 100).toFixed(1);
-    const accuracyRate = ((currentResults.filter(r => r.is_correct).length / N) * 100).toFixed(1);
+    const accuracyRate = ((currentResults.filter((r) => r.is_correct).length / N) * 100).toFixed(1);
 
     const latencies = currentResults.map((r) => r.time_ms);
     const meanLat = latencies.reduce((a, b) => a + b, 0) / N;
     const varLat = latencies.reduce((a, b) => a + Math.pow(b - meanLat, 2), 0) / N;
     const sdLat = Math.round(Math.sqrt(varLat));
 
-    const confs = currentResults.map((r) => r.confidence);
-    const meanConf = confs.reduce((a, b) => a + b, 0) / N;
-    const varConf = confs.reduce((a, b) => a + Math.pow(b - meanConf, 2), 0) / N;
-    const sdConf = Math.sqrt(varConf).toFixed(3);
-
-    // Latency chart data
+    // Latency timeline data
     const latencyChartData = currentResults.map((r) => ({
-      run: `R${r.run_number}`,
+      run: `Run #${r.run_number}`,
       latency: r.time_ms,
       mean: Math.round(meanLat),
+      predicted: r.predicted,
+      is_correct: r.is_correct,
     }));
+
+    const distributionData = [
+      { name: "Exact Consensus", value: maxCount, color: "#e11d48" },
+      ...(N - maxCount > 0 ? [{ name: "Response Variance", value: N - maxCount, color: "#94a3b8" }] : []),
+    ];
 
     return {
       totalRuns: N,
       modePred,
+      consensusCount: maxCount,
       agreementRate,
       accuracyRate,
       meanLat: Math.round(meanLat),
       sdLat,
-      sdConf,
       latencyChartData,
+      distributionData,
     };
   }, [currentResults]);
 
-  // ── Historical analytics ──
+  // Historical analytics
   const historicalAnalytics = useMemo(() => {
     if (dbLogs.length === 0) return null;
 
-    // Per-model aggregate consistency
-    const modelStats: Record<string, { sessions: Set<string>; total: number; correct: number; predictions: string[] }> = {};
+    const modelStats: Record<string, { total: number; correct: number; times: number[] }> = {};
     dbLogs.forEach((row) => {
       const model = row.model;
-      if (!modelStats[model]) modelStats[model] = { sessions: new Set(), total: 0, correct: 0, predictions: [] };
-      if (row.session_id) modelStats[model].sessions.add(row.session_id);
+      if (!modelStats[model]) modelStats[model] = { total: 0, correct: 0, times: [] };
       modelStats[model].total += 1;
       if (isTruthy(row.is_correct)) modelStats[model].correct += 1;
-      if (row.predicted) modelStats[model].predictions.push(row.predicted);
+      if (row.time_ms) modelStats[model].times.push(Number(row.time_ms));
     });
 
-    const modelBreakdown = Object.entries(modelStats).map(([model, d]) => {
-      const acc = Math.round((d.correct / d.total) * 100);
-      // Agreement rate: most common prediction / total
-      const predCounts: Record<string, number> = {};
-      d.predictions.forEach((p) => { predCounts[p] = (predCounts[p] || 0) + 1; });
-      const maxCount = Math.max(...Object.values(predCounts));
-      const agreementRate = Math.round((maxCount / d.total) * 100);
+    const breakdown = Object.entries(modelStats).map(([model, d]) => {
+      const opt = AI_MODEL_OPTIONS.find((o) => o.value === model);
+      const acc = d.total > 0 ? Math.round((d.correct / d.total) * 100) : 0;
+      const mean = d.times.length > 0 ? Math.round(d.times.reduce((a, b) => a + b, 0) / d.times.length) : 0;
+      const variance = d.times.length > 0 ? d.times.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / d.times.length : 0;
+      const sd = Math.round(Math.sqrt(variance));
+
       return {
         model,
-        shortModel: model.split("-").slice(-2).join("-"),
-        acc,
-        agreementRate,
-        sessions: d.sessions.size,
+        modelLabel: opt ? opt.label : model,
         total: d.total,
+        accuracy: acc,
+        meanLatency: mean,
+        sdLatency: sd,
       };
-    }).sort((a, b) => b.agreementRate - a.agreementRate);
-
-    // Per-session summary
-    const sessionStats: Record<string, { model: string; groundTruth: string; total: number; correct: number; predictions: string[] }> = {};
-    dbLogs.forEach((row) => {
-      const sid = row.session_id || "?";
-      if (!sessionStats[sid]) sessionStats[sid] = { model: row.model, groundTruth: row.ground_truth, total: 0, correct: 0, predictions: [] };
-      sessionStats[sid].total += 1;
-      if (isTruthy(row.is_correct)) sessionStats[sid].correct += 1;
-      if (row.predicted) sessionStats[sid].predictions.push(row.predicted);
     });
 
-    const sessionBreakdown = Object.entries(sessionStats).map(([sid, d]) => {
-      const predCounts: Record<string, number> = {};
-      d.predictions.forEach((p) => { predCounts[p] = (predCounts[p] || 0) + 1; });
-      const maxCount = Math.max(...Object.values(predCounts));
-      const agreementRate = Math.round((maxCount / d.total) * 100);
-      const acc = Math.round((d.correct / d.total) * 100);
-      return {
-        session: sid,
-        model: d.model,
-        groundTruth: d.groundTruth,
-        total: d.total,
-        acc,
-        agreementRate,
-      };
-    }).slice(-10); // last 10 sessions
-
-    return { modelBreakdown, sessionBreakdown, totalLogs: dbLogs.length };
+    return {
+      breakdown,
+      totalRecords: dbLogs.length,
+    };
   }, [dbLogs]);
+
+  const copyConsistencyLatex = () => {
+    if (!historicalAnalytics) return;
+    const rows = historicalAnalytics.breakdown.map((m) => {
+      return `    ${m.modelLabel} & ${m.total} & ${m.accuracy}\\% & ${m.meanLatency} \\pm ${m.sdLatency} \\\\`;
+    }).join("\n");
+
+    const latex = `\\begin{table}[htbp]
+  \\centering
+  \\caption{Model Operational Stability & Latency Jitter Evaluation}
+  \\label{tab:model_consistency}
+  \\begin{tabular}{l r r r}
+    \\toprule
+    \\textbf{Model} & \\textbf{N (Runs)} & \\textbf{Accuracy (\\%)} & \\textbf{Latency (Mean $\\pm$ SD ms)} \\\\
+    \\midrule
+${rows}
+    \\bottomrule
+  \\end{tabular}
+\\end{table}`;
+
+    navigator.clipboard.writeText(latex);
+    setCopiedLatex(true);
+    toast.success("Consistency LaTeX Table copied!");
+    setTimeout(() => setCopiedLatex(false), 2000);
+  };
 
   return (
     <ExperimentLayout>
       <div className="space-y-8">
-        {/* ── Title ── */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">Experiment 5: Consistency & Operational Stability</h2>
-            <p className="text-xs text-slate-500">
-              Measure output agreement, response variance, and latency stability across N repeated trials.
+        {/* Header Title */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="text-left">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                Experiment 5: Model Consistency & Operational Stability
+              </h2>
+              <Badge className="bg-rose-50 text-rose-700 border-rose-200 text-xs font-semibold">
+                Thesis Chap. 4.5
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Quantify multi-run determinism, response stability index (agreement rate), and latency jitter variance.
             </p>
           </div>
-          <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-1 font-medium">
-            <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
-            N-Run Stability Test
-          </Badge>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyConsistencyLatex}
+              disabled={!historicalAnalytics}
+              className="text-xs bg-white text-rose-700 border-rose-200 hover:bg-rose-50 shadow-2xs h-8"
+            >
+              {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-rose-600" />}
+              {copiedLatex ? "Copied LaTeX" : "Export Stability LaTeX"}
+            </Button>
+          </div>
         </div>
 
-        {/* ── Historical Analytics ── */}
-        {historicalAnalytics && (
-          <>
-            {/* Per-model consistency overview */}
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  Model Consistency & Accuracy Summary (All Historical Sessions)
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-500">
-                  Agreement Rate = how often the model gives the same answer across repeated runs (higher = more stable).
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Agreement rate bar chart */}
-                  <div>
-                    <p className="text-xs font-semibold text-slate-600 mb-2">Agreement Rate per Model</p>
-                    <ResponsiveContainer width="100%" height={180}>
-                      <BarChart data={historicalAnalytics.modelBreakdown} margin={{ top: 4, right: 16, left: 0, bottom: 24 }}>
-                        <XAxis dataKey="shortModel" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" interval={0} />
-                        <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} domain={[0, 100]} />
-                        <RechartsTooltip formatter={(v: number) => [`${v}%`, "Agreement Rate"]} contentStyle={{ fontSize: 11 }} />
-                        <Bar dataKey="agreementRate" radius={[4, 4, 0, 0]}>
-                          {historicalAnalytics.modelBreakdown.map((entry, idx) => (
-                            <Cell key={idx} fill={`hsl(${150 - idx * 20}, 65%, 45%)`} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* Model breakdown table */}
-                  <div>
-                    <p className="text-xs font-semibold text-slate-600 mb-2">Per-Model Detail</p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-slate-50">
-                          <TableHead className="text-[11px]">Model</TableHead>
-                          <TableHead className="text-[11px]">Agreement</TableHead>
-                          <TableHead className="text-[11px]">Accuracy</TableHead>
-                          <TableHead className="text-[11px]">Sessions</TableHead>
-                          <TableHead className="text-[11px]">Stability</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {historicalAnalytics.modelBreakdown.map((row, i) => (
-                          <TableRow key={i}>
-                            <TableCell className="text-[11px] font-mono text-slate-700">{row.model}</TableCell>
-                            <TableCell className="text-[11px] font-bold text-emerald-700">{row.agreementRate}%</TableCell>
-                            <TableCell className="text-[11px] font-bold text-blue-700">{row.acc}%</TableCell>
-                            <TableCell className="text-[11px] text-slate-500">{row.sessions}</TableCell>
-                            <TableCell>
-                              {row.agreementRate >= 80 ? (
-                                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">High</Badge>
-                              ) : row.agreementRate >= 60 ? (
-                                <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">Medium</Badge>
-                              ) : (
-                                <Badge className="bg-red-50 text-red-600 border-red-200 text-[10px]">Low</Badge>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </>
-        )}
-
-        {/* ── Live Session Metrics ── */}
+        {/* Live Trial Session Summary Cards */}
         {sessionMetrics && (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Card className="bg-emerald-50 border-emerald-200 shadow-sm">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+              {/* Card 1: Stability Index */}
+              <Card className="bg-gradient-to-br from-rose-50/80 to-white border-rose-200/90 shadow-xs text-left">
                 <CardContent className="p-4">
-                  <p className="text-xs text-emerald-700 font-medium">Agreement Rate</p>
-                  <p className="text-2xl font-bold text-emerald-800 mt-1">{sessionMetrics.agreementRate}%</p>
-                  <p className="text-[11px] text-emerald-500 mt-0.5">Mode: "{sessionMetrics.modePred}"</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800">
+                      Stability Index (Agreement)
+                    </span>
+                    <ShieldCheck className="w-4 h-4 text-rose-600" />
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-extrabold text-rose-900 mt-2">
+                    {sessionMetrics.agreementRate}%
+                  </p>
+                  <p className="text-[10px] text-rose-600 mt-0.5">
+                    {sessionMetrics.consensusCount} of {sessionMetrics.totalRuns} runs gave identical output
+                  </p>
                 </CardContent>
               </Card>
-              <Card className="bg-blue-50 border-blue-200 shadow-sm">
+
+              {/* Card 2: Consensus Prediction */}
+              <Card className="bg-white border-slate-200/90 shadow-xs text-left">
                 <CardContent className="p-4">
-                  <p className="text-xs text-blue-700 font-medium">Accuracy Rate</p>
-                  <p className="text-2xl font-bold text-blue-800 mt-1">{sessionMetrics.accuracyRate}%</p>
-                  <p className="text-[11px] text-blue-400 mt-0.5">Correct / Total</p>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    Consensus Output
+                  </span>
+                  <p className="text-base font-bold text-slate-900 mt-2 truncate" title={sessionMetrics.modePred}>
+                    {sessionMetrics.modePred}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                    Accuracy: <strong>{sessionMetrics.accuracyRate}%</strong> across runs
+                  </p>
                 </CardContent>
               </Card>
-              <Card className="bg-white border-slate-200 shadow-sm">
+
+              {/* Card 3: Latency & Jitter */}
+              <Card className="bg-white border-slate-200/90 shadow-xs text-left">
                 <CardContent className="p-4">
-                  <p className="text-xs text-slate-500 font-medium">Mean Latency</p>
-                  <p className="text-2xl font-bold text-slate-900 mt-1">{sessionMetrics.meanLat}ms</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">SD: ±{sessionMetrics.sdLat}ms</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      Mean Latency & Jitter
+                    </span>
+                    <Activity className="w-4 h-4 text-indigo-600" />
+                  </div>
+                  <p className="text-2xl font-extrabold text-slate-900 mt-2 font-mono">
+                    {sessionMetrics.meanLat} <span className="text-xs text-slate-400 font-normal">± {sessionMetrics.sdLat} ms</span>
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                    Jitter SD ($\sigma$): {sessionMetrics.sdLat} ms
+                  </p>
                 </CardContent>
               </Card>
-              <Card className="bg-purple-50 border-purple-200 shadow-sm">
+
+              {/* Card 4: Evaluation Runs */}
+              <Card className="bg-white border-slate-200/90 shadow-xs text-left">
                 <CardContent className="p-4">
-                  <p className="text-xs text-purple-700 font-medium">Completed Runs</p>
-                  <p className="text-2xl font-bold text-purple-800 mt-1">{sessionMetrics.totalRuns}</p>
-                  <p className="text-[11px] text-purple-400 mt-0.5">Conf. SD: ±{sessionMetrics.sdConf}</p>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    Repetition Sample
+                  </span>
+                  <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">
+                    {sessionMetrics.totalRuns} Runs
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Deterministic testing
+                  </p>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Latency line chart */}
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-600" />
-                  Latency Trend Across Runs
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-500">
-                  Dashed line = mean latency. Stable models have low variance around the mean.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={160}>
-                  <LineChart data={sessionMetrics.latencyChartData} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="run" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}ms`} />
-                    <RechartsTooltip formatter={(v: number) => [`${v}ms`]} contentStyle={{ fontSize: 11 }} />
-                    <ReferenceLine y={sessionMetrics.meanLat} stroke="#10b981" strokeDasharray="4 4" label={{ value: `μ=${sessionMetrics.meanLat}ms`, fill: "#10b981", fontSize: 10 }} />
-                    <Line type="monotone" dataKey="latency" stroke="#6366f1" strokeWidth={2} dot={{ r: 4, fill: "#6366f1" }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </>
+            {/* Jitter & Response Consensus Distribution (2-Column Grid) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Latency Jitter Timeline (7 cols) */}
+              <Card className="lg:col-span-7 bg-white border-slate-200 shadow-sm text-left">
+                <CardHeader className="pb-2 border-b border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-rose-600" />
+                      Latency Jitter Timeline ($\mu \pm \sigma$)
+                    </CardTitle>
+                    <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] font-mono">
+                      Mean: {sessionMetrics.meanLat}ms (±{sessionMetrics.sdLat}ms)
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-xs text-slate-500">
+                    Execution time variance across sequence. Shaded reference indicates standard deviation.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="h-48 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={sessionMetrics.latencyChartData} margin={{ top: 10, right: 20, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="run" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} unit="ms" />
+                        <RechartsTooltip
+                          formatter={(v: any) => [`${v} ms`, "Latency"]}
+                          contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px" }}
+                        />
+                        <ReferenceLine y={sessionMetrics.meanLat} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: `Mean: ${sessionMetrics.meanLat}ms`, fill: "#64748b", fontSize: 10 }} />
+                        <ReferenceLine y={sessionMetrics.meanLat + sessionMetrics.sdLat} stroke="#fca5a5" strokeDasharray="2 2" />
+                        <ReferenceLine y={Math.max(0, sessionMetrics.meanLat - sessionMetrics.sdLat)} stroke="#fca5a5" strokeDasharray="2 2" />
+                        <Line type="monotone" dataKey="latency" stroke="#e11d48" strokeWidth={2.5} dot={{ r: 4, fill: "#e11d48" }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Response Consistency Donut Chart (5 cols) */}
+              <Card className="lg:col-span-5 bg-white border-slate-200 shadow-sm text-left flex flex-col justify-between">
+                <CardHeader className="pb-2 border-b border-slate-100">
+                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-rose-600" />
+                    Response Agreement Distribution
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-500">
+                    Degree of output determinism across all repetition trials.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-2 pb-4 flex flex-col items-center">
+                  <div className="h-44 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={sessionMetrics.distributionData}
+                          innerRadius={45}
+                          outerRadius={65}
+                          paddingAngle={4}
+                          dataKey="value"
+                        >
+                          {sessionMetrics.distributionData.map((entry, idx) => (
+                            <Cell key={`cell-${idx}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip contentStyle={{ fontSize: "11px", borderRadius: "8px" }} />
+                        <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "0px" }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="text-center mt-1">
+                    <span className="text-xs font-bold text-slate-800">
+                      {sessionMetrics.agreementRate}% Modal Agreement
+                    </span>
+                    <p className="text-[10px] text-slate-400">
+                      {sessionMetrics.consensusCount} matching predictions out of {sessionMetrics.totalRuns} runs
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         )}
 
-        {/* ── Main Grid ── */}
+        {/* Main 2-Column Area */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Setup (5 cols) */}
+          {/* Left Column: SETUP (5 cols) */}
           <div className="lg:col-span-5 space-y-6">
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold text-slate-900">Setup Stability Trial</CardTitle>
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="border-b border-slate-100 pb-4">
+                <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-rose-600" />
+                  1. Setup Repetition Experiment
+                </CardTitle>
                 <CardDescription className="text-xs text-slate-500">
-                  Executes N identical requests sequentially to measure variance.
+                  Run place recognition repeatedly on the same photo to verify response determinism.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Upload */}
+
+              <CardContent className="pt-6 space-y-5">
+                {/* Upload Image */}
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold text-slate-700">Query Image</Label>
-                  <div className="border-2 border-dashed border-slate-200 hover:border-emerald-400 rounded-xl p-3 text-center cursor-pointer bg-slate-50">
-                    <Input type="file" accept="image/*" onChange={handleFileChange} className="hidden" id="exp5-file" />
+                  <div className="border-2 border-dashed border-slate-200 hover:border-rose-400 rounded-2xl p-4 text-center cursor-pointer transition-all bg-slate-50/50">
+                    <Input type="file" accept="image/*" onChange={handleFileChange} className="hidden" id="exp5-file" disabled={isRunning} />
                     <label htmlFor="exp5-file" className="cursor-pointer block">
                       {imagePreview ? (
-                        <img src={imagePreview} alt="Preview" className="max-h-36 mx-auto rounded-lg object-cover" />
+                        <div className="relative group">
+                          <img src={imagePreview} alt="Preview" className="max-h-40 mx-auto rounded-lg object-cover shadow-xs" />
+                          <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                            <span className="text-[11px] bg-white text-slate-700 px-2.5 py-1 rounded-full shadow-md font-medium">
+                              Change Image
+                            </span>
+                          </div>
+                        </div>
                       ) : (
-                        <div className="py-4 space-y-1">
-                          <Upload className="w-6 h-6 mx-auto text-emerald-500" />
-                          <p className="text-xs text-slate-600 font-medium">Click to upload image</p>
+                        <div className="py-5 space-y-1.5">
+                          <div className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+                            <Upload className="w-4 h-4" />
+                          </div>
+                          <p className="text-xs font-bold text-slate-800">Upload Query Photo</p>
                         </div>
                       )}
                     </label>
@@ -482,174 +569,150 @@ export default function Exp5ConsistencyTest() {
 
                 {/* Ground Truth */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Ground Truth Location</Label>
+                  <Label className="text-xs font-semibold text-slate-700">Ground Truth (Multi-Alias)</Label>
                   <Input
                     value={groundTruth}
                     onChange={(e) => setGroundTruth(e.target.value)}
-                    placeholder="e.g. Marina Bay Sands"
-                    className="bg-white text-xs border-slate-200"
+                    placeholder="e.g. Wat Arun | วัดอรุณ"
+                    className="bg-white text-xs border-slate-200 text-slate-900"
+                    disabled={isRunning}
                   />
                 </div>
 
-                {/* Target Model Selector with Logos */}
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold text-slate-700">Target Model to Test</Label>
-                  <div className="grid grid-cols-1 gap-2 max-h-52 overflow-y-auto pr-1 border border-slate-200 rounded-xl p-2 bg-slate-50">
-                    {AI_MODEL_OPTIONS.map((opt) => {
-                      const isSelected = selectedModel === opt.value;
-                      return (
-                        <div
-                          key={opt.value}
-                          onClick={() => !isRunning && setSelectedModel(opt.value)}
-                          className={`flex items-center gap-2.5 p-2 rounded-lg border transition-all duration-150 cursor-pointer ${
-                            isSelected
-                              ? "bg-emerald-50/50 border-emerald-300 shadow-2xs"
-                              : "bg-white border-slate-200/80 hover:bg-slate-100/60 hover:border-slate-300"
-                          }`}
-                        >
-                          <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
-                            isSelected ? "border-emerald-600 bg-emerald-600" : "border-slate-300 bg-white"
-                          }`}>
-                            {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                          </div>
-                          <img
-                            src={opt.icon}
-                            className="w-4 h-4 rounded-full object-cover shrink-0 bg-slate-100 border border-slate-200"
-                            alt=""
-                          />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-xs font-semibold text-slate-800 block text-left truncate">
-                              {opt.label}
-                            </span>
-                            <span className="text-[10px] text-slate-400 block text-left font-mono truncate">
-                              {opt.description}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Repetitions Slider */}
+                {/* Model Selector */}
                 <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
+                  <Label className="text-xs font-semibold text-slate-700">Evaluation Model</Label>
+                  <Select
+                    value={selectedModel}
+                    onValueChange={(v) => setSelectedModel(v as AIModelType)}
+                    disabled={isRunning}
+                  >
+                    <SelectTrigger className="bg-white text-xs border-slate-200">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AI_MODEL_OPTIONS.map((m) => (
+                        <SelectItem key={m.value} value={m.value} className="text-xs">
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Number of Runs */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
                     <Label className="text-xs font-semibold text-slate-700">Number of Repetitions (N)</Label>
-                    <span className="text-xs font-bold text-emerald-600">{numRuns} Runs</span>
+                    <span className="text-xs font-mono font-bold text-rose-600">{numRuns} Runs</span>
                   </div>
-                  <input
-                    type="range"
-                    min="3"
-                    max="10"
-                    value={numRuns}
-                    onChange={(e) => setNumRuns(Number(e.target.value))}
-                    className="w-full cursor-pointer accent-emerald-600"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>3 (min)</span>
-                    <span>10 (max)</span>
+                  <div className="flex gap-2">
+                    {[3, 5, 10, 20].map((n) => (
+                      <Button
+                        key={n}
+                        type="button"
+                        variant={numRuns === n ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setNumRuns(n)}
+                        className={`flex-1 text-xs h-8 ${numRuns === n ? "bg-rose-600 text-white" : "bg-white text-slate-700"}`}
+                        disabled={isRunning}
+                      >
+                        {n}x
+                      </Button>
+                    ))}
                   </div>
                 </div>
 
                 {/* Run Button */}
                 <Button
                   onClick={runConsistencyTest}
-                  disabled={isRunning}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2.5 rounded-lg shadow-sm"
+                  disabled={isRunning || !imageFile || !groundTruth.trim()}
+                  className="w-full bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-700 hover:to-pink-700 text-white font-semibold text-xs py-5 rounded-xl shadow-md flex items-center justify-center gap-2"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRunning ? "animate-spin" : ""}`} />
-                  {isRunning ? progressLabel : `Run Consistency Trial (${numRuns} Repetitions)`}
+                  <Play className="w-4 h-4" />
+                  <span>{isRunning ? progressLabel : `Execute ${numRuns} Repetitions Stability Test`}</span>
                 </Button>
               </CardContent>
             </Card>
           </div>
 
-          {/* Results (7 cols) */}
+          {/* Right Column: LIVE RUNS TABLE (7 cols) */}
           <div className="lg:col-span-7 space-y-6">
-            {/* Current trial breakdown */}
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-slate-100">
                 <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Trial Runs Breakdown</CardTitle>
+                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-rose-600" />
+                    Repetition Sequence Outputs
+                  </CardTitle>
                   <CardDescription className="text-xs text-slate-500">
-                    Predictions and latencies recorded for each run.
+                    Predictions across N identical requests to detect variance and hallucination.
                   </CardDescription>
                 </div>
                 {currentResults.length > 0 && (
-                  <Button onClick={commitResults} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs">
-                    <Save className="w-3.5 h-3.5 mr-1" /> Save Session to CSV
+                  <Button
+                    onClick={commitResults}
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-xs"
+                  >
+                    <Save className="w-3.5 h-3.5 mr-1" />
+                    Commit Session
                   </Button>
                 )}
               </CardHeader>
-              <CardContent>
-                {currentResults.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-12">Run trial to measure N-run consistency.</p>
-                ) : (
-                  <>
-                    {/* Live grading summary bar */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3 p-3 bg-gradient-to-r from-emerald-50 via-slate-50 to-blue-50 rounded-xl border border-slate-200 shadow-xs">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-xs font-bold text-slate-800">Manual Verification</span>
-                      </div>
-                      <div className="flex items-center space-x-2.5 text-xs">
-                        <span className="font-semibold text-emerald-700 bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px]">
-                          ✓ {currentResults.filter(r => r.is_correct).length} Correct
-                        </span>
-                        <span className="font-semibold text-rose-700 bg-rose-100/90 px-2 py-0.5 rounded-md border border-rose-200 text-[11px]">
-                          ✗ {currentResults.filter(r => !r.is_correct).length} Wrong
-                        </span>
-                        <span className="font-bold text-slate-900 bg-white px-2.5 py-0.5 rounded-md border border-slate-200 shadow-2xs text-[11px]">
-                          Score: {currentResults.length > 0
-                            ? `${Math.round((currentResults.filter(r => r.is_correct).length / currentResults.length) * 100)}%`
-                            : "0%"}
-                        </span>
-                      </div>
-                    </div>
 
+              <CardContent className="pt-6">
+                {currentResults.length === 0 ? (
+                  <div className="text-center py-16 text-slate-400 border border-dashed border-slate-200 rounded-2xl">
+                    <RefreshCw className="w-8 h-8 mx-auto mb-2 text-slate-350" />
+                    <p className="text-xs font-semibold text-slate-600">No repetition trials yet.</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Upload a photo and click Execute Stability Test.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                     <Table>
-                      <TableHeader>
-                        <TableRow className="bg-slate-50">
-                          <TableHead className="text-xs">Run #</TableHead>
-                          <TableHead className="text-xs">Prediction</TableHead>
-                          <TableHead className="text-xs">Confidence</TableHead>
-                          <TableHead className="text-xs">Latency</TableHead>
-                          <TableHead className="text-xs text-center">Evaluation</TableHead>
+                      <TableHeader className="bg-slate-50">
+                        <TableRow className="border-b border-slate-200 text-xs">
+                          <TableHead className="py-2.5">Run #</TableHead>
+                          <TableHead className="py-2.5">Prediction</TableHead>
+                          <TableHead className="py-2.5 text-center">Latency</TableHead>
+                          <TableHead className="py-2.5 text-center">Verification</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {currentResults.map((r, idx) => (
-                          <TableRow key={r.run_number} className={r.is_correct ? "bg-emerald-50/30 transition-colors" : "transition-colors"}>
-                            <TableCell className="text-xs font-bold text-slate-800">Run #{r.run_number}</TableCell>
-                            <TableCell className="text-xs font-medium text-slate-800">{r.predicted}</TableCell>
-                            <TableCell className="text-xs font-mono text-slate-600">{r.confidence.toFixed(3)}</TableCell>
-                            <TableCell className="text-xs font-mono text-slate-600">{r.time_ms}ms</TableCell>
-                            <TableCell className="text-center">
-                              {/* Segmented Pill Toggle Buttons */}
-                              <div className="inline-flex items-center p-0.5 bg-slate-100/90 rounded-lg border border-slate-200/80 shadow-2xs">
+                          <TableRow key={idx} className="border-b border-slate-100 text-xs">
+                            <TableCell className="font-mono font-bold text-slate-600 py-2.5">
+                              #{r.run_number}
+                            </TableCell>
+                            <TableCell className="py-2.5">
+                              <span className="font-semibold text-slate-900 block truncate max-w-[150px]">{r.predicted}</span>
+                              {r.matched_alias && (
+                                <span className="text-[10px] text-emerald-600 block">Matched: "{r.matched_alias}"</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center font-mono text-[11px] text-slate-600 py-2.5">
+                              {r.time_ms} ms
+                            </TableCell>
+                            <TableCell className="text-center py-2.5">
+                              <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
                                 <button
                                   type="button"
                                   onClick={() => updateCorrectness(idx, true)}
-                                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 ${
-                                    r.is_correct
-                                      ? "bg-emerald-600 text-white shadow-xs font-bold scale-105"
-                                      : "text-slate-500 hover:text-emerald-700 hover:bg-slate-200/60"
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    r.is_correct ? "bg-emerald-600 text-white" : "text-slate-500"
                                   }`}
                                 >
-                                  <CheckCircle2 className={`w-3.5 h-3.5 ${r.is_correct ? "text-white" : "text-slate-400"}`} />
-                                  <span>Correct</span>
+                                  ✓
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => updateCorrectness(idx, false)}
-                                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 ${
-                                    !r.is_correct
-                                      ? "bg-rose-600 text-white shadow-xs font-bold scale-105"
-                                      : "text-slate-500 hover:text-rose-700 hover:bg-slate-200/60"
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    !r.is_correct ? "bg-rose-600 text-white" : "text-slate-500"
                                   }`}
                                 >
-                                  <XCircle className={`w-3.5 h-3.5 ${!r.is_correct ? "text-white" : "text-slate-400"}`} />
-                                  <span>Wrong</span>
+                                  ✗
                                 </button>
                               </div>
                             </TableCell>
@@ -657,96 +720,48 @@ export default function Exp5ConsistencyTest() {
                         ))}
                       </TableBody>
                     </Table>
-                  </>
+                  </div>
                 )}
               </CardContent>
             </Card>
 
-            {/* Historical session log */}
-            <Card className="bg-white border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold text-slate-900">Session History (exp5_consistency.csv)</CardTitle>
-                <CardDescription className="text-xs text-slate-500">
-                  Showing last 10 sessions with agreement rate per session
-                </CardDescription>
+            {/* Historical Table */}
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="pb-3 border-b border-slate-100">
+                <CardTitle className="text-sm font-bold text-slate-900">
+                  Historical Consistency Sessions ({dbLogs.length} entries)
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                {!historicalAnalytics || historicalAnalytics.sessionBreakdown.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-6">No historical records saved.</p>
+              <CardContent className="pt-4 max-h-60 overflow-y-auto">
+                {dbLogs.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-6">No historical records saved yet.</p>
                 ) : (
-                  <>
-                    {/* Session summary table */}
-                    <Table className="mb-4">
-                      <TableHeader>
-                        <TableRow className="bg-slate-50">
-                          <TableHead className="text-[11px]">Session</TableHead>
-                          <TableHead className="text-[11px]">Model</TableHead>
-                          <TableHead className="text-[11px]">Ground Truth</TableHead>
-                          <TableHead className="text-[11px]">Runs</TableHead>
-                          <TableHead className="text-[11px]">Accuracy</TableHead>
-                          <TableHead className="text-[11px]">Agreement</TableHead>
+                  <Table>
+                    <TableHeader className="bg-slate-50 sticky top-0 z-10">
+                      <TableRow className="border-b border-slate-200 text-xs">
+                        <TableHead className="py-2">Session</TableHead>
+                        <TableHead className="py-2">Model</TableHead>
+                        <TableHead className="py-2">Prediction</TableHead>
+                        <TableHead className="py-2 text-right">Result</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dbLogs.map((row, i) => (
+                        <TableRow key={i} className="border-b border-slate-100 text-xs">
+                          <TableCell className="py-2 font-mono text-[10px] text-slate-500">{row.session_id}</TableCell>
+                          <TableCell className="py-2 font-medium text-slate-800">{row.model}</TableCell>
+                          <TableCell className="py-2 text-slate-700 truncate max-w-[130px]">{row.predicted}</TableCell>
+                          <TableCell className="py-2 text-right">
+                            {isTruthy(row.is_correct) ? (
+                              <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px]">✓ Correct</Badge>
+                            ) : (
+                              <Badge className="bg-rose-50 text-rose-700 border-none text-[9px]">✗ Miss</Badge>
+                            )}
+                          </TableCell>
                         </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {historicalAnalytics.sessionBreakdown.map((row, i) => (
-                          <TableRow key={i}>
-                            <TableCell className="text-[11px] font-mono text-slate-500">{row.session}</TableCell>
-                            <TableCell className="text-[11px] text-slate-800">{row.model}</TableCell>
-                            <TableCell className="text-[11px] font-medium text-slate-700 max-w-[100px] truncate">{row.groundTruth}</TableCell>
-                            <TableCell className="text-[11px] text-slate-500">{row.total}</TableCell>
-                            <TableCell className="text-[11px] font-bold text-blue-700">{row.acc}%</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  row.agreementRate >= 80
-                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]"
-                                    : row.agreementRate >= 60
-                                    ? "bg-amber-50 text-amber-700 border-amber-200 text-[10px]"
-                                    : "bg-red-50 text-red-600 border-red-200 text-[10px]"
-                                }
-                              >
-                                {row.agreementRate}%
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-
-                    {/* Raw log */}
-                    <details className="text-xs">
-                      <summary className="text-slate-500 cursor-pointer font-medium py-1">Show raw run logs ({dbLogs.length} rows)</summary>
-                      <div className="max-h-48 overflow-y-auto mt-2">
-                        <Table>
-                          <TableHeader>
-                            <TableRow className="bg-slate-50">
-                              <TableHead className="text-[11px]">Session</TableHead>
-                              <TableHead className="text-[11px]">Model</TableHead>
-                              <TableHead className="text-[11px]">GT</TableHead>
-                              <TableHead className="text-[11px]">Run #</TableHead>
-                              <TableHead className="text-[11px]">Result</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {dbLogs.slice(-30).map((row, i) => (
-                              <TableRow key={i}>
-                                <TableCell className="text-[11px] font-mono text-slate-500">{row.session_id}</TableCell>
-                                <TableCell className="text-[11px] text-slate-800">{row.model}</TableCell>
-                                <TableCell className="text-[11px] font-medium text-slate-700">{row.ground_truth}</TableCell>
-                                <TableCell className="text-[11px] text-slate-500">#{row.run_number}</TableCell>
-                                <TableCell className="text-[11px]">
-                                  <Badge variant="outline" className={isTruthy(row.is_correct) ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}>
-                                    {row.predicted}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </details>
-                  </>
+                      ))}
+                    </TableBody>
+                  </Table>
                 )}
               </CardContent>
             </Card>

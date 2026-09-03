@@ -783,7 +783,7 @@ def flight_trends():
 @app.route("/experiment/save", methods=["POST"])
 def save_experiment():
     """
-    Appends experiment trial data to a local CSV file.
+    Appends experiment trial data to a local CSV file with multi-alias and recall rank support.
     """
     import csv
     import datetime
@@ -805,11 +805,20 @@ def save_experiment():
         with open(csv_path, mode="a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if not file_exists:
-                # Write header
-                writer.writerow(["Timestamp", "Image Name", "Ground Truth", "Model", "Predicted Place", "Confidence", "Time MS", "Is Correct"])
+                # Write header with extended thesis metrics
+                writer.writerow([
+                    "Timestamp", "Image Name", "Ground Truth", "Model",
+                    "Predicted Place", "Confidence", "Time MS", "Is Correct",
+                    "Recall Rank", "Matched Alias"
+                ])
             
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for res in results:
+                is_corr = res.get("is_correct")
+                rank = res.get("recall_rank")
+                if rank is None:
+                    rank = 1 if (is_corr is True or is_corr == "True" or is_corr == "true" or is_corr == 1) else 0
+
                 writer.writerow([
                     timestamp,
                     image_name,
@@ -818,7 +827,9 @@ def save_experiment():
                     res.get("predicted"),
                     res.get("confidence"),
                     res.get("time_ms"),
-                    res.get("is_correct")
+                    res.get("is_correct"),
+                    rank,
+                    res.get("matched_alias") or ""
                 ])
                 
         return jsonify({"status": "success", "message": "Results saved successfully"})
@@ -842,6 +853,10 @@ def get_experiment_results():
         with open(csv_path, mode="r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
+                is_correct = row.get("Is Correct") == "True" or row.get("Is Correct") == "true" or row.get("Is Correct") == "1"
+                raw_rank = row.get("Recall Rank")
+                rank = int(raw_rank) if raw_rank and raw_rank.isdigit() else (1 if is_correct else 0)
+
                 results.append({
                     "timestamp": row.get("Timestamp"),
                     "image_name": row.get("Image Name"),
@@ -850,7 +865,9 @@ def get_experiment_results():
                     "predicted": row.get("Predicted Place"),
                     "confidence": float(row.get("Confidence") or 0.0),
                     "time_ms": int(row.get("Time MS") or 0),
-                    "is_correct": row.get("Is Correct") == "True" or row.get("Is Correct") == "true" or row.get("Is Correct") == "1"
+                    "is_correct": is_correct,
+                    "recall_rank": rank,
+                    "matched_alias": row.get("Matched Alias") or None
                 })
         return jsonify({"results": results})
     except Exception as e:

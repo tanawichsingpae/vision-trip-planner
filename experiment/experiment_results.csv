@@ -108,3 +108,22 @@ Timestamp,Image Name,Ground Truth,Model,Predicted Place,Confidence,Time MS,Is Co
 2026-08-21 14:20:48,images (7).jpg,images (7),mistral-medium,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,10466,True
 2026-08-21 14:20:48,images (7).jpg,images (7),qwen-vl-32b,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,12637,True
 2026-08-21 14:20:48,images (7).jpg,images (7),meta-llama4,วัดอรุณราชวรารามราชวรมหาวิหาร,0.9117348658054819,9781,True
+2026-09-03 00:30:18,images (7).jpg,images (7),google-gemini-25-flash,วัดอรุณราชวรารามราชวรมหาวิหาร,0,7504,True
+2026-09-03 00:30:18,images (7).jpg,images (7),google-gemma4-31b,วัดอรุณราชวรารามราชวรมหาวิหาร,0,12245,True
+2026-09-03 00:30:18,images (7).jpg,images (7),openai-gpt4o,วัดอรุณราชวรารามราชวรมหาวิหาร,0,8338,True
+2026-09-03 00:30:18,images (7).jpg,images (7),openai-gpt4o-mini,วัดอรุณราชวรารามราชวรมหาวิหาร,0,10399,True
+2026-09-03 00:30:18,images (7).jpg,images (7),xai-grok4,วัดอรุณราชวรารามราชวรมหาวิหาร,0,14478,True
+2026-09-03 00:30:18,images (7).jpg,images (7),amazon-nova-pro,กรุงเทพมหานคร,0,5382,False
+2026-09-03 00:30:18,images (7).jpg,images (7),qwen-vl-32b,วัดอรุณราชวรารามราชวรมหาวิหาร,0,8343,True
+2026-09-03 00:30:18,images (7).jpg,images (7),meta-llama4,วัดอรุณราชวรารามราชวรมหาวิหาร,0,20721,True
+2026-09-03 18:47:58,images (1).jpg,images (1),google-gemini-25-pro,หอคอยไอเฟล,0.9199383544041007,27257,True,1,
+2026-09-03 18:47:58,images (1).jpg,images (1),google-gemini-25-flash,ทวีปยุโรป,0.9542820821854965,20610,False,0,
+2026-09-03 18:47:58,images (1).jpg,images (1),google-gemma4-31b,หอคอยไอเฟล,0.9199383544041007,13391,True,1,
+2026-09-03 18:47:58,images (1).jpg,images (1),openai-gpt4o,ปารีส,0.788354693534243,15387,False,0,
+2026-09-03 18:47:58,images (1).jpg,images (1),openai-gpt4o-mini,หอคอยไอเฟล,0.9199383544041007,17040,True,1,
+2026-09-03 18:47:58,images (1).jpg,images (1),anthropic-claude-sonnet5,หอคอยไอเฟล,0.9199383544041007,32783,True,1,
+2026-09-03 18:47:58,images (1).jpg,images (1),xai-grok4,หอคอยไอเฟล,0.9199383544041007,23717,True,1,
+2026-09-03 18:47:58,images (1).jpg,images (1),amazon-nova-pro,หอคอยไอเฟล,0.9199383544041007,16742,True,1,
+2026-09-03 18:47:58,images (1).jpg,images (1),mistral-medium,หอคอยไอเฟล,0.9199383544041007,11516,True,1,
+2026-09-03 18:47:58,images (1).jpg,images (1),qwen-vl-32b,หอคอยไอเฟล,0.9199383544041007,10604,True,1,
+2026-09-03 18:47:58,images (1).jpg,images (1),meta-llama4,Tianducheng Resort,0.8503130102852972,12634,False,0,images 1
