@@ -287,7 +287,7 @@ const FlightMapScene = ({ progress, type }: { progress: number; type: "vision" |
 
           {/* Airplane Badge */}
           <div className="size-9 rounded-2xl bg-gradient-to-tr from-primary to-sky-400 text-white flex items-center justify-center shadow-lg ring-2 ring-white/50 dark:ring-white/20">
-            <Plane className="size-5 fill-white stroke-none drop-shadow-sm -rotate-45" />
+            <Plane className="size-5 fill-white stroke-none drop-shadow-sm rotate-45" />
           </div>
         </div>
       </motion.div>
