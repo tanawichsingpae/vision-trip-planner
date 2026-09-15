@@ -265,4 +265,52 @@ describe("Vision AI Outlier Detection & Geo-Distance Rules", () => {
     expect(outliers.length).toBe(1);
     expect(outliers[0].category).toBe("DUPLICATE");
   });
+
+  it("should preserve detailed non-travel attributes (detected_content, detailed_description, suggested_action, non_travel_category)", () => {
+    const results: GeoVisionResult[] = [
+      {
+        place: "Wat Arun",
+        country: "Thailand",
+        type: "culture",
+        confidence: 0.95,
+        similar_locations: [],
+      },
+      {
+        place: "ภาพไม่ระบุสถานที่ (รูปถ่ายอาหารจานเดียว (ต้มยำกุ้ง))",
+        country: "-",
+        type: "food_dish",
+        confidence: 0,
+        is_identifiable_place: false,
+        detected_content: "รูปถ่ายอาหารจานเดียว (ต้มยำกุ้ง)",
+        detailed_description: "ภาพนี้แสดงชามต้มยำกุ้งในระยะใกล้ ไม่มีองค์ประกอบทิวทัศน์ที่ระบุสถานที่ได้",
+        suggested_action: "กรุณาอัปโหลดภาพหน้าร้านหรือวิวสถานที่ท่องเที่ยวแทน",
+        non_travel_category: "food_dish",
+        similar_locations: [],
+      },
+      {
+        place: "ภาพไม่ระบุสถานที่",
+        country: "-",
+        type: "pet",
+        confidence: 0,
+        is_identifiable_place: false,
+        similar_locations: [],
+      },
+    ];
+
+    const { kept, outliers } = detectVisionOutliers(results, true);
+
+    expect(kept.length).toBe(1);
+    expect(outliers.length).toBe(2);
+
+    const foodOutlier = outliers.find(o => o.non_travel_category === "food_dish");
+    expect(foodOutlier).toBeDefined();
+    expect(foodOutlier?.reasonTitle).toContain("รูปถ่ายอาหารจานเดียว");
+    expect(foodOutlier?.detailed_description).toContain("ต้มยำกุ้ง");
+    expect(foodOutlier?.suggested_action).toContain("หน้าร้าน");
+
+    const petOutlier = outliers.find(o => o.non_travel_category === "pet");
+    expect(petOutlier).toBeDefined();
+    expect(petOutlier?.reasonTitle).toContain("สัตว์เลี้ยง");
+  });
 });
+

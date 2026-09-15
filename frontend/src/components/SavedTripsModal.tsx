@@ -18,7 +18,9 @@ import { Badge } from "@/components/ui/badge";
 import { getUserTrips, deleteTrip, type TripRecord } from "@/services/tripService";
 import { getAIModelInfo } from "@/context/AIProviderContext";
 import { toast } from "sonner";
+import { getCuratedFallbackPhoto } from "@/services/photoService";
 import { format } from "date-fns";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface TripCardCoverCollageProps {
   trip: TripRecord;
@@ -29,6 +31,7 @@ interface TripCardCoverCollageProps {
  * Supports: Single image, 2-split, 3-asymmetric split, and 4+ grid layout.
  */
 export const TripCardCoverCollage = ({ trip }: TripCardCoverCollageProps) => {
+  const { language } = useLanguage();
   // 1. Gather all unique uploaded / detected location images
   const uploadedImages = (trip.detected_locations || [])
     .map((l) => l.uploadedImageUrl)
@@ -57,7 +60,7 @@ export const TripCardCoverCollage = ({ trip }: TripCardCoverCollageProps) => {
   const hasUploaded = uploadedImages.length > 0;
 
   // Final fallback if no images at all
-  const defaultPlaceholder = `https://picsum.photos/seed/${encodeURIComponent(trip.destination || "travel")}/600/400`;
+  const defaultPlaceholder = getCuratedFallbackPhoto("sightseeing", trip.destination || "travel");
   const displayImages = uniqueImages.length > 0 ? uniqueImages : [defaultPlaceholder];
 
   const renderImg = (src: string, alt: string, extraClass = "") => (
@@ -72,15 +75,15 @@ export const TripCardCoverCollage = ({ trip }: TripCardCoverCollageProps) => {
   );
 
   return (
-    <div className="relative h-44 w-full overflow-hidden bg-muted">
-      {/* ── 1 Photo: Full Single Cover ── */}
+    <div className="relative w-full h-44 overflow-hidden bg-muted">
+      {/* ── 1 Photo: Full Cover ── */}
       {displayImages.length === 1 && (
         <div className="w-full h-full">
           {renderImg(displayImages[0], trip.title)}
         </div>
       )}
 
-      {/* ── 2 Photos: 50% / 50% 2-Column Split ── */}
+      {/* ── 2 Photos: 50 / 50 Vertical Split ── */}
       {displayImages.length === 2 && (
         <div className="grid grid-cols-2 w-full h-full gap-0.5">
           <div className="relative w-full h-full overflow-hidden">
@@ -92,13 +95,13 @@ export const TripCardCoverCollage = ({ trip }: TripCardCoverCollageProps) => {
         </div>
       )}
 
-      {/* ── 3 Photos: 1 Left Big (50%) + 2 Right Stacked (50%) ── */}
+      {/* ── 3 Photos: 1 Hero (Left 60%) + 2 Stacked (Right 40%) ── */}
       {displayImages.length === 3 && (
-        <div className="grid grid-cols-2 w-full h-full gap-0.5">
-          <div className="relative w-full h-full overflow-hidden">
+        <div className="grid grid-cols-5 w-full h-full gap-0.5">
+          <div className="col-span-3 relative w-full h-full overflow-hidden">
             {renderImg(displayImages[0], `${trip.title} 1`)}
           </div>
-          <div className="grid grid-rows-2 w-full h-full gap-0.5">
+          <div className="col-span-2 grid grid-rows-2 w-full h-full gap-0.5">
             <div className="relative w-full h-full overflow-hidden">
               {renderImg(displayImages[1], `${trip.title} 2`)}
             </div>
@@ -125,7 +128,7 @@ export const TripCardCoverCollage = ({ trip }: TripCardCoverCollageProps) => {
             {renderImg(displayImages[3], `${trip.title} 4`)}
             {displayImages.length > 4 && (
               <div className="absolute inset-0 bg-black/65 backdrop-blur-xs flex items-center justify-center text-white font-bold text-xs shadow-inner">
-                +{displayImages.length - 3} รูป
+                +{displayImages.length - 3} {language === "th" ? "รูป" : "more"}
               </div>
             )}
           </div>
@@ -139,7 +142,7 @@ export const TripCardCoverCollage = ({ trip }: TripCardCoverCollageProps) => {
       {hasUploaded && (
         <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/65 backdrop-blur-md text-white border border-white/20 text-[10px] font-semibold flex items-center gap-1 shadow-md">
           <Sparkles className="w-3 h-3 text-travel-sand" />
-          <span>{uploadedImages.length} ภาพที่อัปโหลด</span>
+          <span>{uploadedImages.length} {language === "th" ? "ภาพที่อัปโหลด" : "photos uploaded"}</span>
         </div>
       )}
     </div>
@@ -161,6 +164,7 @@ export const SavedTripsModal = ({
   onNewTrip,
   currentTripId,
 }: SavedTripsModalProps) => {
+  const { language } = useLanguage();
   const [trips, setTrips] = useState<TripRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -172,7 +176,7 @@ export const SavedTripsModal = ({
       setTrips(data);
     } catch (err) {
       console.error("Failed to load saved trips:", err);
-      toast.error("ไม่สามารถดึงข้อมูลทริปได้ กรุณาลองใหม่อีกครั้ง");
+      toast.error(language === "th" ? "ไม่สามารถดึงข้อมูลทริปได้ กรุณาลองใหม่อีกครั้ง" : "Could not load saved trips. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -186,15 +190,15 @@ export const SavedTripsModal = ({
 
   const handleDelete = async (e: React.MouseEvent, tripId: string, title: string) => {
     e.stopPropagation();
-    if (!confirm(`คุณต้องการลบ "${title}" หรือไม่?`)) return;
+    if (!confirm(language === "th" ? `คุณต้องการลบ "${title}" หรือไม่?` : `Are you sure you want to delete "${title}"?`)) return;
 
     setDeletingId(tripId);
     try {
       await deleteTrip(tripId);
       setTrips((prev) => prev.filter((t) => t.id !== tripId));
-      toast.success(`ลบ "${title}" เรียบร้อยแล้ว`);
+      toast.success(language === "th" ? `ลบ "${title}" เรียบร้อยแล้ว` : `Deleted "${title}" successfully`);
     } catch (err) {
-      toast.error("เกิดข้อผิดพลาดในการลบทริป");
+      toast.error(language === "th" ? "เกิดข้อผิดพลาดในการลบทริป" : "Error deleting trip");
     } finally {
       setDeletingId(null);
     }
@@ -213,10 +217,12 @@ export const SavedTripsModal = ({
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                ประวัติทริปของฉัน (Saved Trips)
+                {language === "th" ? "ประวัติทริปของฉัน (Saved Trips)" : "My Saved Trips"}
               </h3>
               <p className="text-xs text-white/80">
-                เลือกทริปที่เคยบันทึกไว้เพื่อเปิดแก้ไข ตรวจสอบ หรือคุยต่อกับพิกซ์ (Pix)
+                {language === "th"
+                  ? "เลือกทริปที่เคยบันทึกไว้เพื่อเปิดแก้ไข ตรวจสอบ หรือคุยต่อกับพิกซ์ (Pix)"
+                  : "Select a saved trip to view, edit, or continue chatting with Pix"}
               </p>
             </div>
           </div>
@@ -231,7 +237,7 @@ export const SavedTripsModal = ({
               className="bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl text-xs font-semibold gap-1.5 shadow-2xs"
             >
               <Plus className="size-3.5" />
-              <span>สร้างทริปใหม่</span>
+              <span>{language === "th" ? "สร้างทริปใหม่" : "New Trip"}</span>
             </Button>
 
             <button
@@ -248,7 +254,9 @@ export const SavedTripsModal = ({
           {loading ? (
             <div className="py-16 text-center space-y-3">
               <div className="size-8 border-3 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="text-sm text-muted-foreground font-medium">กำลังโหลดรายการทริปของคุณ...</p>
+              <p className="text-sm text-muted-foreground font-medium">
+                {language === "th" ? "กำลังโหลดรายการทริปของคุณ..." : "Loading your saved trips..."}
+              </p>
             </div>
           ) : trips.length === 0 ? (
             <div className="py-16 text-center max-w-sm mx-auto space-y-4">
@@ -256,9 +264,13 @@ export const SavedTripsModal = ({
                 <Plane className="size-8" />
               </div>
               <div>
-                <h4 className="font-bold text-foreground text-base">ยังไม่มีทริปที่บันทึกไว้</h4>
+                <h4 className="font-bold text-foreground text-base">
+                  {language === "th" ? "ยังไม่มีทริปที่บันทึกไว้" : "No saved trips yet"}
+                </h4>
                 <p className="text-xs text-muted-foreground mt-1">
-                  เมื่อคุณสร้างแผนการท่องเที่ยวหรือคุยกับบอทพิกซ์ คุณสามารถกด "Save trip" เพื่อเก็บไว้ดูย้อนหลังได้ตลอดเวลา
+                  {language === "th"
+                    ? "เมื่อคุณสร้างแผนการท่องเที่ยวหรือคุยกับบอทพิกซ์ คุณสามารถกด \"Save trip\" เพื่อเก็บไว้ดูย้อนหลังได้ตลอดเวลา"
+                    : "When you create an itinerary or chat with Pix, click \"Save trip\" to keep it for later."}
                 </p>
               </div>
               <Button
@@ -268,7 +280,7 @@ export const SavedTripsModal = ({
                 }}
                 className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-semibold text-xs shadow-2xs"
               >
-                <Plus className="size-3.5 mr-1" /> เริ่มวางแผนทริปแรก
+                <Plus className="size-3.5 mr-1" /> {language === "th" ? "เริ่มวางแผนทริปแรก" : "Plan Your First Trip"}
               </Button>
             </div>
           ) : (
@@ -306,7 +318,7 @@ export const SavedTripsModal = ({
                         {isCurrent && (
                           <div className="px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shadow-2xs flex items-center gap-1">
                             <span className="size-1.5 rounded-full bg-white animate-ping" />
-                            กำลังเปิดใช้งาน
+                            {language === "th" ? "กำลังเปิดใช้งาน" : "Active"}
                           </div>
                         )}
                         {(() => {
@@ -329,7 +341,7 @@ export const SavedTripsModal = ({
                         </h4>
                         <p className="text-[11px] text-white/90 flex items-center gap-1 drop-shadow-sm font-medium">
                           <MapPin className="size-3 text-travel-sand" />
-                          <span>{trip.destination || "ไม่ระบุจุดหมาย"}</span>
+                          <span>{trip.destination || (language === "th" ? "ไม่ระบุจุดหมาย" : "Destination")}</span>
                         </p>
                       </div>
                     </div>
@@ -339,13 +351,13 @@ export const SavedTripsModal = ({
                       <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1 bg-secondary px-2 py-0.5 rounded-md font-medium text-foreground text-[11px]">
                           <Calendar className="size-3 text-primary" />
-                          {trip.itinerary?.length || 1} วัน ({totalActivities} กิจกรรม)
+                          {trip.itinerary?.length || 1} {language === "th" ? "วัน" : "days"} ({totalActivities} {language === "th" ? "กิจกรรม" : "activities"})
                         </span>
 
                         {totalMessages > 0 && (
                           <span className="inline-flex items-center gap-1 bg-secondary px-2 py-0.5 rounded-md font-medium text-foreground text-[11px]">
                             <MessageSquare className="size-3 text-emerald-500" />
-                            {totalMessages} ข้อความแชท
+                            {totalMessages} {language === "th" ? "ข้อความแชท" : "messages"}
                           </span>
                         )}
 
@@ -365,7 +377,7 @@ export const SavedTripsModal = ({
                       <div className="flex items-center justify-between pt-2 border-t border-border/40 text-[11px] text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Clock className="size-3" />
-                          แก้ไขเมื่อ {updatedDateStr}
+                          {language === "th" ? "แก้ไขเมื่อ" : "Updated"} {updatedDateStr}
                         </span>
 
                         <div className="flex items-center gap-1">
@@ -373,13 +385,13 @@ export const SavedTripsModal = ({
                             onClick={(e) => handleDelete(e, trip.id, trip.title)}
                             disabled={deletingId === trip.id}
                             className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                            title="ลบทริปนี้"
+                            title={language === "th" ? "ลบทริปนี้" : "Delete trip"}
                           >
                             <Trash2 className="size-3.5" />
                           </button>
 
                           <span className="text-primary font-semibold flex items-center gap-0.5 text-xs group-hover:translate-x-0.5 transition-transform">
-                            เปิดดู <ArrowRight className="size-3" />
+                            {language === "th" ? "เปิดดู" : "Open"} <ArrowRight className="size-3" />
                           </span>
                         </div>
                       </div>

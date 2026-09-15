@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AIProvider } from "@/context/AIProviderContext";
 import { AuthProvider } from "@/context/AuthContext";
+import { LanguageProvider } from "@/context/LanguageContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index.tsx";
 import Login from "./pages/Login.tsx";
@@ -29,23 +30,25 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <AIProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-                <Route path="/experiment" element={<ProtectedRoute><ExperimentConsole /></ProtectedRoute>} />
-                <Route path="/experiment/exp2" element={<ProtectedRoute><Exp2PipelineComparison /></ProtectedRoute>} />
-                <Route path="/experiment/exp3" element={<ProtectedRoute><Exp3RobustnessTest /></ProtectedRoute>} />
-                <Route path="/experiment/exp4" element={<ProtectedRoute><Exp4PromptSensitivity /></ProtectedRoute>} />
-                <Route path="/experiment/exp5" element={<ProtectedRoute><Exp5ConsistencyTest /></ProtectedRoute>} />
-                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </TooltipProvider>
+          <LanguageProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+                  <Route path="/experiment" element={<ProtectedRoute><ExperimentConsole /></ProtectedRoute>} />
+                  <Route path="/experiment/exp2" element={<ProtectedRoute><Exp2PipelineComparison /></ProtectedRoute>} />
+                  <Route path="/experiment/exp3" element={<ProtectedRoute><Exp3RobustnessTest /></ProtectedRoute>} />
+                  <Route path="/experiment/exp4" element={<ProtectedRoute><Exp4PromptSensitivity /></ProtectedRoute>} />
+                  <Route path="/experiment/exp5" element={<ProtectedRoute><Exp5ConsistencyTest /></ProtectedRoute>} />
+                  {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </TooltipProvider>
+          </LanguageProvider>
         </AIProvider>
       </AuthProvider>
     </QueryClientProvider>

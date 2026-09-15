@@ -2,12 +2,15 @@ import { type DayPlan } from "@/components/TravelItinerary";
 import { type SuggestedPlace } from "@/components/AISuggestedPlaces";
 import { type AIModelType, type AIProviderType, MODEL_ID_MAP } from "@/context/AIProviderContext";
 import { safeFetch, validateApiKey } from "@/utils/apiUtils";
+import { safeParseJson } from "@/utils/jsonRepair";
 import { fetchPlaceDetails } from "@/api/places";
+import { fetchWikimediaPhoto } from "@/api/geocode";
+import { fetchSmartPhoto, getCuratedFallbackPhoto } from "@/services/photoService";
 import { type DayCluster } from "@/api/spatialPlanner";
+import { hasThaiScript, translateTextSync } from "@/services/translatorService";
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-// Validation at module load or initialization
-validateApiKey(GOOGLE_MAPS_API_KEY, "Google Maps");
+const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY;
+validateApiKey(GEOAPIFY_API_KEY, "Geoapify");
 
 export interface TypicalWeather {
   month: string;
@@ -29,7 +32,14 @@ export interface TravelPlanResponse {
 
 export interface VisionResult {
   place: string;
+  place_th?: string;
+  place_en?: string;
+  city?: string;
+  city_th?: string;
+  city_en?: string;
   country: string;
+  country_th?: string;
+  country_en?: string;
   type: string;
   confidence: number;
   similar_locations: Array<{ name: string; similarity: number }>;
@@ -39,6 +49,10 @@ export interface VisionResult {
   uploadedImageUrl?: string;
   is_identifiable_place?: boolean;
   rejection_reason?: string;
+  detected_content?: string;
+  detailed_description?: string;
+  suggested_action?: string;
+  non_travel_category?: string;
 }
 
 export interface ImageCandidate {
@@ -96,7 +110,8 @@ export async function refineItineraryWithAI(
   currentItinerary: DayPlan[],
   auditIssues: string[],
   preferences: TripPreferences,
-  model: AIModelType
+  model: AIModelType,
+  weatherForecast?: Array<{ date?: string; condition?: any; rainChance?: number }>
 ): Promise<DayPlan[]> {
   const modelId = MODEL_ID_MAP[model];
 
@@ -113,8 +128,18 @@ export async function refineItineraryWithAI(
       lng: a.lng,
       openingHours: a.openingHours,
       priceLevel: a.priceLevel,
+      rating: a.rating,
+      userRatingsTotal: a.userRatingsTotal,
     }))
   }));
+
+  const weatherText = weatherForecast && weatherForecast.length > 0
+    ? weatherForecast.map((f, i) => {
+        const cond = typeof f.condition === "string" ? f.condition : (f.condition?.description || f.condition?.text || "Normal");
+        const rain = f.rainChance !== undefined ? ` (Rain Chance: ${f.rainChance}%)` : "";
+        return `- Day ${i + 1}: ${cond}${rain}`;
+      }).join("\n")
+    : "No severe weather alerts detected.";
 
   const prompt = `You are an Expert AI Travel Route Auditor & Master Itinerary Optimizer.
 We analyzed the following draft travel itinerary and detected several planning flaws & rule violations:
@@ -128,27 +153,50 @@ ${JSON.stringify(simplifiedItinerary, null, 2)}
 TRAVELER PREFERENCES:
 - Pace: ${preferences.pace}
 - Traveler Type: ${preferences.travelerType}
+- Budget: ${preferences.budget}
 - Preferred Activities: ${preferences.activities?.join(", ") || "Sightseeing"}
 
-YOUR OPTIMIZATION MISSION:
-1. UNTANGLE GEOGRAPHIC PATHS: Sequence activities in each day so the route flows smoothly in one direction (no zigzagging across town or backtracking).
-2. DISTRICT GROUPING: If attractions are in the same neighborhood (within ~2.5 km), ensure they are scheduled together on the SAME day rather than split across days.
-3. FIX MEALS & TIMING:
-   - Ensure EVERY day has a lunch stop (11:30 - 13:30) near morning attractions.
-   - NEVER place consecutive food/restaurant stops back-to-back without a sightseeing/cultural activity in between.
-   - Sunset viewpoints/observation decks MUST be at 17:00 - 18:30 (Golden Hour).
-   - Night markets/bars/nightlife MUST be in the evening (after 18:30).
-4. RESPECT REAL OPERATING HOURS: Do not schedule closed or late-night visits to daytime temples/museums.
-5. PRESERVE ALL USER PLACES (STRICT NO DELETION): DO NOT delete, drop, or remove any of the user's existing attractions or chosen places from the itinerary (unless it is an exact duplicate title). Keep all places that the user added, and focus purely on re-sequencing the order, adjusting times, fixing meal slots, and grouping nearby spots onto the same day.
-6. CATEGORY TYPE ACCURACY: Each activity "type" MUST accurately reflect its true category: "culture", "food", "nature", "adventure", "shopping", "nightlife", "relax", "landmark", "entertainment", "spiritual", or "hotel". DO NOT label everything as "attraction".
+DAILY WEATHER FORECAST:
+${weatherText}
 
+ACADEMIC OPTIMIZATION & SELECTION MISSION (TTDP & OPTW STANDARDS):
+1. UNTANGLE GEOGRAPHIC PATHS & NO CIRCULAR LOOPS (2-Opt TSP):
+   - Sequence activities in each day so the route flows in an open forward direction across the neighborhood.
+   - Strictly ELIMINATE zigzagging back-and-forth across town (>10 km U-turns) and loopbacks where the evening spot meets the morning starting spot.
+2. DISTRICT GROUPING:
+   - If attractions are in the same neighborhood (within ~2.5-3.5 km), schedule them on the SAME day rather than split across days.
+   - For distant attractions (>25 km), dedicate an isolated excursion day cluster.
+3. PHYSIOLOGICAL DINING RHYTHM & MEAL SEPARATION:
+   - Every day MUST have a dedicated midday lunch window (11:30 - 13:00) located near morning attractions (within ~1.5 km).
+   - Evening dinner MUST be scheduled at 18:00 - 20:30.
+   - Golden Hour & Sunset observation decks MUST be at 17:00 - 18:30.
+   - NEVER place consecutive food/restaurant stops back-to-back without a cultural/sightseeing/leisure stop in between.
+4. OPERATING HOURS & DWELL TIME BUFFER:
+   - For venues closing around 17:00-18:00, schedule them with at least 1.5 - 2 hours buffer before closing (start by 15:30 - 16:30).
+   - Public walking streets, night markets, and open areas are assumed open 24 hours.
+   - Keep distance between consecutive stops within 10 - 15 km max.
+5. BUDGET COMPATIBILITY (TTDP MULTI-OBJECTIVE CONSTRAINT):
+   - If Budget is "Budget", replace expensive luxury venues (Price Level 3-4, fine dining) with top-rated local authentic street food and affordable attractions.
+   - If Budget is "Luxury", prioritize premium dining and iconic upscale experiences.
+6. TRAVELER PERSONA SUITABILITY (TOURIST TYPOLOGY):
+   - If Traveler Type is "Family", strictly replace any nightlife, bars, adult spots, or extreme hiking with family-friendly attractions (museums, aquariums, theme parks, calm parks).
+   - If "Senior", strictly eliminate strenuous physical exertion and steep treks.
+7. QUALITY GATE & ANTI-TOURIST-TRAP:
+   - If an activity has a low rating (<3.8★) or is flagged as an overpriced tourist trap, replace it with a higher-rated (>=4.0★) local favorite in the same district.
+8. CATEGORY BURNOUT PREVENTION (SATIATION THEORY):
+   - Never schedule 3 or more consecutive spots of the same category (e.g. 3 temples or 3 shopping malls in a row). Interleave dining, shopping, scenic parks, or relaxation.
+9. WEATHER SUITABILITY:
+   - For any day forecasted with heavy rain or thunderstorms, move outdoor beach, island, or open-air activities to indoor cultural, museum, or covered market venues.
+10. PRESERVE USER-CHOSEN PLACES: Keep valid user-selected attractions unless specifically flagged as incompatible, closed, or unsafe.
+11. CATEGORY TYPE ACCURACY: Each activity "type" MUST accurately reflect its true category: "culture", "food", "nature", "adventure", "shopping", "nightlife", "relax", "landmark", "entertainment", "spiritual", or "hotel". DO NOT label everything as "attraction".
+12. PRESERVE EXACT TRIP DURATION (MANDATORY): The input itinerary has EXACTLY ${currentItinerary.length} days. You MUST output EXACTLY ${currentItinerary.length} days (Day 1 through Day ${currentItinerary.length}) in the "itinerary" array. NEVER drop, merge, or collapse days!
 
 Return ONLY the refined itinerary strictly in this JSON format:
 {
   "itinerary": [
-    {
-      "day": 1,
-      "date": "Day 1 - ...",
+${currentItinerary.map((d, idx) => `    {
+      "day": ${d.day || idx + 1},
+      "date": "${d.date || `Day ${idx + 1}`}",
       "activities": [
         {
           "time": "09:00",
@@ -159,7 +207,7 @@ Return ONLY the refined itinerary strictly in this JSON format:
           "lng": 0
         }
       ]
-    }
+    }`).join(",\n")}
   ]
 }`;
 
@@ -175,10 +223,9 @@ Return ONLY the refined itinerary strictly in this JSON format:
     });
 
     const text = data.text?.trim() ?? "";
-    const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
-    const parsed = JSON.parse(cleaned);
+    const parsed = safeParseJson<any>(text);
 
-    if (parsed && Array.isArray(parsed.itinerary) && parsed.itinerary.length > 0) {
+    if (parsed && Array.isArray(parsed.itinerary) && parsed.itinerary.length >= currentItinerary.length) {
       // Map original details (photos, ratings, etc.) onto the refined itinerary
       const originalActivityMap = new Map<string, Activity>();
       currentItinerary.forEach(d => {
@@ -199,6 +246,10 @@ Return ONLY the refined itinerary strictly in this JSON format:
             id: matched?.id || act.id || `refine-${dIdx}-${aIdx}-${Date.now()}`,
             image_url: matched?.image_url || null,
             photo_url: matched?.photo_url || null,
+            isUserPhoto: matched?.isUserPhoto,
+            english_name: matched?.english_name || act.english_name,
+            wiki_title: matched?.wiki_title || act.wiki_title,
+            image_keyword: matched?.image_keyword || act.image_keyword,
             rating: matched?.rating ?? null,
             userRatingsTotal: matched?.userRatingsTotal ?? null,
             openNow: matched?.openNow ?? null,
@@ -211,7 +262,6 @@ Return ONLY the refined itinerary strictly in this JSON format:
           };
         });
 
-
         return {
           day: day.day || dIdx + 1,
           date: day.date || originalDay?.date || `Day ${dIdx + 1}`,
@@ -220,6 +270,8 @@ Return ONLY the refined itinerary strictly in this JSON format:
       });
 
       return refinedDays;
+    } else if (parsed && Array.isArray(parsed.itinerary)) {
+      console.warn(`[refineItineraryWithAI] AI dropped days (got ${parsed.itinerary.length}, expected ${currentItinerary.length}). Preserving original multi-day itinerary.`);
     }
   } catch (err) {
     console.warn("[refineItineraryWithAI] AI refinement fallback to original itinerary:", err);
@@ -240,12 +292,25 @@ export async function generateMoreSuggestions(
   Requirements:
   - DO NOT include these places: ${existingPlaces.length > 0 ? existingPlaces.join(", ") : "none"}.
   - Ensure the suggestions cover all these categories: attraction, food, nature, culture, activity, shopping, nightlife, relax.
+  - BILINGUAL RULE (MANDATORY): For every place, provide BOTH Thai ("name_th", "description_th") AND English ("name_en", "description_en") fields with natural, high quality translations.
   - COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every suggestion based on real Google Maps data. DO NOT return 0 or fictional coordinates.
   - Use ONLY real, geocodable place names.
   
   Return the response strictly in JSON format matching this schema:
   {
-    "suggestions": [{ "name": "...", "category": "food", "description": "...", "lat": 0, "lng": 0 }]
+    "suggestions": [
+      {
+        "name": "Primary Name",
+        "name_th": "ชื่อสถานที่ภาษาไทย",
+        "name_en": "English Place Name",
+        "category": "food",
+        "description": "Overview description",
+        "description_th": "คำอธิบายภาษาไทยสั้นๆ กระชับและน่าสนใจ",
+        "description_en": "Short engaging English description",
+        "lat": 0,
+        "lng": 0
+      }
+    ]
   }`;
 
   return callOpenRouterMoreSuggestions(prompt, modelId);
@@ -262,13 +327,27 @@ export async function generateMoreAccommodations(
   Requirements:
   - DO NOT include these places: ${existingPlaces.length > 0 ? existingPlaces.join(", ") : "none"}.
   - Include a diverse variety of accommodations (e.g. luxury hotel, boutique hotel, budget-friendly stay, resort/inn).
+  - BILINGUAL RULE (MANDATORY): For every accommodation, provide BOTH Thai ("name_th", "description_th") AND English ("name_en", "description_en") fields with natural translations.
   - COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
   - Use ONLY real, geocodable accommodation/hotel names.
   - For priceLevel: Provide an integer from 1 (budget) to 4 (luxury).
   
   Return the response strictly in JSON format matching this schema:
   {
-    "accommodations": [{ "name": "...", "category": "hotel", "description": "...", "lat": 0, "lng": 0, "priceLevel": 2 }]
+    "accommodations": [
+      {
+        "name": "Hotel Name",
+        "name_th": "ชื่อโรงแรมภาษาไทย",
+        "name_en": "English Hotel Name",
+        "category": "hotel",
+        "description": "Hotel overview",
+        "description_th": "คำอธิบายที่พักภาษาไทย บรรยากาศและสิ่งอำนวยความสะดวก",
+        "description_en": "English accommodation description, ambiance, and amenities",
+        "lat": 0,
+        "lng": 0,
+        "priceLevel": 2
+      }
+    ]
   }`;
 
   return callOpenRouterMoreAccommodations(prompt, modelId);
@@ -290,25 +369,44 @@ export async function analyzeImage(
   const candidatePrompt = `Analyze this image carefully.
 First, determine if this image depicts a real physical travel destination, outdoor scenery, landmark, temple, museum, cityscape, tourist attraction, or nature view that can be geolocated.
 
-Reject images that are: close-up selfies/portraits of people, receipts/documents, screenshots, food close-ups without recognizable venue architecture, household objects, memes, or pets.
+Reject images that are: close-up selfies/portraits of people, receipts/documents/bank slips, screenshots, food close-ups without recognizable venue architecture, household objects/products, memes/cartoons, pets/animals, or blurry/dark non-view photos.
 
-Return STRICT JSON in this format:
+Return STRICT JSON in this format if it IS a recognizable travel destination/scenery:
 {
   "is_identifiable_place": true,
   "image_category": "landmark",
   "places": ["Specific Landmark Name 1", "Place 2", "Place 3", "Place 4", "Place 5"],
-  "rejection_reason": ""
+  "rejection_reason": "",
+  "detected_content": "สถานที่ท่องเที่ยว/แลนด์มาร์ก",
+  "detailed_description": "ตรวจพบสถานที่ท่องเที่ยวหรือวิวทัศน์ที่สามารถระบุพิกัดได้",
+  "suggested_action": ""
 }
 
-If the image is NOT a recognizable travel landmark, scenery, or place:
+If the image is NOT a recognizable travel landmark, scenery, or place, DETECT SPECIFICALLY WHAT IT IS:
 {
   "is_identifiable_place": false,
   "image_category": "portrait_selfie",
+  "non_travel_category": "selfie_portrait",
   "places": [],
-  "rejection_reason": "The image is a portrait/selfie and does not depict a recognizable landmark or scenery."
+  "detected_content": "รูปถ่ายบุคคล / เซลฟี่ (Selfie)",
+  "rejection_reason": "ภาพนี้เป็นภาพถ่ายบุคคลระยะใกล้ ไม่เห็นองค์ประกอบของสถานที่ท่องเที่ยวหรือแลนด์มาร์ก",
+  "detailed_description": "ภาพนี้แสดงใบหน้าหรือตัวบุคคลเป็นหลัก ไม่มีจุดสังเกตทางสถาปัตยกรรมหรือทิวทัศน์ที่สามารถนำไปวางแผนการเดินทางได้",
+  "suggested_action": "กรุณาอัปโหลดภาพถ่ายวิวทิวทัศน์ ภูเขา ทะเล สถาปัตยกรรม ป้ายสถานที่ หรือหน้าร้านคาเฟ่/สถานที่ท่องเที่ยวแทน"
 }
 
-Valid image_category values: "landmark", "nature_scenery", "city_street", "portrait_selfie", "food_drink", "document_screenshot", "object", "other".
+Allowed non_travel_category values when is_identifiable_place is false:
+- "food_dish": Food, drinks, beverages, meals close-up (detected_content: e.g. "รูปถ่ายอาหารจานเดียว / เครื่องดื่ม")
+- "selfie_portrait": Portrait, selfie, people faces, group selfie (detected_content: e.g. "รูปเซลฟี่บุคคล / พอร์ตเทรต")
+- "document_receipt": Receipts, bills, bank slips, tickets, text documents (detected_content: e.g. "สลิปโอนเงิน / ใบเสร็จ / เอกสาร")
+- "screenshot": Phone screens, chat screenshots, app UI (detected_content: e.g. "ภาพสกรีนช็อตหน้าจอโทรศัพท์ / แชท")
+- "pet_animal": Pets, cats, dogs, domestic animals (detected_content: e.g. "สัตว์เลี้ยง / แมว / สุนัข")
+- "vehicle": Cars, motorcycles, bikes without travel scenery (detected_content: e.g. "ยานพาหนะ / รถยนต์")
+- "item_product": Clothing, accessories, consumer products, household goods (detected_content: e.g. "สิ่งของเครื่องใช้ / สินค้า")
+- "graphic_meme": Memes, illustrations, drawings, logos, anime (detected_content: e.g. "ภาพกราฟิก / มีม / การ์ตูน")
+- "blurry_dark": Blurry, dark, overexposed, or unintelligible photos (detected_content: e.g. "ภาพเบลอ / มืดสนิทจนมองไม่เห็นสถานที่")
+- "other_non_travel": Other non-travel photos
+
+Ensure "detected_content", "detailed_description", and "suggested_action" are written in clear, polite, natural Thai.
 Do not return markdown or explanations outside JSON.`;
 
   const initialGuessResult = await getInitialGuessesOpenRouter(base64Data, file.type, candidatePrompt, modelId);
@@ -317,24 +415,31 @@ Do not return markdown or explanations outside JSON.`;
   // Short-circuit: If the image is not a recognizable travel place, skip Google Places API and CLIP
   if (!initialGuessResult.isIdentifiablePlace || initialGuessResult.places.length === 0) {
     onProgress?.("Non-travel or unidentifiable image detected...");
+    const detectedName = initialGuessResult.detectedContent || "ภาพที่ไม่ใช่สถานที่ท่องเที่ยว";
     return {
-      place: "ภาพไม่ระบุสถานที่ท่องเที่ยว",
+      place: `ภาพไม่ระบุสถานที่ (${detectedName})`,
       country: "-",
       type: initialGuessResult.imageCategory || "non_travel",
       confidence: 0,
       similar_locations: [],
       ai_reasoning: [
-        initialGuessResult.rejectionReason || "ระบบประเมินว่าภาพนี้เป็นภาพบุคคล เอกสาร วัตถุ หรือไม่ใช่สถานที่ท่องเที่ยวสำหรับการเดินทาง"
+        initialGuessResult.detailedDescription ||
+        initialGuessResult.rejectionReason ||
+        "ระบบประเมินว่าภาพนี้เป็นภาพบุคคล อาหาร เอกสาร วัตถุ หรือไม่ใช่สถานที่ท่องเที่ยวสำหรับการเดินทาง"
       ],
       initial_candidates: [],
       top_candidates: [],
       is_identifiable_place: false,
       rejection_reason: initialGuessResult.rejectionReason,
+      detected_content: initialGuessResult.detectedContent,
+      detailed_description: initialGuessResult.detailedDescription,
+      suggested_action: initialGuessResult.suggestedAction,
+      non_travel_category: initialGuessResult.nonTravelCategory,
     };
   }
 
   const initialGuesses = initialGuessResult.places;
-  onProgress?.("Fetching Google Places candidates...");
+  onProgress?.("Fetching place candidates and reference photos...");
 
   // 1. Get uploaded image embedding — only when CLIP is enabled
   const userImageEmbedding = useClip ? await getEmbedding(file) : null;
@@ -394,13 +499,14 @@ Do not return markdown or explanations outside JSON.`;
   Other similar places found: ${topCandidates.slice(1, 3).map(c => `${c.name} (${c.similarity.toFixed(2)})`).join(", ")}
 
   Provide a detailed reasoning for why this match is likely correct based on visual features typical of ${bestMatch.name}.
-  Return the result in strictly valid JSON format:
   {
     "place": "${bestMatch.name}",
+    "city": "...",
     "country": "...",
     "type": "...",
     "ai_reasoning": ["...", "..."]
-  }`
+  }
+  (Note: "city" must be the city, province, or metropolitan area where this landmark is situated, e.g. "Bangkok", "Chiang Rai", "Chiang Mai", "Tokyo", "Paris")`
     : `The user uploaded an image. Our retrieval system found these candidate locations based on your initial analysis:
   Best candidate: ${bestMatch.name}
   Other candidates found: ${topCandidates.slice(1, 3).map(c => c.name).join(", ")}
@@ -409,10 +515,12 @@ Do not return markdown or explanations outside JSON.`;
   Return the result in strictly valid JSON format:
   {
     "place": "${bestMatch.name}",
+    "city": "...",
     "country": "...",
     "type": "...",
     "ai_reasoning": ["...", "..."]
-  }`;
+  }
+  (Note: "city" must be the city, province, or metropolitan area where this landmark is situated, e.g. "Bangkok", "Chiang Rai", "Chiang Mai", "Tokyo", "Paris")`;
 
   const finalResult = await analyzeImageOpenRouter(base64Data, file.type, reasoningPrompt, modelId);
 
@@ -431,10 +539,12 @@ export async function chatWithAssistant(
   model: AIModelType,
   itinerary: DayPlan[],
   preferences: TripPreferences | null,
-  history: Array<{ role: "user" | "assistant"; content: string }> = []
+  history: Array<{ role: "user" | "assistant"; content: string }> = [],
+  language: "th" | "en" = "th"
 ): Promise<string> {
   const modelId = MODEL_ID_MAP[model];
-  const systemPrompt = `[Character Concept — Pixinerary]
+
+  const systemPromptTh = `[Character Concept — Pixinerary]
 ชื่อ: พิกซ์ (Pix)
 ชื่อเต็ม: Pix (มาจาก Picture + Pixinerary เพราะจุดเด่นคือการนำภาพถ่ายมาระบุสถานที่และจัดทริป)
 ฉายา: Your AI Travel Companion
@@ -496,7 +606,7 @@ Current Itinerary: ${JSON.stringify(itinerary)}
       "day": 1,
       "date": "Day 1 - ...",
       "activities": [
-        { "id": "...", "time": "09:00", "title": "...", "description": "...", "type": "attraction", "lat": 1.23, "lng": 4.56 }
+        { "id": "...", "time": "09:00", "title": "...", "title_th": "...", "title_en": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "attraction", "lat": 1.23, "lng": 4.56 }
       ]
     }
   ],
@@ -507,7 +617,7 @@ Current Itinerary: ${JSON.stringify(itinerary)}
 }
 \`\`\`
 - ใส่เฉพาะ field ที่มีการเปลี่ยนแปลง
-- "updated_itinerary" ต้องเป็น array เต็มของทุกวันรวมส่วนที่แก้ไขแล้ว
+- "updated_itinerary" ต้องเป็น array เต็มของทุกวันรวมส่วนที่แก้ไขแล้ว โดยระบุทั้ง title_th, title_en, description_th, description_en เสมอ
 - คงค่า "id", "lat", "lng" เดิมไว้สำหรับสถานที่เดิม หากเป็นสถานที่ใหม่ให้สร้าง id เช่น "act-new-123"
 
 2️⃣ [คำขอที่ต้อง "ถามเพื่อความแน่ใจ / เสนอแนะก่อนแก้ไข" - CLARIFY & CONFIRM FIRST]:
@@ -551,6 +661,71 @@ Current Itinerary: ${JSON.stringify(itinerary)}
 - [กรณีพิกซ์ถามคำถามเกี่ยวกับความต้องการ/งบประมาณ/สไตล์/วันเดินทาง]: ให้ตัวเลือกเป็นคำตอบที่เป็นไปได้ของผู้ใช้ เช่น ["งบประมาณประมาณ 30,000 บาทครับ", "ขอแบบชิลๆ เน้นพักผ่อนครับ", "จัดลงในวันที่ 1 เลยครับ"]
 - [กรณีพิกซ์อัปเดตแผนเสร็จเรียบร้อยแล้ว]: ให้ตัวเลือกเป็นคำสั่งหรือคำถามต่อเนื่อง เช่น ["แผนลงตัวแล้ว ขอบคุณครับ", "ช่วยแนะนำร้านอาหารใกล้แผนวันนี้", "อยากปรับเวลาให้ยืดหยุ่นขึ้นอีก"]
 (ความยาวกระชับ 10-30 ตัวอักษรต่อตัวเลือก จำนวน 3-4 ตัวเลือก)`;
+
+  const systemPromptEn = `[Character Concept — Pixinerary]
+Name: Pix
+Full Name: Pix (derived from Picture + Pixinerary, because our standout feature is turning travel photos into real personalized itineraries)
+Title: Your AI Travel Companion
+Role: AI Travel Guide & Personal Itinerary Concierge
+Personality: Warm, polite, friendly, smart, enthusiastic, an authentic globetrotter who cares and plans ahead for you.
+Trip Destination: ${locationName}
+
+🚨 [MANDATORY LANGUAGE & ADDRESSING RULES]:
+- YOU MUST RESPOND IN NATURAL, FLUENT, POLITE ENGLISH.
+- Address the user warmly as "you" (never say "customer", "client", "sir/madam", "boss", etc.).
+- Never speak like a cold robot or corporate helpdesk.
+- Keep responses engaging, concise, and easy to read.
+- DO NOT use markdown asterisks '*' or '**' in conversational messages. Use line breaks, clean bullet points, and cheerful emojis instead.
+- Do NOT output raw JSON to the user directly. Always speak in warm, conversational English, and append the JSON action block at the very end when applicable.
+
+📸 Vision & Visual Expertise (Visual Companion):
+Pix specializes in recognizing destinations from photos and analyzing travel sights.
+
+Current Trip Context:
+Preferences: ${preferences ? JSON.stringify(preferences) : "Not specified"}
+Current Itinerary: ${JSON.stringify(itinerary)}
+
+🎯 [CRITICAL: Decision-Making & Action Execution Protocol]:
+Pix is a thoughtful travel companion and NEVER modifies the itinerary rashly when requests are vague or lack key details.
+
+1️⃣ [DIRECT EXECUTION - Clear or Confirmed Actions]:
+Applies when the user gives a specific instruction (e.g., "Delete activity 2 on Day 1", "Move Grand Palace to Day 2 at 10:00 AM", "Set budget to $2,000", "Switch hotel to Marriott", "Flight TG682") or confirms Pix's previous proposal ("Sounds good, add it", "Yes, schedule it for Day 1", "Confirm delete"):
+Respond politely and pleasantly, summarize the updates, and append a JSON code block at the very end:
+\`\`\`json
+{
+  "action": "UPDATE_ITINERARY",
+  "updated_itinerary": [
+    {
+      "day": 1,
+      "date": "Day 1 - ...",
+      "activities": [
+        { "id": "...", "time": "09:00", "title": "...", "title_th": "...", "title_en": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "attraction", "lat": 1.23, "lng": 4.56 }
+      ]
+    }
+  ],
+  "updated_preferences": { "budget": "...", "pace": "..." },
+  "updated_hotel": { "hotelName": "..." },
+  "updated_flight": { "flightCode": "...", "originIata": "..." },
+  "suggested_quick_actions": ["The plan looks great, thanks!", "Recommend nearby lunch spots", "Make the pace more relaxed"]
+}
+\`\`\`
+- Include only fields that changed.
+- "updated_itinerary" must be the complete array of all days with both English and Thai activity titles/descriptions (title_en, title_th, description_en, description_th).
+- Keep original id, lat, lng for existing places; for new places use "act-new-...".
+
+2️⃣ [CLARIFY & CONFIRM FIRST - Vague Requests or Recommendations]:
+When user asks vague additions ("Want to visit Tokyo Tower", "Craving ramen"), requests recommendations ("Any nice cafes?", "Scenic viewpoints nearby?"), or requests broad adjustments ("Make it more relaxed", "Cut down some activities"):
+Provide friendly advice and recommendations first, suggest the optimal day and time slot based on geographical proximity, and append ONLY suggested_quick_actions in English:
+\`\`\`json
+{
+  "suggested_quick_actions": ["Yes, add this to the plan", "Can we schedule for afternoon?", "Show other nearby options", "Cancel for now"]
+}
+\`\`\`
+
+⚡ [RULES FOR QUICK ACTIONS]:
+In every response, anticipate 3-4 natural next user replies in English and include them in "suggested_quick_actions" (10-35 characters each).`;
+
+  const systemPrompt = language === "en" ? systemPromptEn : systemPromptTh;
 
   // Build message sequence for multi-turn conversation
   const messagesPayload: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
@@ -602,9 +777,24 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
 - Rule for Day ${c.day}: Keep ALL activities for Day ${c.day} strictly clustered in this specific geographic zone. DO NOT jump to another district far away. Progress logically from morning to evening without criss-crossing paths.`).join("\n")}\n`
     : "";
 
-  const prompt = `Generate a ${preferences.days}-day travel itinerary and additional suggestions for a trip covering these locations: ${places.join(", ")}.
+  const totalDays = Math.max(1, preferences.days || 1);
+  const daySchemaExamples = Array.from({ length: Math.min(totalDays, 4) }, (_, i) => {
+    const d = i + 1;
+    return `      {
+        "day": ${d},
+        "date": "Day ${d} - [District / Area Theme]",
+        "activities": [
+          { "time": "09:30", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "culture", "lat": 0, "lng": 0, "openingHours": ["Monday: 08:30 – 17:30", "Tuesday: 08:30 – 17:30", "Wednesday: 08:30 – 17:30", "Thursday: 08:30 – 17:30", "Friday: 08:30 – 17:30", "Saturday: 08:30 – 17:30", "Sunday: 08:30 – 17:30"] },
+          { "time": "12:00", "title": "... (Lunch)", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "food", "lat": 0, "lng": 0, "openingHours": ["Monday: 11:00 – 21:30", "Tuesday: 11:00 – 21:30", "Wednesday: 11:00 – 21:30", "Thursday: 11:00 – 21:30", "Friday: 11:00 – 22:00", "Saturday: 11:00 – 22:00", "Sunday: 11:00 – 21:30"] },
+          { "time": "14:30", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "landmark", "lat": 0, "lng": 0, "openingHours": ["Monday: 10:00 – 20:00", "Tuesday: 10:00 – 20:00", "Wednesday: 10:00 – 20:00", "Thursday: 10:00 – 20:00", "Friday: 10:00 – 20:00", "Saturday: 10:00 – 20:00", "Sunday: 10:00 – 20:00"] },
+          { "time": "18:00", "title": "... (Dinner / Night)", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "nightlife", "lat": 0, "lng": 0, "openingHours": ["Monday: 17:00 – 00:00", "Tuesday: 17:00 – 00:00", "Wednesday: 17:00 – 00:00", "Thursday: 17:00 – 00:00", "Friday: 17:00 – 01:00", "Saturday: 17:00 – 01:00", "Sunday: 17:00 – 00:00"] }
+        ]
+      }`;
+  }).join(",\n");
+
+  const prompt = `Generate a ${totalDays}-day travel itinerary and additional suggestions for a trip covering these locations: ${places.join(", ")}.
   
-  Trip Dates: ${startFmt} to ${endFmt} (${preferences.days} days in ${monthName} – ${season})
+  Trip Dates: ${startFmt} to ${endFmt} (${totalDays} days in ${monthName} – ${season})
   ${hotelInfoText}
   ${spatialConstraintsText}
   Traveler Profile:
@@ -614,22 +804,34 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
   - Travel Pace: ${preferences.pace}
   
   CRITICAL ITINERARY PLANNING RULES (MANDATORY):
-  1. UNTANGLED DAILY ROUTE (NO CRISS-CROSSING / BACKTRACKING):
-     - Each day's travel route MUST progress smoothly without criss-crossing or zigzagging across town.
-     - Sequence places by geographic proximity from morning to evening.
+  0. MANDATORY TRIP DURATION & MULTI-DAY EXPANSION (CRITICAL):
+     - The user explicitly requested a ${totalDays}-DAY itinerary.
+     - You MUST generate an "itinerary" array containing EXACTLY ${totalDays} separate day objects (from Day 1 up to Day ${totalDays}).
+     - NEVER return fewer than ${totalDays} days! (e.g. if the trip is 3 days, you MUST return an array with Day 1, Day 2, and Day 3).
+     - MULTI-DAY EXPANSION: Even if the user provided only 1 or 2 initial locations (${places.join(", ")}), do NOT bunch everything onto Day 1!
+       * Schedule the user's uploaded location(s) in Day 1 (and/or Day 2).
+       * For all other days (Day 2, Day 3, up to Day ${totalDays}), YOU MUST ACTIVELY EXPAND and introduce the best complementary attractions, iconic sights, local food markets, and cultural landmarks in different geographic districts of the destination city.
+       * Each day must be a full, engaging schedule with 3 to 5 realistic activities (Morning Sightseeing, Midday Lunch, Afternoon Attraction, Dinner/Nightlife).
+       * RETURNING FEWER THAN ${totalDays} DAYS IS STRICTLY UNACCEPTABLE AND WILL BE REJECTED.
+  1. UNTANGLED DAILY ROUTE & NO CIRCULAR LOOPING (OPEN PROGRESSION):
+     - DO NOT force the 1st point and the last point of the day to meet or loop back to each other! Real travelers follow an OPEN forward path across the district:
+       Morning Sightseeing -> Lunch nearby -> Afternoon Attraction -> Sunset Viewpoint -> Dinner / Night Market at the other end of the corridor.
+     - NEVER organize a circular loop where the evening spot is right next to the morning start point while midday was far away.
+     - Each day's travel route MUST progress smoothly in one direction without criss-crossing or zigzagging across town.
   2. STRICT GEOGRAPHIC DISTRICT GROUPING (NO REVISITING SAME DISTRICT ACROSS DAYS):
      - Group all places within the same neighborhood/district (within ~2.5-3.5 km) into the SAME day.
      - NEVER scatter places from the same district across different days (e.g., avoid visiting Grand Palace on Day 1 and returning to Wat Pho on Day 3).
-  3. MANDATORY MIDDAY LUNCH (11:30 - 13:30):
-     - EVERY single day MUST include a dedicated lunch restaurant/food activity in the midday slot (11:30 - 13:30) located close to the morning attraction.
+  3. MANDATORY MIDDAY LUNCH (11:00 - 13:00 / 11:30 - 13:00):
+     - EVERY single day MUST include a dedicated lunch restaurant/food activity in the midday slot (11:30 - 13:00) located within walking distance (<= 800m - 1km) of the morning attraction.
   4. STRICTLY NO CONSECUTIVE RESTAURANTS:
      - DO NOT schedule back-to-back restaurants or cafes in the same day without a sightseeing or cultural activity in between.
-     - Structure per day: Morning Sightseeing -> Lunch (11:30-13:30) -> Afternoon Attraction -> Sunset/Dinner (18:00-20:00) -> Evening Stroll/Nightlife.
-  5. LONG COMMUTE LIMITATION:
-     - Limit travel segments taking >40-60 minutes (>25-30 km) to at most ONE pair per day (e.g., one day-trip excursion out and return). Intermediate activities must remain tightly clustered.
-  6. REAL-WORLD TIMING & OPERATING HOURS:
-     - Respect real operating hours for all landmarks, museums, and temples.
-     - Place observation decks/viewpoints/sunset spots at 17:00 - 18:30 (Golden Hour).
+     - Structure per day: Morning Sightseeing -> Lunch (11:30-13:00) -> Afternoon Attraction -> Sunset/Golden Hour (17:00-18:30) -> Dinner/Nightlife (18:30-21:00).
+  5. DEDICATED DAY-TRIP EXCURSION DAYS (>25 KM):
+     - If visiting attractions outside the central urban area (>25-50 km, e.g. Ayutthaya, Safari World, Damnoen Saduak, Mt. Fuji), dedicate ONE ENTIRE DAY exclusively as a "Day-Trip Excursion". DO NOT mix a distant excursion with city-center walking spots on the same day.
+  6. REAL-WORLD TIMING, CLOSING BUFFER & DWELL TIME (MANDATORY):
+     - DWELL TIME CLOSING BUFFER: Do NOT schedule a venue right before it closes! The activity start time plus visit duration (dwell time, typically 1.5 - 2 hours) MUST be less than or equal to closing time (e.g., if a temple/museum closes at 18:00, schedule it to begin at 16:00 - 16:30 at the latest so visitors have ample time).
+     - 24-HOUR ZONE EXCEPTION: Public districts, old towns, street food areas, walking streets, riverfronts, and beaches are open public zones assumed to be 24 hours.
+     - Place observation decks/viewpoints/sunset spots at 16:30 - 18:30 (Golden Hour).
      - Place night markets, evening cruises, and nightlife after 18:30.
   7. COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every activity, suggestion, and accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
   8. ACCOMMODATIONS RULE (MANDATORY): You MUST provide at least 5 to 8 diverse, real accommodations/hotels (luxury, boutique, mid-range, budget) located in or near the trip destinations. Include real hotel names with priceLevel from 1 (budget) to 4 (luxury).
@@ -648,25 +850,55 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
         * "spiritual" (sacred shrines, mutelu blessing spots, holy relics, revered places of worship for fortune/luck)
         * "hotel" (hotels, resorts, check-in, check-out)
       - DO NOT default to "attraction". Choose the exact true category for every place.
+  11. OPENING HOURS (MANDATORY):
+      - For EVERY activity and suggestion, provide an authentic 7-day operating schedule in the "openingHours" array (Monday to Sunday) reflecting actual real-world venue hours (e.g. ["Monday: 08:30 – 17:30", "Tuesday: 08:30 – 17:30", "Wednesday: 08:30 – 17:30", "Thursday: 08:30 – 17:30", "Friday: 08:30 – 17:30", "Saturday: 08:30 – 17:30", "Sunday: 08:30 – 17:30"]). If closed on certain days, specify e.g. "Monday: Closed".
+  12. ADJACENT HOP DISTANCE & COMMUTE LIMIT (10-15 KM HARD CEILING):
+      - Consecutive activities (Activity 1 -> 2, 2 -> 3) within a day MUST be in close proximity (ideally <= 3 to 5 km, or 10-15 min travel).
+      - HARD CEILING: The distance between any two consecutive activities MUST NOT exceed 10 to 15 km (or <= 20 to 30 min transit). Never jump across distant ends of the metropolis back and forth.
+  13. BILINGUAL TRANSLATION (MANDATORY):
+      - Every activity, every suggestion, and every accommodation MUST include both Thai ("title_th"/"name_th", "description_th") AND English ("title_en"/"name_en", "description_en") fields.
+      - Provide natural, accurate translations in both Thai and English.
 
-  
   Return the response strictly in JSON format matching this schema:
   {
-    "itinerary": [{
-        "day": 1,
-        "date": "Day 1 - ...",
-        "activities": [{ 
-          "time": "09:00", 
-          "title": "...", 
-          "description": "...", 
-          "type": "culture",
-          "lat": 0,
-          "lng": 0
-        }]
-    }],
-    "suggestions": [{ "name": "...", "category": "food", "description": "...", "lat": 0, "lng": 0 }],
+    "destination_city": "Real city name e.g. Bangkok",
+    "destination_country": "Real country name e.g. Thailand",
+    "itinerary": [
+${daySchemaExamples}
+      /* MANDATORY: The "itinerary" array MUST contain EXACTLY ${totalDays} day items (Day 1 through Day ${totalDays}) */
+    ],
+    "suggestions": [
+      {
+        "name": "Primary Name",
+        "name_th": "ชื่อภาษาไทย",
+        "name_en": "English Name",
+        "english_name": "English Name",
+        "wiki_title": "...",
+        "image_keyword": "...",
+        "category": "food",
+        "description": "Short description",
+        "description_th": "คำอธิบายภาษาไทย",
+        "description_en": "English description",
+        "lat": 0,
+        "lng": 0
+      }
+    ],
     "accommodations": [
-      { "name": "...", "category": "hotel", "description": "...", "lat": 0, "lng": 0, "priceLevel": 2 }
+      {
+        "name": "Hotel Name",
+        "name_th": "ชื่อโรงแรมภาษาไทย",
+        "name_en": "English Hotel Name",
+        "english_name": "English Hotel Name",
+        "wiki_title": "...",
+        "image_keyword": "...",
+        "category": "hotel",
+        "description": "Hotel overview",
+        "description_th": "คำอธิบายที่พักภาษาไทย",
+        "description_en": "English accommodation description",
+        "lat": 0,
+        "lng": 0,
+        "priceLevel": 2
+      }
     ],
 
     "typicalWeather": {
@@ -692,7 +924,74 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
   });
 
   const text = data.text;
-  return await formatResponse(JSON.parse(text));
+  const parsed = safeParseJson<any>(text, { itinerary: [], suggestions: [], accommodations: [] });
+  const rawCity = parsed.destination_city || (places[0] || "");
+  const isPlaceLandmark = /(wat|temple|palace|shrine|museum|park|sanctuary|eatery|food|eateries)/i.test(rawCity);
+  const destinationCity = isPlaceLandmark ? (parsed.destination_city || "Bangkok") : rawCity;
+  const destinationCountry = parsed.destination_country || "Thailand";
+
+  // FAIL-SAFE DAY EXPANSION GUARD:
+  // If the AI returned fewer days than totalDays, expand to exactly totalDays!
+  if (Array.isArray(parsed.itinerary)) {
+    // If Day 1 has too many activities (e.g. >= 6) and subsequent days are missing, distribute them!
+    if (parsed.itinerary.length === 1 && totalDays > 1 && parsed.itinerary[0]?.activities?.length >= 6) {
+      const allActs = [...parsed.itinerary[0].activities];
+      const perDay = Math.ceil(allActs.length / totalDays);
+      const repartitionedDays: any[] = [];
+      for (let d = 0; d < totalDays; d++) {
+        const chunk = allActs.slice(d * perDay, (d + 1) * perDay);
+        repartitionedDays.push({
+          day: d + 1,
+          date: `Day ${d + 1} - Exploring ${destinationCity}`,
+          activities: chunk.length > 0 ? chunk : [],
+        });
+      }
+      parsed.itinerary = repartitionedDays;
+    }
+
+    // If still fewer days than totalDays, populate missing days from suggestions or destination highlights
+    while (parsed.itinerary.length < totalDays) {
+      const nextDayNum = parsed.itinerary.length + 1;
+      const suggestionsPool = Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
+      
+      const dayActivities: any[] = [];
+      const times = ["09:30", "12:30", "15:00", "18:30"];
+      for (let tIdx = 0; tIdx < 4; tIdx++) {
+        const sug = suggestionsPool.shift();
+        if (sug) {
+          dayActivities.push({
+            time: times[tIdx],
+            title: sug.name,
+            english_name: sug.english_name || sug.name,
+            wiki_title: sug.wiki_title,
+            image_keyword: sug.image_keyword || sug.name,
+            description: sug.description || `Explore ${sug.name} in ${destinationCity}`,
+            type: sug.category || (tIdx === 1 ? "food" : tIdx === 3 ? "nightlife" : "landmark"),
+            lat: sug.lat || 0,
+            lng: sug.lng || 0,
+            openingHours: sug.openingHours || null,
+          });
+        }
+      }
+
+      if (dayActivities.length === 0) {
+        dayActivities.push(
+          { time: "09:30", title: `${destinationCity} Cultural Center`, description: `Visit iconic cultural sights in ${destinationCity}`, type: "culture", lat: 0, lng: 0 },
+          { time: "12:00", title: `Local Eatery & Street Food (${destinationCity})`, description: `Enjoy traditional lunch specialties`, type: "food", lat: 0, lng: 0 },
+          { time: "14:30", title: `${destinationCity} City Landmark & Park`, description: `Relax and take photos at famous local landmark`, type: "landmark", lat: 0, lng: 0 },
+          { time: "18:30", title: `${destinationCity} Night Market & Dining`, description: `Explore vibrant night market and evening street food`, type: "nightlife", lat: 0, lng: 0 }
+        );
+      }
+
+      parsed.itinerary.push({
+        day: nextDayNum,
+        date: `Day ${nextDayNum} - Discovering ${destinationCity}`,
+        activities: dayActivities,
+      });
+    }
+  }
+
+  return await formatResponse(parsed, destinationCity, destinationCountry);
 }
 
 async function analyzeImageOpenRouter(base64: string, mimeType: string, prompt: string, modelId: string): Promise<VisionResult> {
@@ -721,8 +1020,7 @@ async function analyzeImageOpenRouter(base64: string, mimeType: string, prompt: 
     throw new Error(`AI declined to analyze this image. Try a different image or switch model.`);
   }
 
-  const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
-  return JSON.parse(cleaned);
+  return safeParseJson<VisionResult>(raw);
 }
 
 async function chatOpenRouter(
@@ -754,7 +1052,7 @@ async function callOpenRouterMoreSuggestions(prompt: string, modelId: string): P
   });
 
   const text = data.text;
-  const result = JSON.parse(text);
+  const result = safeParseJson<any>(text, { suggestions: [] });
   const response = await formatResponse({ itinerary: [], suggestions: result.suggestions || [] });
   return response.suggestions;
 }
@@ -771,7 +1069,7 @@ async function callOpenRouterMoreAccommodations(prompt: string, modelId: string)
   });
 
   const text = data.text;
-  const result = JSON.parse(text);
+  const result = safeParseJson<any>(text, { accommodations: [] });
   const response = await formatResponse({ itinerary: [], suggestions: [], accommodations: result.accommodations || [] });
   return response.accommodations;
 }
@@ -850,6 +1148,100 @@ export interface InitialGuessResult {
   imageCategory: string;
   places: string[];
   rejectionReason?: string;
+  detectedContent?: string;
+  detailedDescription?: string;
+  suggestedAction?: string;
+  nonTravelCategory?: string;
+}
+
+export function inferFallbackNonTravelContent(category?: string, reason?: string): {
+  detectedContent: string;
+  detailedDescription: string;
+  suggestedAction: string;
+  nonTravelCategory: string;
+} {
+  const c = (category || "").toLowerCase();
+  const r = (reason || "").toLowerCase();
+
+  if (c.includes("food") || r.includes("อาหาร") || r.includes("กิน") || r.includes("dish") || r.includes("drink")) {
+    return {
+      detectedContent: "รูปถ่ายอาหาร / เครื่องดื่ม",
+      detailedDescription: "ภาพนี้แสดงอาหารหรือเครื่องดื่มระยะใกล้ โดยไม่มีสถาปัตยกรรมหรือทิวทัศน์ที่สามารถระบุพิกัดสถานที่ได้",
+      suggestedAction: "แนะนำให้อัปโหลดภาพหน้าร้าน บรรยากาศร้าน ป้ายชื่อร้าน หรือวิวสถานที่ท่องเที่ยวแทน",
+      nonTravelCategory: "food_dish",
+    };
+  }
+  if (c.includes("portrait") || c.includes("selfie") || r.includes("เซลฟี่") || r.includes("บุคคล") || r.includes("คน") || r.includes("selfie")) {
+    return {
+      detectedContent: "รูปเซลฟี่บุคคล / พอร์ตเทรต",
+      detailedDescription: "ภาพนี้เน้นใบหน้าหรือตัวบุคคลเป็นหลัก โดยไม่มีจุดสังเกตทางธรรมชาติหรือแลนด์มาร์กท่องเที่ยว",
+      suggestedAction: "แนะนำให้อัปโหลดภาพที่มีฉากหลังเป็นสถานที่ท่องเที่ยว หรือวิวทิวทัศน์แบบมุมกว้าง",
+      nonTravelCategory: "selfie_portrait",
+    };
+  }
+  if (c.includes("document") || c.includes("receipt") || r.includes("สลิป") || r.includes("ใบเสร็จ") || r.includes("เอกสาร") || r.includes("slip")) {
+    return {
+      detectedContent: "สลิปโอนเงิน / ใบเสร็จ / เอกสาร",
+      detailedDescription: "ภาพนี้เป็นเอกสาร สลิปธุรกรรม หรือใบเสร็จรับเงิน ซึ่งไม่ใช่สถานที่ท่องเที่ยว",
+      suggestedAction: "กรุณาอัปโหลดภาพสถานที่จริง เช่น วัด แหล่งท่องเที่ยว ภูเขา ทะเล หรือแลนด์มาร์ก",
+      nonTravelCategory: "document_receipt",
+    };
+  }
+  if (c.includes("screenshot") || r.includes("สกรีนช็อต") || r.includes("แคปหน้าจอ") || r.includes("screenshot")) {
+    return {
+      detectedContent: "ภาพแคปหน้าจอสมาร์ตโฟน / แชท",
+      detailedDescription: "ภาพนี้เป็นภาพบันทึกหน้าจอโทรศัพท์หรือแอปพลิเคชัน ไม่ใช่ภาพถ่ายสถานที่ท่องเที่ยว",
+      suggestedAction: "กรุณาอัปโหลดภาพถ่ายสถานที่ท่องเที่ยวจริงๆ เพื่อให้ AI สามารถนำไปจัดทริปได้",
+      nonTravelCategory: "screenshot",
+    };
+  }
+  if (c.includes("pet") || c.includes("animal") || r.includes("สัตว์") || r.includes("แมว") || r.includes("สุนัข") || r.includes("dog") || r.includes("cat")) {
+    return {
+      detectedContent: "สัตว์เลี้ยง / สัตว์",
+      detailedDescription: "ภาพนี้แสดงสัตว์เลี้ยงหรือสัตว์ในระยะใกล้ ไม่สามารถระบุพิกัดสถานที่ท่องเที่ยวได้",
+      suggestedAction: "แนะนำให้อัปโหลดภาพสถานที่ท่องเที่ยว ปาร์ค หรือสวนสัตว์ที่มีป้ายชื่อชัดเจน",
+      nonTravelCategory: "pet_animal",
+    };
+  }
+  if (c.includes("vehicle") || c.includes("car") || r.includes("รถ") || r.includes("ยานพาหนะ")) {
+    return {
+      detectedContent: "ยานพาหนะ / รถยนต์",
+      detailedDescription: "ภาพนี้เป็นภาพยานพาหนะหรือชิ้นส่วนรถยนต์ ไม่ปรากฏทิวทัศน์สถานที่ท่องเที่ยว",
+      suggestedAction: "แนะนำให้อัปโหลดภาพวิวการเดินทางหรือจุดหมายปลายทางแทน",
+      nonTravelCategory: "vehicle",
+    };
+  }
+  if (c.includes("meme") || c.includes("graphic") || r.includes("มีม") || r.includes("การ์ตูน") || r.includes("drawing")) {
+    return {
+      detectedContent: "ภาพกราฟิก / มีม / การ์ตูน",
+      detailedDescription: "ภาพนี้เป็นภาพวาด ภาพกราฟิก หรือมีม ซึ่งไม่ใช่ภาพถ่ายสถานที่จริงในโลกกายภาพ",
+      suggestedAction: "กรุณาอัปโหลดภาพถ่ายสถานที่จริงสำหรับการท่องเที่ยว",
+      nonTravelCategory: "graphic_meme",
+    };
+  }
+  if (c.includes("blur") || c.includes("dark") || r.includes("เบลอ") || r.includes("มืด")) {
+    return {
+      detectedContent: "ภาพเบลอ / มืดสนิทจนมองไม่ชัด",
+      detailedDescription: "ภาพนี้มีความคมชัดต่ำ มืด หรือเบลอมากเกินกว่าจะมองเห็นรายละเอียดสถานที่ได้",
+      suggestedAction: "กรุณาอัปโหลดภาพถ่ายที่มีแสงสว่างเพียงพอและเห็นทิวทัศน์ชัดเจน",
+      nonTravelCategory: "blurry_dark",
+    };
+  }
+  if (c.includes("object") || r.includes("สิ่งของ") || r.includes("สินค้า") || r.includes("วัตถุ")) {
+    return {
+      detectedContent: "สิ่งของเครื่องใช้ / สินค้า",
+      detailedDescription: "ภาพนี้แสดงสิ่งของเครื่องใช้หรือผลิตภัณฑ์ ไม่ใช่ทิวทัศน์สถานที่ท่องเที่ยว",
+      suggestedAction: "กรุณาอัปโหลดภาพสถานที่ท่องเที่ยว หรือวิวทัศน์ของการเดินทาง",
+      nonTravelCategory: "item_product",
+    };
+  }
+
+  return {
+    detectedContent: "ภาพที่ไม่ใช่สถานที่ท่องเที่ยว",
+    detailedDescription: "ระบบประเมินว่าภาพนี้ไม่ใช่ทิวทัศน์หรือแลนด์มาร์กสำหรับการท่องเที่ยว",
+    suggestedAction: "กรุณาอัปโหลดภาพถ่ายสถานที่ท่องเที่ยว วิวธรรมชาติ หรือสถาปัตยกรรมใหม่อีกครั้ง",
+    nonTravelCategory: "other_non_travel",
+  };
 }
 
 async function getInitialGuessesOpenRouter(
@@ -876,12 +1268,11 @@ async function getInitialGuessesOpenRouter(
     }),
   });
   const raw = data.text?.trim() ?? "";
-  const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
   let result: any;
   try {
-    result = JSON.parse(cleaned);
+    result = safeParseJson<any>(raw);
   } catch (e) {
-    console.error("Failed to parse JSON from Vision API:", cleaned, e);
+    console.error("Failed to parse JSON from Vision API:", raw, e);
     throw new Error("Vision API returned non-JSON response.");
   }
 
@@ -901,52 +1292,43 @@ async function getInitialGuessesOpenRouter(
   const isIdentifiable =
     result.is_identifiable_place !== false &&
     places.length > 0 &&
-    !["portrait_selfie", "selfie", "document_screenshot", "document", "receipt", "meme", "object"].includes(
+    !["portrait_selfie", "selfie", "document_screenshot", "document", "receipt", "meme", "object", "food_drink", "food"].includes(
       (result.image_category || "").toLowerCase()
     );
 
   const imageCategory = result.image_category || (isIdentifiable ? "landmark" : "non_travel");
+  const fallbackInfo = !isIdentifiable
+    ? inferFallbackNonTravelContent(result.image_category || result.non_travel_category, result.rejection_reason)
+    : undefined;
+
   const rejectionReason =
     result.rejection_reason ||
-    (!isIdentifiable
-      ? "ระบบประเมินว่าภาพนี้อาจเป็นภาพบุคคล เอกสาร วัตถุสิ่งของ หรือภาพที่ไม่สามารถระบุสถานที่ท่องเที่ยวได้"
-      : undefined);
+    (fallbackInfo ? fallbackInfo.detailedDescription : undefined);
+
+  const detectedContent = result.detected_content || fallbackInfo?.detectedContent;
+  const detailedDescription = result.detailed_description || fallbackInfo?.detailedDescription;
+  const suggestedAction = result.suggested_action || fallbackInfo?.suggestedAction;
+  const nonTravelCategory = result.non_travel_category || fallbackInfo?.nonTravelCategory;
 
   return {
     isIdentifiablePlace: isIdentifiable,
     imageCategory,
     places,
     rejectionReason,
+    detectedContent,
+    detailedDescription,
+    suggestedAction,
+    nonTravelCategory,
   };
 }
 
 async function fetchCandidateFromGoogle(name: string): Promise<Omit<ImageCandidate, 'similarity'> | null> {
-  // Use the Google Maps JS SDK (PlacesService) to avoid CORS issues
-  if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
-    console.error("Google Maps Places SDK not loaded.");
-    return null;
-  }
-
-  const service = new google.maps.places.PlacesService(document.createElement('div'));
-
-  return new Promise((resolve) => {
-    service.textSearch(
-      { query: name },
-      (results, status) => {
-        if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
-          const result = results[0];
-          resolve({
-            name: result.name || name,
-            place_id: result.place_id || '',
-            photo_url: result.photos?.[0]?.getUrl({ maxWidth: 400 }) || null
-          });
-        } else {
-          console.warn(`Google Places Search for ${name} returned status: ${status}`);
-          resolve(null);
-        }
-      }
-    );
-  });
+  const photoUrl = await fetchSmartPhoto(name, { category: "sightseeing" });
+  return {
+    name,
+    place_id: `geo-${encodeURIComponent(name)}`,
+    photo_url: photoUrl
+  };
 }
 
 // ==========================================
@@ -1183,43 +1565,37 @@ function generateHeuristicReasoning(place: string, type: string): string[] {
   ];
 }
 
-export async function fetchPlacePhoto(placeName: string): Promise<string | null> {
-  if (typeof google === "undefined" || !google.maps || !google.maps.places) {
-    return null;
-  }
-
-  const service = new google.maps.places.PlacesService(document.createElement("div"));
-
-  return new Promise((resolve) => {
-    service.textSearch(
-      { query: placeName },
-      (results, status) => {
-        if (status === google.maps.places.PlacesServiceStatus.OK && results?.[0]) {
-          const photo = results[0].photos?.[0];
-          if (photo) {
-            resolve(photo.getUrl({ maxWidth: 800 }));
-          } else {
-            resolve(null);
-          }
-        } else {
-          resolve(null);
-        }
-      }
-    );
-  });
+export async function fetchPlacePhoto(placeName: string, category?: string): Promise<string | null> {
+  return await fetchSmartPhoto(placeName, { category });
 }
 
-async function formatResponse(result: any): Promise<TravelPlanResponse> {
-  const itinerary: DayPlan[] = await Promise.all((result.itinerary || []).map(async (day: any) => ({
+async function formatResponse(result: any, cityName?: string, countryName?: string): Promise<TravelPlanResponse> {
+  const itinerary: DayPlan[] = await Promise.all((result.itinerary || []).map(async (day: any, dayIdx: number) => ({
     ...day,
-    activities: await Promise.all((day.activities || []).map(async (act: any) => {
-      const details = await fetchPlaceDetails(act.title);
+    activities: await Promise.all((day.activities || []).map(async (act: any, actIdx: number) => {
+      const searchKeyword = act.image_keyword || act.english_name || act.title;
+      const indexOffset = dayIdx * 10 + actIdx;
+      const details = await fetchPlaceDetails(
+        act.title,
+        (act.lat && act.lng) ? { lat: act.lat, lng: act.lng } : undefined,
+        act.type,
+        cityName,
+        searchKeyword,
+        { countryName, wikiTitle: act.wiki_title, indexOffset }
+      );
       const accurateType = inferActivityType(act.title, act.description, act.type, details?.types);
+      const resolvedLat = (act.lat && act.lat !== 0) ? act.lat : (details.lat ?? 0);
+      const resolvedLng = (act.lng && act.lng !== 0) ? act.lng : (details.lng ?? 0);
+      const photo = details.photo_url || getCuratedFallbackPhoto(accurateType, searchKeyword || act.title, { cityName, countryName, indexOffset });
       return {
         ...act,
         type: accurateType,
-        id: `gen-${Math.random().toString(36).substr(2, 9)}`,
-        image_url: details.photo_url,
+        id: act.id || `gen-${Math.random().toString(36).substr(2, 9)}`,
+        lat: resolvedLat,
+        lng: resolvedLng,
+        image_url: photo,
+        image: photo,
+        photo_url: photo,
         rating: details.rating,
         userRatingsTotal: details.userRatingsTotal,
         openNow: details.openNow,
@@ -1227,20 +1603,41 @@ async function formatResponse(result: any): Promise<TravelPlanResponse> {
         priceLevel: details.priceLevel,
         website: details.website,
         phoneNumber: details.phoneNumber,
+        title_th: act.title_th || (hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "th")),
+        title_en: act.title_en || act.english_name || (!hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "en")),
+        description_th: act.description_th || (hasThaiScript(act.description) ? act.description : translateTextSync(act.description, "th")),
+        description_en: act.description_en || (!hasThaiScript(act.description) ? act.description : translateTextSync(act.description, "en")),
+        english_name: act.english_name || act.title_en || (!hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "en")),
+        wiki_title: act.wiki_title,
+        image_keyword: act.image_keyword,
       };
     })),
   })));
 
-  const suggestions: SuggestedPlace[] = await Promise.all((result.suggestions || []).map(async (sug: any) => {
-    const details = await fetchPlaceDetails(sug.name);
+  const suggestions: SuggestedPlace[] = await Promise.all((result.suggestions || []).map(async (sug: any, sugIdx: number) => {
+    const searchKeyword = sug.image_keyword || sug.english_name || sug.name;
+    const indexOffset = 100 + sugIdx;
+    const details = await fetchPlaceDetails(
+      sug.name,
+      (sug.lat && sug.lng) ? { lat: sug.lat, lng: sug.lng } : undefined,
+      sug.category,
+      cityName,
+      searchKeyword,
+      { countryName, wikiTitle: sug.wiki_title, indexOffset }
+    );
     const accurateCategory = inferActivityType(sug.name, sug.description, sug.category, details?.types);
+    const resolvedPhoto = details.photo_url || getCuratedFallbackPhoto(accurateCategory, searchKeyword || sug.name, { cityName, countryName, indexOffset });
+    const name_th = sug.name_th || (hasThaiScript(sug.name) ? sug.name : translateTextSync(sug.name, "th"));
+    const name_en = sug.name_en || sug.english_name || (!hasThaiScript(sug.name) ? sug.name : translateTextSync(sug.name, "en"));
+    const desc_th = sug.description_th || (hasThaiScript(sug.description) ? sug.description : translateTextSync(sug.description, "th"));
+    const desc_en = sug.description_en || (!hasThaiScript(sug.description) ? sug.description : translateTextSync(sug.description, "en"));
     return {
       ...sug,
       category: (accurateCategory === "transport" ? "attraction" : accurateCategory) as any,
       id: `sug-${Math.random().toString(36).substr(2, 9)}`,
-      image: details.photo_url || `https://picsum.photos/seed/${encodeURIComponent(sug.name)}/800/600`,
-      image_url: details.photo_url,
-      photo_url: details.photo_url,
+      image: resolvedPhoto,
+      image_url: resolvedPhoto,
+      photo_url: resolvedPhoto,
       lat: (sug.lat && sug.lat !== 0) ? sug.lat : (details.lat ?? 0),
       lng: (sug.lng && sug.lng !== 0) ? sug.lng : (details.lng ?? 0),
       openingHours: details.openingHours,
@@ -1250,19 +1647,41 @@ async function formatResponse(result: any): Promise<TravelPlanResponse> {
       priceLevel: details.priceLevel ?? sug.priceLevel,
       website: details.website ?? sug.website,
       phoneNumber: details.phoneNumber ?? sug.phoneNumber,
+      name_th,
+      name_en,
+      title_th: name_th,
+      title_en: name_en,
+      description_th: desc_th,
+      description_en: desc_en,
+      english_name: name_en,
+      wiki_title: sug.wiki_title,
+      image_keyword: sug.image_keyword,
     };
   }));
 
-
-  const accommodations: SuggestedPlace[] = await Promise.all((result.accommodations || []).map(async (acc: any) => {
-    const details = await fetchPlaceDetails(acc.name);
+  const accommodations: SuggestedPlace[] = await Promise.all((result.accommodations || []).map(async (acc: any, accIdx: number) => {
+    const searchKeyword = acc.image_keyword || acc.english_name || acc.name;
+    const indexOffset = 200 + accIdx;
+    const details = await fetchPlaceDetails(
+      acc.name,
+      (acc.lat && acc.lng) ? { lat: acc.lat, lng: acc.lng } : undefined,
+      "hotel",
+      cityName,
+      searchKeyword,
+      { countryName, wikiTitle: acc.wiki_title, indexOffset }
+    );
+    const resolvedPhoto = details.photo_url || getCuratedFallbackPhoto("hotel", searchKeyword || acc.name, { cityName, countryName, indexOffset });
+    const name_th = acc.name_th || (hasThaiScript(acc.name) ? acc.name : translateTextSync(acc.name, "th"));
+    const name_en = acc.name_en || acc.english_name || (!hasThaiScript(acc.name) ? acc.name : translateTextSync(acc.name, "en"));
+    const desc_th = acc.description_th || (hasThaiScript(acc.description) ? acc.description : translateTextSync(acc.description, "th"));
+    const desc_en = acc.description_en || (!hasThaiScript(acc.description) ? acc.description : translateTextSync(acc.description, "en"));
     return {
       ...acc,
       category: "hotel" as const,
       id: `acc-${Math.random().toString(36).substr(2, 9)}`,
-      image: details.photo_url || `https://picsum.photos/seed/${encodeURIComponent(acc.name)}/800/600`,
-      image_url: details.photo_url,
-      photo_url: details.photo_url,
+      image: resolvedPhoto,
+      image_url: resolvedPhoto,
+      photo_url: resolvedPhoto,
       lat: (acc.lat && acc.lat !== 0) ? acc.lat : (details.lat ?? 0),
       lng: (acc.lng && acc.lng !== 0) ? acc.lng : (details.lng ?? 0),
       openingHours: details.openingHours,
@@ -1272,6 +1691,15 @@ async function formatResponse(result: any): Promise<TravelPlanResponse> {
       priceLevel: details.priceLevel ?? acc.priceLevel,
       website: details.website ?? acc.website,
       phoneNumber: details.phoneNumber ?? acc.phoneNumber,
+      name_th,
+      name_en,
+      title_th: name_th,
+      title_en: name_en,
+      description_th: desc_th,
+      description_en: desc_en,
+      english_name: name_en,
+      wiki_title: acc.wiki_title,
+      image_keyword: acc.image_keyword,
     };
   }));
 

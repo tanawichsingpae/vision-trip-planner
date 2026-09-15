@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 90" width="100%" height="100%">
+  <defs>
+    <linearGradient id="viewGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8E2DE2" />
+      <stop offset="100%" stop-color="#4A00E0" />
+    </linearGradient>
+    <linearGradient id="sparkleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00C9FF" />
+      <stop offset="100%" stop-color="#92FE9D" />
+    </linearGradient>
+  </defs>
+  <!-- มุมกรอบภาพ (Viewfinder) -->
+  <g fill="url(#viewGrad)">
+    <!-- บนซ้าย -->
+    <rect x="0" y="0" width="30" height="10" />
+    <rect x="0" y="10" width="10" height="20" />
+    <!-- บนขวา -->
+    <rect x="60" y="0" width="30" height="10" />
+    <rect x="80" y="10" width="10" height="20" />
+    <!-- ล่างซ้าย -->
+    <rect x="0" y="80" width="30" height="10" />
+    <rect x="0" y="60" width="10" height="20" />
+    <!-- ล่างขวา -->
+    <rect x="60" y="80" width="30" height="10" />
+    <rect x="80" y="60" width="10" height="20" />
+  </g>
+  <!-- แกนประมวลผล AI -->
+  <g fill="url(#sparkleGrad)">
+    <rect x="40" y="20" width="10" height="10" />
+    <rect x="30" y="30" width="30" height="10" />
+    <rect x="20" y="40" width="50" height="10" />
+    <rect x="30" y="50" width="30" height="10" />
+    <rect x="40" y="60" width="10" height="10" />
+  </g>
+</svg>

@@ -1,4 +1,4 @@
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string;
+import tzlookup from "tz-lookup";
 
 export interface TimeZoneInfo {
   timeZoneId: string; // e.g. "Asia/Tokyo"
@@ -13,11 +13,26 @@ export interface TimeZoneInfo {
 }
 
 /**
+ * Get current timezone offset in seconds using native Intl
+ */
+function getTimeZoneOffsetSeconds(timeZoneId: string, date: Date = new Date()): number {
+  try {
+    const utcStr = date.toLocaleString("en-US", { timeZone: "UTC" });
+    const tzStr = date.toLocaleString("en-US", { timeZone: timeZoneId });
+    const utcTime = new Date(utcStr).getTime();
+    const tzTime = new Date(tzStr).getTime();
+    return Math.round((tzTime - utcTime) / 1000);
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Helper to compute time difference and formatted local time
  */
-function computeTimeZoneDetails(timeZoneId: string, timeZoneName: string, totalOffsetSeconds: number): TimeZoneInfo {
+function computeTimeZoneDetails(timeZoneId: string, totalOffsetSeconds: number): TimeZoneInfo {
   const now = new Date();
-  
+
   // Format local time at target timezone
   let localTimeString = "";
   let localDateString = "";
@@ -61,7 +76,7 @@ function computeTimeZoneDetails(timeZoneId: string, timeZoneName: string, totalO
 
   return {
     timeZoneId,
-    timeZoneName,
+    timeZoneName: timeZoneId.replace(/_/g, " "),
     gmtOffset,
     rawOffsetSeconds: totalOffsetSeconds,
     dstOffsetSeconds: 0,
@@ -73,40 +88,30 @@ function computeTimeZoneDetails(timeZoneId: string, timeZoneName: string, totalO
 }
 
 /**
- * Fallback to estimate timezone from longitude coordinate if API is unavailable
+ * Fallback to estimate timezone from longitude coordinate if tz-lookup fails
  */
 function estimateTimeZoneFromCoords(lat: number, lng: number): TimeZoneInfo {
   const approxOffsetHours = Math.round(lng / 15);
   const totalOffsetSeconds = approxOffsetHours * 3600;
   return computeTimeZoneDetails(
     `Etc/GMT${approxOffsetHours >= 0 ? "-" : "+"}${Math.abs(approxOffsetHours)}`,
-    "Estimated Local Time",
     totalOffsetSeconds
   );
 }
 
 /**
- * Fetch destination timezone using Google Time Zone API with reliable fallback
+ * Fetch destination timezone using local tz-lookup with zero external API calls
  */
 export async function getDestinationTimeZone(lat: number, lng: number): Promise<TimeZoneInfo> {
-  const timestamp = Math.floor(Date.now() / 1000);
-
-  if (API_KEY) {
-    try {
-      const url = `https://maps.googleapis.com/maps/api/timezone/json?location=${lat},${lng}&timestamp=${timestamp}&key=${API_KEY}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status === "OK" && data.timeZoneId) {
-          const totalOffset = (data.rawOffset || 0) + (data.dstOffset || 0);
-          return computeTimeZoneDetails(data.timeZoneId, data.timeZoneName || data.timeZoneId, totalOffset);
-        }
-      }
-    } catch (err) {
-      console.warn("Google Time Zone API fetch failed, falling back:", err);
+  try {
+    const timeZoneId = tzlookup(lat, lng);
+    if (timeZoneId) {
+      const offsetSeconds = getTimeZoneOffsetSeconds(timeZoneId);
+      return computeTimeZoneDetails(timeZoneId, offsetSeconds);
     }
+  } catch (err) {
+    console.warn("tz-lookup calculation failed, falling back to longitude estimate:", err);
   }
 
-  // Fallback: estimate from coordinates
   return estimateTimeZoneFromCoords(lat, lng);
 }

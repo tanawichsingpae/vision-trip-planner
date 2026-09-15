@@ -1,4 +1,7 @@
-export function getGooglePlacePhoto(photoReference?: string) {
+export function getGooglePlacePhoto(photoReference?: string | null) {
   if (!photoReference) return null;
-  return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photoReference}&key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}`;
+  if (photoReference.startsWith("http://") || photoReference.startsWith("https://")) {
+    return photoReference;
+  }
+  return null;
 }

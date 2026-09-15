@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { type DateRange } from "react-day-picker";
 import { format, differenceInDays } from "date-fns";
+import { useLanguage } from "@/context/LanguageContext";
 
 function getSuggestedBudgetRange(destination: string, days: number, travelStyle: string): string {
   const destLower = (destination || "").toLowerCase();
@@ -93,6 +94,7 @@ export const TIME_OPTIONS_24H = Array.from({ length: 48 }, (_, i) => {
 export interface TripPreferencesFormProps {
   onSubmit: (preferences: TripPreferences) => void;
   destinationName?: string;
+  destinationCoords?: { lat: number; lng: number };
   onBack?: () => void;
   initialPreferences?: TripPreferences | null;
   hasExistingItinerary?: boolean;
@@ -181,11 +183,15 @@ function getEffectivePreferences(propPrefs?: TripPreferences | null): TripPrefer
 const TripPreferencesForm = ({
   onSubmit,
   destinationName = "",
+  destinationCoords,
   onBack,
   initialPreferences,
   hasExistingItinerary = false,
   onViewExistingItinerary,
 }: TripPreferencesFormProps) => {
+  const { language, t } = useLanguage();
+  const isTh = language === "th";
+
   const today = new Date();
   const defaultStart = new Date(today);
   defaultStart.setDate(today.getDate() + 1);
@@ -205,6 +211,14 @@ const TripPreferencesForm = ({
       from: defaultStart,
       to: defaultEnd,
     };
+  });
+  const [selectedDuration, setSelectedDuration] = useState<number>(() => {
+    if (effectivePrefs?.days && effectivePrefs.days > 0) return effectivePrefs.days;
+    if (effectivePrefs?.startDate && effectivePrefs?.endDate) {
+      const diff = differenceInDays(new Date(effectivePrefs.endDate), new Date(effectivePrefs.startDate)) + 1;
+      if (diff > 0) return diff;
+    }
+    return 3;
   });
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [travelerType, setTravelerType] = useState(() => normalizeTravelerType(effectivePrefs?.travelerType));
@@ -237,6 +251,9 @@ const TripPreferencesForm = ({
           from: new Date(p.startDate),
           to: new Date(p.endDate),
         });
+      }
+      if (p.days && p.days > 0) {
+        setSelectedDuration(p.days);
       }
       if (p.travelerType) {
         setTravelerType(normalizeTravelerType(p.travelerType));
@@ -318,37 +335,37 @@ const TripPreferencesForm = ({
   }, [originIata, targetDestIata, dateRange?.from]);
 
   const travelerTypes = [
-    { id: "solo", label: "Solo", desc: "Going alone", icon: UserRound },
-    { id: "couple", label: "Couple", desc: "Romantic getaway", icon: Heart },
-    { id: "friends", label: "Friends", desc: "Group fun & activities", icon: Users },
-    { id: "family_kids", label: "Family / Kids", desc: "Child-friendly spots", icon: Baby },
-    { id: "family_seniors", label: "Family / Seniors", desc: "Low intensity, easy walks", icon: PersonStanding },
+    { id: "solo", label: isTh ? "คนเดียว (Solo)" : "Solo", desc: isTh ? "เที่ยวเดี่ยวอิสระ คล่องตัว" : "Going alone", icon: UserRound },
+    { id: "couple", label: isTh ? "คู่รัก (Couple)" : "Couple", desc: isTh ? "ทริปโรแมนติก ดื่มด่ำบรรยากาศ" : "Romantic getaway", icon: Heart },
+    { id: "friends", label: isTh ? "กลุ่มเพื่อน (Friends)" : "Friends", desc: isTh ? "เน้นความสนุกและกิจกรรมร่วมกัน" : "Group fun & activities", icon: Users },
+    { id: "family_kids", label: isTh ? "ครอบครัวมีเด็ก" : "Family / Kids", desc: isTh ? "สถานที่เหมาะและปลอดภัยสำหรับเด็ก" : "Child-friendly spots", icon: Baby },
+    { id: "family_seniors", label: isTh ? "ครอบครัวมีผู้สูงอายุ" : "Family / Seniors", desc: isTh ? "เดินทางสบาย ก้าวเดินไม่เหนื่อย" : "Low intensity, easy walks", icon: PersonStanding },
   ];
 
   const budgetLevels = [
-    { id: "budget", label: "Backpacker", desc: "Budget-friendly", icon: Backpack },
-    { id: "standard", label: "Standard", desc: "Comfortable value", icon: Wallet },
-    { id: "luxury", label: "Luxury", desc: "Premium experience", icon: Gem },
+    { id: "budget", label: isTh ? "ประหยัด (Backpacker)" : "Backpacker", desc: isTh ? "คุ้มค่า เน้นเที่ยวสบายกระเป๋า" : "Budget-friendly", icon: Backpack },
+    { id: "standard", label: isTh ? "มาตรฐาน (Standard)" : "Standard", desc: isTh ? "สะดวกสบาย คุ้มราคา" : "Comfortable value", icon: Wallet },
+    { id: "luxury", label: isTh ? "พรีเมียม (Luxury)" : "Luxury", desc: isTh ? "ประสบการณ์ชั้นเลิศ สะดวกสบายสูงสุด" : "Premium experience", icon: Gem },
   ];
 
   const activityOptions = [
-    { id: "culture", label: "Culture", emoji: "🏛️" },
-    { id: "food", label: "Food", emoji: "🍜" },
-    { id: "nature", label: "Nature", emoji: "🌳" },
-    { id: "adventure", label: "Adventure", emoji: "🧗" },
-    { id: "shopping", label: "Shopping", emoji: "🛍️" },
-    { id: "nightlife", label: "Nightlife", emoji: "🍸" },
-    { id: "relax", label: "Relax", emoji: "💆" },
-    { id: "landmark", label: "Landmark & Photo", emoji: "📸" },
-    { id: "entertainment", label: "Entertainment", emoji: "🎪" },
-    { id: "spiritual", label: "Spiritual & Mutelu", emoji: "🔮" },
+    { id: "culture", label: isTh ? "วัฒนธรรม" : "Culture", emoji: "🏛️" },
+    { id: "food", label: isTh ? "อาหาร & คาเฟ่" : "Food", emoji: "🍜" },
+    { id: "nature", label: isTh ? "ธรรมชาติ" : "Nature", emoji: "🌳" },
+    { id: "adventure", label: isTh ? "ผจญภัย" : "Adventure", emoji: "🧗" },
+    { id: "shopping", label: isTh ? "ช้อปปิ้ง" : "Shopping", emoji: "🛍️" },
+    { id: "nightlife", label: isTh ? "แสงสีราตรี" : "Nightlife", emoji: "🍸" },
+    { id: "relax", label: isTh ? "สปา & ผ่อนคลาย" : "Relax", emoji: "💆" },
+    { id: "landmark", label: isTh ? "จุดเช็คอิน" : "Landmark & Photo", emoji: "📸" },
+    { id: "entertainment", label: isTh ? "ความบันเทิง" : "Entertainment", emoji: "🎪" },
+    { id: "spiritual", label: isTh ? "สายมู ขอพร" : "Spiritual & Mutelu", emoji: "🔮" },
   ];
 
 
   const paceOptions = [
-    { id: "relaxed", label: "Relaxed", desc: "1–2 spots/day · slow & scenic", icon: Turtle },
-    { id: "balanced", label: "Balanced", desc: "3–4 spots/day · steady rhythm", icon: Footprints },
-    { id: "packed", label: "Packed", desc: "5+ spots/day · action-packed", icon: Zap },
+    { id: "relaxed", label: isTh ? "ชิลๆ สบายๆ" : "Relaxed", desc: isTh ? "1–2 ที่/วัน · ดื่มด่ำ ไม่เร่งรีบ" : "1–2 spots/day · slow & scenic", icon: Turtle },
+    { id: "balanced", label: isTh ? "สมดุลกำลังดี" : "Balanced", desc: isTh ? "3–4 ที่/วัน · จังหวะพอดี เที่ยวสบาย" : "3–4 spots/day · steady rhythm", icon: Footprints },
+    { id: "packed", label: isTh ? "จัดเต็ม ทุกไฮไลท์" : "Packed", desc: isTh ? "5+ ที่/วัน · เก็บครบทุกจุดสำคัญ" : "5+ spots/day · action-packed", icon: Zap },
   ];
 
   const toggleActivity = (id: string) => {
@@ -359,18 +376,28 @@ const TripPreferencesForm = ({
 
   const days =
     dateRange?.from && dateRange?.to
-      ? differenceInDays(dateRange.to, dateRange.from) + 1
-      : 1;
+      ? Math.max(1, differenceInDays(dateRange.to, dateRange.from) + 1)
+      : selectedDuration;
+
+  const handleDurationSelect = (numDays: number) => {
+    setSelectedDuration(numDays);
+    const baseStart = dateRange?.from || defaultStart;
+    const newEnd = new Date(baseStart);
+    newEnd.setDate(baseStart.getDate() + (numDays - 1));
+    setDateRange({
+      from: baseStart,
+      to: newEnd,
+    });
+  };
 
   const dateRangeLabel = () => {
-    if (!dateRange?.from) return "Select travel dates";
+    if (!dateRange?.from) return "เลือกวันเดินทาง";
     if (!dateRange?.to) return format(dateRange.from, "d MMM yyyy");
     return `${format(dateRange.from, "d MMM yyyy")} – ${format(dateRange.to, "d MMM yyyy")}`;
   };
 
   const canSubmit =
-    !!dateRange?.from &&
-    !!dateRange?.to &&
+    !!(dateRange?.from || defaultStart) &&
     !!travelerType &&
     !!budget &&
     !!pace &&
@@ -379,10 +406,20 @@ const TripPreferencesForm = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
+
+    const finalDays = (dateRange?.from && dateRange?.to)
+      ? Math.max(1, differenceInDays(dateRange.to, dateRange.from) + 1)
+      : selectedDuration;
+
+    const finalStart = dateRange?.from || defaultStart;
+    const finalEnd = (dateRange?.from && dateRange?.to)
+      ? dateRange.to
+      : new Date(finalStart.getTime() + (finalDays - 1) * 86400000);
+
     onSubmit({
-      startDate: dateRange!.from!,
-      endDate: dateRange!.to!,
-      days,
+      startDate: finalStart,
+      endDate: finalEnd,
+      days: finalDays,
       travelerType,
       budget,
       budgetMinTHB: budgetRange[0],
@@ -741,6 +778,7 @@ const TripPreferencesForm = ({
                   setHotelPlaceId(details?.placeId);
                 }}
                 destinationName={destinationName}
+                destinationCoords={destinationCoords}
                 placeholder="Search for your hotel..."
               />
             </div>
@@ -788,11 +826,42 @@ const TripPreferencesForm = ({
         )}
       </div>
 
-      {/* ── Date Range Picker ── */}
+      {/* ── Date Range Picker & Duration Selector ── */}
       <div className="space-y-4">
-        <Label className="text-base font-semibold">When are you traveling?</Label>
-        <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <Label className="text-base font-semibold flex items-center gap-2">
+            <CalendarDays className="w-4 h-4 text-primary" />
+            <span>ระยะเวลาทริป และวันเดินทาง (Duration & Dates)</span>
+          </Label>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold border border-primary/20 self-start sm:self-auto">
+            <span>✈️ {days} วัน {days > 1 ? `(${days - 1} คืน)` : "(วันเดียวกลับ)"}</span>
+          </span>
+        </div>
 
+        {/* Quick Duration Preset Buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-medium text-muted-foreground mr-0.5">เลือกระยะเวลา:</span>
+          {[1, 2, 3, 4, 5, 7].map((num) => {
+            const isSelected = days === num;
+            return (
+              <button
+                key={num}
+                type="button"
+                onClick={() => handleDurationSelect(num)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                  isSelected
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs ring-2 ring-primary/25 scale-[1.03]"
+                    : "bg-card border-border hover:border-primary/40 text-foreground hover:bg-primary/5"
+                }`}
+              >
+                {num} วัน
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Calendar Popover */}
+        <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
           <PopoverTrigger asChild>
             <button
               type="button"
@@ -801,11 +870,9 @@ const TripPreferencesForm = ({
               <CalendarDays className="w-5 h-5 text-primary shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold truncate">{dateRangeLabel()}</p>
-                {dateRange?.from && dateRange?.to && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {days} {days === 1 ? "day" : "days"}
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {days} {days === 1 ? "วัน (Day)" : `วัน (${days} Days, ${days - 1} Nights)`} · คลิกเพื่อเปลี่ยนวันเดินทาง
+                </p>
               </div>
               <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform ${calendarOpen ? "rotate-180" : ""}`} />
             </button>
@@ -815,8 +882,21 @@ const TripPreferencesForm = ({
               mode="range"
               selected={dateRange}
               onSelect={(range) => {
-                setDateRange(range);
-                if (range?.from && range?.to) setCalendarOpen(false);
+                if (range?.from && range?.to) {
+                  const calculated = Math.max(1, differenceInDays(range.to, range.from) + 1);
+                  setSelectedDuration(calculated);
+                  setDateRange(range);
+                  setCalendarOpen(false);
+                } else if (range?.from && !range.to) {
+                  const newEnd = new Date(range.from);
+                  newEnd.setDate(range.from.getDate() + (selectedDuration - 1));
+                  setDateRange({
+                    from: range.from,
+                    to: newEnd,
+                  });
+                } else {
+                  setDateRange(range);
+                }
               }}
               disabled={{ before: today }}
               numberOfMonths={2}
@@ -825,18 +905,18 @@ const TripPreferencesForm = ({
           </PopoverContent>
         </Popover>
 
-        {dateRange?.from && dateRange?.to && (
+        {dateRange?.from && (
           <div className="flex items-center gap-2 px-4 py-2 bg-primary/8 rounded-xl border border-primary/20">
             <span className="text-sm text-primary font-medium">✈️</span>
-            <span className="text-sm text-primary">
-              {days}-day trip · {format(dateRange.from, "MMMM yyyy")}
+            <span className="text-sm text-primary font-medium">
+              ทริป {days} วัน {days > 1 ? `(${days - 1} คืน)` : ""} · {dateRangeLabel()}
             </span>
           </div>
         )}
       </div>
 
       <div className="space-y-4">
-        <Label className="text-base font-semibold">Who are you traveling with?</Label>
+        <Label className="text-base font-semibold">{isTh ? "👥 คุณเดินทางกับใคร?" : "👥 Who are you traveling with?"}</Label>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {travelerTypes.map((type) => {
             const isSelected = travelerType === type.id;
@@ -868,7 +948,7 @@ const TripPreferencesForm = ({
       </div>
 
       <div className="space-y-4">
-        <Label className="text-base font-semibold">What is your travel style?</Label>
+        <Label className="text-base font-semibold">{isTh ? "💰 ระดับงบประมาณ & สไตล์การเดินทาง" : "💰 What is your travel style?"}</Label>
         <div className="grid grid-cols-3 gap-3">
           {budgetLevels.map((level) => {
             const isSelected = budget === level.id;
@@ -961,7 +1041,7 @@ const TripPreferencesForm = ({
       </div>
 
       <div className="space-y-4">
-        <Label className="text-base font-semibold text-center block">What activities do you prefer?</Label>
+        <Label className="text-base font-semibold text-center block">{isTh ? "🎯 เลือกประเภทกิจกรรมที่คุณชื่นชอบ" : "🎯 What activities do you prefer?"}</Label>
         <div className="flex flex-wrap justify-center gap-3">
           {activityOptions.map((opt) => {
             const isSelected = activities.includes(opt.id);
@@ -990,7 +1070,7 @@ const TripPreferencesForm = ({
       </div>
 
       <div className="space-y-4">
-        <Label className="text-base font-semibold">What is your preferred travel pace?</Label>
+        <Label className="text-base font-semibold">{isTh ? "⏱️ จังหวะการเดินทางที่คุณต้องการ (Travel Pace)" : "⏱️ What is your preferred travel pace?"}</Label>
         <div className="grid grid-cols-3 gap-3">
           {paceOptions.map((option) => {
             const isSelected = pace === option.id;
@@ -1031,7 +1111,7 @@ const TripPreferencesForm = ({
             className="w-full sm:w-auto h-11 px-5 rounded-xl border-border/80 hover:bg-muted/60 text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
-            <span>ย้อนกลับ</span>
+            <span>{isTh ? "ย้อนกลับ" : "Back"}</span>
           </Button>
         )}
 
@@ -1043,7 +1123,7 @@ const TripPreferencesForm = ({
             className="w-full sm:w-auto h-11 px-5 rounded-xl border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary font-semibold text-sm flex items-center justify-center gap-2 transition-colors shadow-2xs"
           >
             <Compass className="w-4 h-4" />
-            <span>ดูแผนการท่องเที่ยวปัจจุบัน</span>
+            <span>{isTh ? "ดูแผนการท่องเที่ยวปัจจุบัน" : "View Current Itinerary"}</span>
           </Button>
         )}
 
@@ -1053,7 +1133,7 @@ const TripPreferencesForm = ({
           className="flex-1 w-full h-11 px-6 rounded-xl travel-gradient text-white font-semibold text-sm shadow-md disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-95 transition-opacity"
         >
           <Sparkles className="w-4 h-4" />
-          <span>{hasExistingItinerary ? "สร้างแผนการท่องเที่ยวใหม่ (Regenerate)" : "สร้างแผนการท่องเที่ยว (Generate Itinerary)"}</span>
+          <span>{hasExistingItinerary ? (isTh ? "สร้างแผนการท่องเที่ยวใหม่ ✨" : "Regenerate Itinerary ✨") : (isTh ? "สร้างแผนการท่องเที่ยวด้วย AI ✨" : "Generate Travel Itinerary ✨")}</span>
         </Button>
       </div>
     </form>

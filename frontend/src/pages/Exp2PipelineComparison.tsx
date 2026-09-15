@@ -9,8 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { analyzeImage, type VisionResult } from "@/services/aiService";
 import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
 import {
   Upload,
   Play,
@@ -41,6 +43,8 @@ import {
   Tooltip as RechartsTooltip,
   Cell,
   Legend,
+  ReferenceLine,
+  CartesianGrid,
 } from "recharts";
 
 interface Exp2Result {
@@ -112,6 +116,7 @@ function isTruthy(v: string | boolean | undefined): boolean {
 }
 
 export default function Exp2PipelineComparison() {
+  const { isThai, t } = useLanguage();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [groundTruth, setGroundTruth] = useState<string>("");
@@ -385,20 +390,23 @@ ${rows}
 
   return (
     <ExperimentLayout>
-      <div className="space-y-8">
+      <div className="space-y-6">
         {/* Header Title & Academic Actions */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="text-left">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Experiment 2: Pipeline Architecture & Ablation Study
+                {t("Experiment 2: การเปรียบเทียบสถาปัตยกรรม Pipeline & Ablation Study", "Experiment 2: Pipeline Architecture & Ablation Study")}
               </h2>
               <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 text-xs font-semibold">
-                Thesis Chap. 4.2
+                {t("วิทยานิพนธ์ บทที่ 4.2", "Thesis Chap. 4.2")}
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Quantify the empirical benefit of 2-Turn Visual Retrieval (CLIP) against 1-Turn Direct Multimodal Vision.
+              {t(
+                "วัดผลลัพธ์เชิงประจักษ์ของการใช้ 2-Turn CLIP Retrieval ช่วยคัดกรอง เทียบกับการส่งภาพตรงเข้า VLM (1-Turn Direct Vision)",
+                "Quantify the empirical benefit of 2-Turn Visual Retrieval (CLIP) against 1-Turn Direct Multimodal Vision."
+              )}
             </p>
           </div>
 
@@ -411,10 +419,13 @@ ${rows}
               className="text-xs bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50 shadow-2xs h-8"
             >
               {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-indigo-600" />}
-              {copiedLatex ? "Copied LaTeX" : "Export Ablation LaTeX"}
+              {copiedLatex ? t("คัดลอก LaTeX สำเร็จ", "Copied LaTeX") : t("ส่งออกตาราง LaTeX", "Export Ablation LaTeX")}
             </Button>
           </div>
         </div>
+
+        {/* Executive Summary Takeaways Card */}
+        <KeyTakeawaysCard expId="exp2" />
 
         {/* Top Hero KPI Summary Cards */}
         {metrics && (
@@ -425,17 +436,17 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
-                      2-Turn CLIP Pipeline
+                      {t("2-Turn CLIP Pipeline", "2-Turn CLIP Pipeline")}
                     </span>
                     <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-mono">
-                      Proposed
+                      {t("นำเสนอ (Proposed)", "Proposed")}
                     </Badge>
                   </div>
                   <p className="text-2xl sm:text-3xl font-extrabold text-emerald-900 mt-2">
                     {metrics.clipAcc}%
                   </p>
                   <p className="text-[11px] text-emerald-600/90 mt-0.5 flex items-center gap-1 font-mono">
-                    Avg Latency: <strong>{metrics.avgClipTime} ms</strong>
+                    {t("เวลาเฉลี่ย:", "Avg Latency:")} <strong>{metrics.avgClipTime} ms</strong>
                   </p>
                 </CardContent>
               </Card>
@@ -445,17 +456,17 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-blue-800 uppercase tracking-wider">
-                      1-Turn Direct Vision
+                      {t("1-Turn Direct Vision", "1-Turn Direct Vision")}
                     </span>
                     <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] font-mono">
-                      Baseline
+                      {t("มาตรฐาน (Baseline)", "Baseline")}
                     </Badge>
                   </div>
                   <p className="text-2xl sm:text-3xl font-extrabold text-blue-900 mt-2">
                     {metrics.noclipAcc}%
                   </p>
                   <p className="text-[11px] text-blue-600/90 mt-0.5 flex items-center gap-1 font-mono">
-                    Avg Latency: <strong>{metrics.avgNoClipTime} ms</strong>
+                    {t("เวลาเฉลี่ย:", "Avg Latency:")} <strong>{metrics.avgNoClipTime} ms</strong>
                   </p>
                 </CardContent>
               </Card>
@@ -471,7 +482,7 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
-                      Empirical CLIP Gain ($\Delta$)
+                      {t("ส่วนต่างความแม่นยำ (Δ Gain)", "Empirical CLIP Gain (Δ)")}
                     </span>
                     {metrics.clipGain > 0 ? (
                       <TrendingUp className="w-4 h-4 text-emerald-600" />
@@ -488,7 +499,9 @@ ${rows}
                     {metrics.clipGain.toFixed(1)}%
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    {metrics.clipGain >= 0 ? "Statistically superior accuracy" : "Zero-shot direct faster"}
+                    {metrics.clipGain >= 0
+                      ? t("ความแม่นยำสูงขึ้นอย่างมีนัยสำคัญ", "Statistically superior accuracy")
+                      : t("Direct ตอบเร็วกว่า", "Zero-shot direct faster")}
                   </p>
                 </CardContent>
               </Card>
@@ -498,17 +511,17 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      Evaluated Samples
+                      {t("จำนวนคู่ภาพที่ทดสอบ", "Evaluated Samples")}
                     </span>
                     <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px]">
-                      {metrics.total} Paired Tests
+                      {metrics.total} {t("การทดสอบคู่", "Paired Tests")}
                     </Badge>
                   </div>
                   <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">
                     {metrics.total}
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    $\Delta$ Latency: <strong>{Math.abs(metrics.avgClipTime - metrics.avgNoClipTime)} ms</strong> overhead
+                    {t("เวลาที่เพิ่มขึ้น:", "Δ Latency:")} <strong>+{Math.abs(metrics.avgClipTime - metrics.avgNoClipTime)} ms</strong> {t("overhead", "overhead")}
                   </p>
                 </CardContent>
               </Card>
@@ -523,27 +536,62 @@ ${rows}
                     <div>
                       <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                         <BarChart3 className="w-4 h-4 text-indigo-600" />
-                        Ablation Benchmark: CLIP Pipeline vs. Direct Vision
+                        {t("เปรียบเทียบผลลัพธ์: CLIP Pipeline vs. Direct Vision", "Ablation Benchmark: CLIP Pipeline vs. Direct Vision")}
                       </CardTitle>
                       <CardDescription className="text-xs text-slate-500">
-                        Evaluates accuracy improvement and trade-off per model architecture.
+                        {t(
+                          "แสดงอัตราความแม่นยำเปรียบเทียบของแต่ละโมเดลเมื่อเปิด/ปิด CLIP Pre-filtering",
+                          "Evaluates accuracy improvement and trade-off per model architecture."
+                        )}
                       </CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-4 space-y-4">
-                  <div className="h-60 w-full">
+                  <div className="h-64 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={metrics.modelBreakdown} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                      <BarChart data={metrics.modelBreakdown} margin={{ top: 15, right: 10, left: -20, bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <ReferenceLine
+                          y={80}
+                          stroke="#059669"
+                          strokeDasharray="3 3"
+                          label={{ value: "80% Baseline", position: "right", fill: "#059669", fontSize: 9 }}
+                        />
                         <XAxis dataKey="shortModel" tick={{ fontSize: 10 }} angle={-15} textAnchor="end" interval={0} />
                         <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} domain={[0, 100]} />
                         <RechartsTooltip
-                          formatter={(value: number, name: string) => [`${value}%`, name]}
-                          contentStyle={{ backgroundColor: "#ffffff", borderRadius: "8px", fontSize: "11px", borderColor: "#e2e8f0" }}
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length >= 2) {
+                              const clipVal = payload[0].value as number;
+                              const directVal = payload[1].value as number;
+                              const delta = clipVal - directVal;
+                              return (
+                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-lg text-xs space-y-1.5 text-left">
+                                  <p className="font-bold text-slate-900 border-b border-slate-100 pb-1">{label}</p>
+                                  <div className="flex items-center justify-between gap-4 text-emerald-700 font-semibold">
+                                    <span>2-Turn CLIP:</span>
+                                    <span className="font-mono font-bold">{clipVal}%</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-4 text-blue-700 font-semibold">
+                                    <span>1-Turn Direct:</span>
+                                    <span className="font-mono font-bold">{directVal}%</span>
+                                  </div>
+                                  <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-4 text-[11px] font-bold">
+                                    <span className="text-slate-600">{isThai ? "ส่วนต่าง (Gain):" : "Net Delta:"}</span>
+                                    <span className={delta >= 0 ? "text-emerald-600" : "text-rose-600"}>
+                                      {delta >= 0 ? `+${delta.toFixed(1)}% 🏆` : `${delta.toFixed(1)}%`}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
                         />
                         <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "5px" }} />
-                        <Bar dataKey="clipAcc" name="2-Turn CLIP Pipeline (%)" fill="#10b981" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="directAcc" name="1-Turn Direct Vision (%)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="clipAcc" name={isThai ? "2-Turn CLIP Pipeline (%)" : "2-Turn CLIP Pipeline (%)"} fill="#10b981" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="directAcc" name={isThai ? "1-Turn Direct Vision (%)" : "1-Turn Direct Vision (%)"} fill="#3b82f6" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>

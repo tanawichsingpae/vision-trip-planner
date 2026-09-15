@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string;
+const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY as string;
 
 export interface TravelSegment {
-  durationText: string;  // e.g. "15 mins"
-  distanceText: string;  // e.g. "5.2 km"
+  durationText: string; // e.g. "15 min"
+  distanceText: string; // e.g. "5.2 km"
   status: "loading" | "ok" | "error";
 }
 
@@ -16,57 +16,16 @@ interface LatLng {
 // Cache to avoid redundant API calls for the same origin→destination pair
 const cache = new Map<string, TravelSegment>();
 
-async function fetchDistanceMatrix(origin: LatLng, destination: LatLng): Promise<TravelSegment> {
-  const key = `${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}->${destination.lat.toFixed(5)},${destination.lng.toFixed(5)}`;
-  if (cache.has(key)) return cache.get(key)!;
-
-  try {
-    // Use Routes API (preferred) via fetch — avoids deprecated DistanceMatrixService
-    const url =
-      `https://routes.googleapis.com/directions/v2:computeRoutes`;
-
-    const body = {
-      origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
-      destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
-      travelMode: "DRIVE",
-      computeAlternativeRoutes: false,
-      routeModifiers: { avoidTolls: false },
-      languageCode: "en-US",
-      units: "METRIC",
-    };
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": API_KEY,
-        "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) throw new Error(`Routes API error: ${res.status}`);
-    const data = await res.json();
-
-    const route = data.routes?.[0];
-    if (!route) throw new Error("No route found");
-
-    const durationSec = parseInt(route.duration ?? "0", 10);
-    const distanceM = route.distanceMeters ?? 0;
-
-    const durationText = formatDuration(durationSec);
-    const distanceText = distanceM >= 1000
-      ? `${(distanceM / 1000).toFixed(1)} km`
-      : `${distanceM} m`;
-
-    const seg: TravelSegment = { durationText, distanceText, status: "ok" };
-    cache.set(key, seg);
-    return seg;
-  } catch (e) {
-    console.warn("[useDistanceMatrix] fetch failed:", e);
-    const seg: TravelSegment = { durationText: "", distanceText: "", status: "error" };
-    return seg;
-  }
+function haversineKm(a: LatLng, b: LatLng): number {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const sin2 =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) *
+      Math.cos((b.lat * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(sin2));
 }
 
 function formatDuration(seconds: number): string {
@@ -77,18 +36,61 @@ function formatDuration(seconds: number): string {
   return m > 0 ? `${h}h ${m}min` : `${h}h`;
 }
 
+async function fetchDistanceMatrix(origin: LatLng, destination: LatLng): Promise<TravelSegment> {
+  const key = `${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}->${destination.lat.toFixed(
+    5
+  )},${destination.lng.toFixed(5)}`;
+  if (cache.has(key)) return cache.get(key)!;
+
+  // 0. Immediate check for identical or negligible coordinates
+  if (Math.abs(origin.lat - destination.lat) < 0.0001 && Math.abs(origin.lng - destination.lng) < 0.0001) {
+    const zeroSeg: TravelSegment = { durationText: "1 min", distanceText: "0 m", status: "ok" };
+    cache.set(key, zeroSeg);
+    return zeroSeg;
+  }
+
+  // 1. Try Backend Routing Proxy (avoids browser-level 400 red errors when waypoints are off-road/in water)
+  const backendUrl = import.meta.env.VITE_API_URL || "http://127.0.0.1:8080";
+  try {
+    const res = await fetch(`${backendUrl}/routing?waypoints=${origin.lat},${origin.lng}|${destination.lat},${destination.lng}&mode=drive`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === "ok" && data.distanceText && data.durationText) {
+        const seg: TravelSegment = {
+          durationText: data.durationText,
+          distanceText: data.distanceText,
+          status: "ok",
+        };
+        cache.set(key, seg);
+        return seg;
+      }
+    }
+  } catch {
+    // Backend proxy unavailable, proceed to client fallback
+  }
+
+  // 2. Fast and accurate Haversine calculation (avg 35 km/h city speed + 3 mins buffer)
+  const distKm = haversineKm(origin, destination);
+  const estSec = Math.round((distKm / 35) * 3600) + 180;
+  const seg: TravelSegment = {
+    distanceText: distKm >= 1 ? `${distKm.toFixed(1)} km` : `${Math.round(distKm * 1000)} m`,
+    durationText: formatDuration(estSec),
+    status: "ok",
+  };
+  cache.set(key, seg);
+  return seg;
+}
+
 /**
  * Hook: compute driving distances between consecutive coordinates.
  * Returns an array of TravelSegment, length = coords.length - 1.
  */
 export function useDistanceMatrix(coords: (LatLng | undefined)[]): TravelSegment[] {
   const [segments, setSegments] = useState<TravelSegment[]>([]);
-  // Stable ref for in-flight prevention
-  const runningRef = useRef(false);
 
   // Serialize coords to detect actual changes
   const coordsKey = coords
-    .map(c => c ? `${c.lat.toFixed(4)},${c.lng.toFixed(4)}` : "null")
+    .map((c) => (c ? `${c.lat.toFixed(4)},${c.lng.toFixed(4)}` : "null"))
     .join("|");
 
   useEffect(() => {
@@ -107,19 +109,20 @@ export function useDistanceMatrix(coords: (LatLng | undefined)[]): TravelSegment
     }
 
     // Initialise all as loading
-    setSegments(Array.from({ length: coords.length - 1 }, () => ({
-      durationText: "",
-      distanceText: "",
-      status: "loading" as const,
-    })));
+    setSegments(
+      Array.from({ length: coords.length - 1 }, () => ({
+        durationText: "",
+        distanceText: "",
+        status: "loading" as const,
+      }))
+    );
 
     let cancelled = false;
     (async () => {
-      // Fetch sequentially to respect rate limits
       const results: TravelSegment[] = Array.from({ length: coords.length - 1 }, () => ({
         durationText: "",
         distanceText: "",
-        status: "error" as const,
+        status: "ok" as const,
       }));
 
       for (const { origin, destination, idx } of validPairs) {
@@ -127,12 +130,12 @@ export function useDistanceMatrix(coords: (LatLng | undefined)[]): TravelSegment
         const seg = await fetchDistanceMatrix(origin, destination);
         results[idx] = seg;
         setSegments([...results]);
-        await new Promise(r => setTimeout(r, 50)); // small gap between requests
       }
     })();
 
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
   }, [coordsKey]);
 
   return segments;

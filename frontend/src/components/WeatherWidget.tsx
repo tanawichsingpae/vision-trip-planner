@@ -3,6 +3,7 @@ import { type EnvironmentData, getEnvironmentData } from "@/services/environment
 import { type TypicalWeather } from "@/services/aiService";
 import { getDestinationTimeZone, type TimeZoneInfo } from "@/services/timezoneService";
 import { Wind, Droplets, CloudSun, CalendarDays, Clock, Leaf, Flower2, ShieldAlert } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 
 // ─────────────────────────────────────────
 // Weather icon mapper (Google Weather API type → emoji)
@@ -91,6 +92,7 @@ const TypicalWeatherCard = ({ data, locationName }: { data: TypicalWeather; loca
 // Live Weather Content with Vertical 24-Hour Forecast & Pollen
 // ─────────────────────────────────────────
 const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
+  const { language } = useLanguage();
   if (!data) return null;
   const hasWeather = data.current != null;
   const hasAQI = data.airQuality != null;
@@ -105,7 +107,9 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
           <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col justify-between">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-semibold text-muted-foreground mb-1">Current Weather</p>
+                <p className="text-xs font-semibold text-muted-foreground mb-1">
+                  {language === "th" ? "สภาพอากาศปัจจุบัน" : "Current Weather"}
+                </p>
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">
                     {data.current.temperatureC}°
@@ -124,11 +128,11 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
             <div className="flex items-center gap-3 pt-3 mt-3 border-t border-border/50 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Droplets className="size-3.5 text-sky-500" />
-                <span>ความชื้น {data.current.humidity ?? 70}%</span>
+                <span>{language === "th" ? "ความชื้น" : "Humidity"} {data.current.humidity ?? 70}%</span>
               </span>
               <span className="flex items-center gap-1">
                 <Wind className="size-3.5 text-slate-500" />
-                <span>ลม {data.current.windSpeedKph ?? 12} km/h</span>
+                <span>{language === "th" ? "ลม" : "Wind"} {data.current.windSpeedKph ?? 12} km/h</span>
               </span>
             </div>
           </div>
@@ -138,7 +142,9 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
         {hasAQI && data.airQuality && (
           <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col justify-between">
             <div>
-              <p className="text-xs font-semibold text-muted-foreground mb-1">Air Quality Index (AQI)</p>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">
+                {language === "th" ? "ดัชนีคุณภาพอากาศ (AQI)" : "Air Quality Index (AQI)"}
+              </p>
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground font-mono">
@@ -158,7 +164,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
               </div>
               <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1">
                 <Leaf className="size-3 text-emerald-500 shrink-0" />
-                <span>มลพิษหลัก: <strong className="text-foreground">{data.airQuality.dominantPollutant || "PM2.5"}</strong></span>
+                <span>{language === "th" ? "มลพิษหลัก:" : "Dominant:"} <strong className="text-foreground">{data.airQuality.dominantPollutant || "PM2.5"}</strong></span>
               </p>
             </div>
 
@@ -193,10 +199,10 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
               <Flower2 className="size-3.5 text-pink-500" />
-              <span>Pollen & Allergy Forecast (ดัชนีละอองเกสร)</span>
+              <span>{language === "th" ? "พยากรณ์ละอองเกสรและภูมิแพ้" : "Pollen & Allergy Forecast"}</span>
             </div>
             <span className="text-[10px] font-semibold text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
-              เด่นสุด: {data.pollen.dominantType}
+              {language === "th" ? "เด่นสุด:" : "Dominant:"} {data.pollen.dominantType}
             </span>
           </div>
 
@@ -206,7 +212,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
             <div className="p-2.5 rounded-xl bg-secondary/30 border border-border/50 flex flex-col justify-between">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[11px] font-medium text-foreground flex items-center gap-1">
-                  🌲 ต้นไม้
+                  🌲 {language === "th" ? "ต้นไม้" : "Tree"}
                 </span>
                 <span
                   className="text-[10px] font-bold px-1.5 py-0.2 rounded-full"
@@ -225,7 +231,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
             <div className="p-2.5 rounded-xl bg-secondary/30 border border-border/50 flex flex-col justify-between">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[11px] font-medium text-foreground flex items-center gap-1">
-                  🌾 หญ้า
+                  🌾 {language === "th" ? "หญ้า" : "Grass"}
                 </span>
                 <span
                   className="text-[10px] font-bold px-1.5 py-0.2 rounded-full"
@@ -244,7 +250,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
             <div className="p-2.5 rounded-xl bg-secondary/30 border border-border/50 flex flex-col justify-between">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[11px] font-medium text-foreground flex items-center gap-1">
-                  🌿 วัชพืช
+                  🌿 {language === "th" ? "วัชพืช" : "Weed"}
                 </span>
                 <span
                   className="text-[10px] font-bold px-1.5 py-0.2 rounded-full"
@@ -275,15 +281,15 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
           <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col">
             <div className="flex items-center gap-1.5 text-xs font-bold text-foreground mb-3">
               <CalendarDays className="size-3.5 text-sky-500" />
-              <span>5-Day Daily Forecast</span>
+              <span>{language === "th" ? "พยากรณ์อากาศ 5 วัน" : "5-Day Forecast"}</span>
             </div>
             <div className="space-y-2 flex-1">
               {data.forecast.slice(0, 5).map((day, i) => {
                 const d = day.date ? new Date(day.date) : null;
                 const label = i === 0
-                  ? "Today"
+                  ? (language === "th" ? "วันนี้" : "Today")
                   : d
-                    ? d.toLocaleDateString("en", { weekday: "short" })
+                    ? d.toLocaleDateString(language === "th" ? "th-TH" : "en-US", { weekday: "short" })
                     : `Day ${i + 1}`;
 
                 return (
@@ -315,9 +321,9 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
             <div className="flex items-center justify-between gap-1.5 mb-3">
               <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
                 <Clock className="size-3.5 text-sky-500" />
-                <span>24-Hour Forecast</span>
+                <span>{language === "th" ? "พยากรณ์ล่วงหน้า 24 ชม." : "24-Hour Forecast"}</span>
               </div>
-              <span className="text-[10px] font-medium text-muted-foreground">Hourly</span>
+              <span className="text-[10px] font-medium text-muted-foreground">{language === "th" ? "รายชั่วโมง" : "Hourly"}</span>
             </div>
 
             {/* Vertical Scrollable List */}
@@ -325,9 +331,9 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
               {data.hourly.slice(0, 18).map((hour, i) => {
                 const d = hour.time ? new Date(hour.time) : null;
                 const timeLabel = i === 0
-                  ? "Now"
+                  ? (language === "th" ? "ตอนนี้" : "Now")
                   : d
-                    ? d.toLocaleTimeString("en", { hour: "numeric", minute: "2-digit", hour12: true })
+                    ? d.toLocaleTimeString(language === "th" ? "th-TH" : "en-US", { hour: "numeric", minute: "2-digit", hour12: language !== "th" })
                     : `+${i}h`;
 
                 return (
@@ -362,6 +368,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
 // Main Weather Widget Component
 // ─────────────────────────────────────────
 const WeatherWidget = ({ lat, lng, locationName, tripStartDate, typicalWeather }: WeatherWidgetProps) => {
+  const { language } = useLanguage();
   const [data, setData] = useState<EnvironmentData | null>(null);
   const [timezoneInfo, setTimezoneInfo] = useState<TimeZoneInfo | null>(null);
   const [liveClockStr, setLiveClockStr] = useState<string>("");
@@ -392,7 +399,7 @@ const WeatherWidget = ({ lat, lng, locationName, tripStartDate, typicalWeather }
 
     const timer = setInterval(() => {
       try {
-        const timeStr = new Intl.DateTimeFormat("th-TH", {
+        const timeStr = new Intl.DateTimeFormat(language === "th" ? "th-TH" : "en-US", {
           timeZone: timezoneInfo.timeZoneId,
           hour: "2-digit",
           minute: "2-digit",
@@ -406,7 +413,7 @@ const WeatherWidget = ({ lat, lng, locationName, tripStartDate, typicalWeather }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timezoneInfo]);
+  }, [timezoneInfo, language]);
 
   const hasWeather = data?.current != null;
   const hasAQI = data?.airQuality != null;
@@ -434,7 +441,9 @@ const WeatherWidget = ({ lat, lng, locationName, tripStartDate, typicalWeather }
                 <span className="font-mono text-sm tracking-tight">{liveClockStr || timezoneInfo.localTimeString}</span>
                 <span className="text-[10px] text-muted-foreground font-medium">({timezoneInfo.gmtOffset}, {timezoneInfo.timeZoneId.split("/")[1] || timezoneInfo.timeZoneName})</span>
               </div>
-              <p className="text-[10px] text-muted-foreground">{timezoneInfo.localDateString} · เวลาท้องถิ่น ณ {locationName}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {timezoneInfo.localDateString} · {language === "th" ? `เวลาท้องถิ่น ณ ${locationName}` : `Local time in ${locationName}`}
+              </p>
             </div>
           </div>
           <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20 shrink-0">
@@ -451,10 +460,12 @@ const WeatherWidget = ({ lat, lng, locationName, tripStartDate, typicalWeather }
           </div>
           <div>
             <h3 className="text-sm sm:text-base font-bold text-foreground">
-              Weather & Environment — {locationName}
+              {language === "th" ? `สภาพอากาศและสิ่งแวดล้อม — ${locationName}` : `Weather & Environment — ${locationName}`}
             </h3>
             <p className="text-[11px] text-muted-foreground">
-              {isFarFuture ? `Typical conditions for ${typicalWeather?.month ?? "travel month"} · Live weather & Pollen` : "Live conditions, air quality & pollen index"}
+              {isFarFuture
+                ? (language === "th" ? `สภาพอากาศทั่วไปสำหรับ ${typicalWeather?.month ?? "เดือนที่เดินทาง"} · พยากรณ์สด & ละอองเกสร` : `Typical conditions for ${typicalWeather?.month ?? "travel month"} · Live weather & Pollen`)
+                : (language === "th" ? "สภาพอากาศสด, คุณภาพอากาศ & ดัชนีละอองเกสร" : "Live conditions, air quality & pollen index")}
             </p>
           </div>
         </div>
@@ -479,12 +490,18 @@ const WeatherWidget = ({ lat, lng, locationName, tripStartDate, typicalWeather }
               <span className="text-base mt-0.5">✈️</span>
               <div>
                 <p className="font-semibold text-foreground">
-                  Your trip is in {daysLeft} days — outside standard 7-day live window.
+                  {language === "th"
+                    ? `ทริปของคุณจะเริ่มในอีก ${daysLeft} วัน — อยู่นอกช่วงพยากรณ์สด 7 วัน`
+                    : `Your trip is in ${daysLeft} days — outside standard 7-day live window.`}
                 </p>
                 <p className="text-muted-foreground text-[11px] mt-0.5">
                   {currentTempLabel
-                    ? `Current weather at ${locationName}: ${currentTempLabel} (${data?.current?.condition.description}). Showing historical averages for ${typicalWeather?.month ?? "your month"}.`
-                    : `Showing typical climate patterns for ${typicalWeather?.month ?? "your travel month"}.`}
+                    ? (language === "th"
+                        ? `สภาพอากาศปัจจุบัน ณ ${locationName}: ${currentTempLabel} (${data?.current?.condition.description}) แสดงค่าเฉลี่ยสถิติสำหรับ${typicalWeather?.month ?? "เดือนที่เดินทาง"}`
+                        : `Current weather at ${locationName}: ${currentTempLabel} (${data?.current?.condition.description}). Showing historical averages for ${typicalWeather?.month ?? "your month"}.`)
+                    : (language === "th"
+                        ? `แสดงค่าสถิติสภาพอากาศสำหรับ${typicalWeather?.month ?? "เดือนที่คุณเดินทาง"}`
+                        : `Showing typical climate patterns for ${typicalWeather?.month ?? "your travel month"}.`)}
                 </p>
               </div>
             </div>
@@ -503,7 +520,7 @@ const WeatherWidget = ({ lat, lng, locationName, tripStartDate, typicalWeather }
               className="rounded-2xl overflow-hidden border border-border/70"
             >
               <summary className="flex items-center justify-between px-4 py-2.5 bg-secondary/50 cursor-pointer select-none list-none hover:bg-secondary transition-colors text-xs font-semibold text-foreground">
-                <span>🌐 View Current Live Conditions & Pollen</span>
+                <span>🌐 {language === "th" ? "ดูสภาพอากาศสดและดัชนีละอองเกสร" : "View Current Live Conditions & Pollen"}</span>
                 <span className={`text-muted-foreground text-xs transition-transform ${forecastOpen ? "rotate-180" : ""}`}>▼</span>
               </summary>
               <div className="p-3">
@@ -518,7 +535,7 @@ const WeatherWidget = ({ lat, lng, locationName, tripStartDate, typicalWeather }
 
       {!loading && (
         <p className="text-[10px] text-muted-foreground/60 text-right font-medium">
-          Powered by Google Maps Platform Weather, Air Quality & Pollen APIs
+          Powered by Open-Meteo & Open Air Quality APIs
         </p>
       )}
     </div>

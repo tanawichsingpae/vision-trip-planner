@@ -11,8 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType, MODEL_ID_MAP } from "@/context/AIProviderContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { safeFetch } from "@/utils/apiUtils";
 import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
 import {
   Upload,
   Sliders,
@@ -41,6 +43,8 @@ import {
   PolarGrid,
   PolarAngleAxis,
   Radar,
+  ReferenceLine,
+  CartesianGrid,
 } from "recharts";
 
 interface PromptVariant {
@@ -134,10 +138,11 @@ function isTruthy(v: string | boolean | undefined): boolean {
 }
 
 export default function Exp4PromptSensitivity() {
+  const { isThai, t } = useLanguage();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [groundTruth, setGroundTruth] = useState<string>("");
-  const [selectedModel, setSelectedModel] = useState<AIModelType>("google-gemini-25-flash");
+  const [selectedModel, setSelectedModel] = useState<AIModelType>("google-gemini-38-flash");
   const [selectedVariants, setSelectedVariants] = useState<string[]>(["P1", "P2", "P3", "P4", "P5"]);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -423,20 +428,23 @@ ${rows}
 
   return (
     <ExperimentLayout>
-      <div className="space-y-8">
+      <div className="space-y-6">
         {/* Header Title */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="text-left">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Experiment 4: Prompt Engineering & Sensitivity Analysis
+                {t("Experiment 4: การวิเคราะห์ความไวต่อรูปแบบ Prompt (Prompt Sensitivity)", "Experiment 4: Prompt Engineering & Sensitivity Analysis")}
               </h2>
               <Badge className="bg-purple-50 text-purple-700 border-purple-200 text-xs font-semibold">
-                Thesis Chap. 4.4
+                {t("วิทยานิพนธ์ บทที่ 4.4", "Thesis Chap. 4.4")}
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Evaluate how Prompt Formulations (Direct, Chain-of-Thought, Thai, Few-Shot) alter recognition accuracy and latency.
+              {t(
+                "ประเมินประสิทธิภาพของเทคนิค Prompt ต่างๆ (ถามตรง, คัด 5 ตัวเลือก, Chain-of-Thought, ภาษาไทย และ Few-Shot)",
+                "Evaluate how Prompt Formulations (Direct, Chain-of-Thought, Thai, Few-Shot) alter recognition accuracy and latency."
+              )}
             </p>
           </div>
 
@@ -449,10 +457,13 @@ ${rows}
               className="text-xs bg-white text-purple-700 border-purple-200 hover:bg-purple-50 shadow-2xs h-8"
             >
               {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-purple-600" />}
-              {copiedLatex ? "Copied LaTeX" : "Export Prompt LaTeX"}
+              {copiedLatex ? t("คัดลอก LaTeX สำเร็จ", "Copied LaTeX") : t("ส่งออกตาราง LaTeX", "Export Prompt LaTeX")}
             </Button>
           </div>
         </div>
+
+        {/* Executive Summary Takeaways Card */}
+        <KeyTakeawaysCard expId="exp4" />
 
         {/* Top Hero KPI Dashboard */}
         {analytics && (
@@ -462,7 +473,9 @@ ${rows}
                 <Card key={v.id} className="bg-white border-slate-200/90 shadow-xs text-left">
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{v.id} Strategy</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        {v.id} {isThai ? "กลยุทธ์" : "Strategy"}
+                      </span>
                       <Badge className="text-[9px] font-mono px-1.5 py-0" style={{ backgroundColor: `${v.color}15`, color: v.color, borderColor: `${v.color}30` }}>
                         {v.tag}
                       </Badge>
@@ -471,7 +484,7 @@ ${rows}
                       {v.accuracy}%
                     </p>
                     <p className="text-[10px] text-slate-400 mt-1 font-mono">
-                      Avg: {v.avgTime} ms ({v.total} tests)
+                      {isThai ? "เฉลี่ย" : "Avg"}: {v.avgTime} ms ({v.total} {t("การทดสอบ", "tests")})
                     </p>
                   </CardContent>
                 </Card>
@@ -486,7 +499,9 @@ ${rows}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                       <BarChart3 className="w-4 h-4 text-purple-600" />
-                      {promptView === "bar" ? "Accuracy by Prompt Formulation" : "Model × Prompt Strategy Matrix Heatmap"}
+                      {promptView === "bar"
+                        ? t("เปรียบเทียบความแม่นยำตามรูปแบบ Prompt", "Accuracy by Prompt Formulation")
+                        : t("เมทริกซ์ Model × กลยุทธ์ Prompt", "Model × Prompt Strategy Matrix Heatmap")}
                     </CardTitle>
 
                     <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
@@ -498,7 +513,7 @@ ${rows}
                           promptView === "bar" ? "bg-white text-purple-700 shadow-xs hover:bg-white" : "text-slate-600"
                         }`}
                       >
-                        Bar Chart
+                        {t("กราฟแท่ง", "Bar Chart")}
                       </Button>
                       <Button
                         variant={promptView === "matrix" ? "default" : "ghost"}
@@ -508,21 +523,58 @@ ${rows}
                           promptView === "matrix" ? "bg-white text-purple-700 shadow-xs hover:bg-white" : "text-slate-600"
                         }`}
                       >
-                        Model Matrix
+                        {t("ตารางเมทริกซ์", "Model Matrix")}
                       </Button>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-4">
                   {promptView === "bar" ? (
-                    <div className="h-56 w-full">
+                    <div className="h-64 w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={analytics.variantBreakdown} margin={{ top: 10, right: 20, left: -20, bottom: 20 }}>
+                        <BarChart data={analytics.variantBreakdown} margin={{ top: 15, right: 20, left: -20, bottom: 20 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                          <ReferenceLine
+                            y={analytics.variantBreakdown[0]?.accuracy || 80}
+                            stroke="#6366f1"
+                            strokeDasharray="3 3"
+                            label={{
+                              value: isThai ? "P1 Baseline" : "P1 Baseline",
+                              position: "right",
+                              fill: "#6366f1",
+                              fontSize: 9,
+                            }}
+                          />
                           <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-10} textAnchor="end" interval={0} />
                           <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} domain={[0, 100]} />
                           <RechartsTooltip
-                            formatter={(v: any) => [`${v}%`, "Accuracy"]}
-                            contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px" }}
+                            content={({ active, payload }) => {
+                              if (active && payload && payload.length) {
+                                const data = payload[0].payload;
+                                return (
+                                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-lg text-xs space-y-1.5 text-left">
+                                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1">
+                                      <p className="font-bold text-slate-900">{data.name}</p>
+                                      <Badge variant="outline" className="text-[9px]" style={{ color: data.color, borderColor: data.color }}>
+                                        {data.tag}
+                                      </Badge>
+                                    </div>
+                                    <p className="text-purple-600 font-semibold flex items-center justify-between">
+                                      <span>{isThai ? "ความแม่นยำ:" : "Accuracy:"}</span>
+                                      <span className="font-bold font-mono">{data.accuracy}%</span>
+                                    </p>
+                                    <p className="text-slate-600 font-mono flex items-center justify-between gap-4">
+                                      <span>{isThai ? "เวลาเฉลี่ย:" : "Avg Latency:"}</span>
+                                      <span>{data.avgTime} ms</span>
+                                    </p>
+                                    <p className="text-[10px] text-slate-500 pt-1 leading-relaxed">
+                                      {data.description}
+                                    </p>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
                           />
                           <Bar dataKey="accuracy" radius={[6, 6, 0, 0]}>
                             {analytics.variantBreakdown.map((entry, idx) => (

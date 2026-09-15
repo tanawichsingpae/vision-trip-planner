@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { CloudUpload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface ImageUploadProps {
   onImagesUploaded: (files: File[]) => void;
@@ -42,6 +43,7 @@ const ImageUpload = ({
   loadingLabel = "Analyzing Destinations...",
   activePreviews,
 }: ImageUploadProps) => {
+  const { language } = useLanguage();
   const [dragActive, setDragActive] = useState(false);
   const [previews, setPreviews] = useState<string[]>([]);
   const [isLoadingSample, setIsLoadingSample] = useState(false);
@@ -73,6 +75,10 @@ const ImageUpload = ({
     if (e.target.files) handleFiles(Array.from(e.target.files));
   };
 
+  const removePreview = (index: number) => {
+    setPreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
   const clearImages = () => {
     setPreviews([]);
   };
@@ -94,16 +100,16 @@ const ImageUpload = ({
 
   if (displayedPreviews.length > 0) {
     return (
-      <div className="animate-in fade-in max-w-2xl mx-auto duration-500">
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {displayedPreviews.map((src, i) => (
-            <div key={i} className="relative aspect-square rounded-2xl overflow-hidden shadow-xs border border-border/70 group">
-              <img src={src} alt={`Upload ${i + 1}`} className="w-full h-full object-cover" />
+            <div key={i} className="group relative aspect-square rounded-2xl overflow-hidden border border-border/70 bg-card shadow-xs">
+              <img src={src} alt={`Preview ${i + 1}`} className="w-full h-full object-cover" />
               {!isAnalyzing && (
                 <button 
                   type="button"
-                  onClick={() => setPreviews(prev => prev.filter((_, idx) => idx !== i))}
-                  className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-full bg-slate-900/80 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => removePreview(i)}
+                  className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-full bg-slate-900/80 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-600 shadow-xs"
                 >
                   <X className="size-3.5" />
                 </button>
@@ -116,14 +122,16 @@ const ImageUpload = ({
           <div className="rounded-2xl border border-primary/20 bg-primary/5 p-6 text-center animate-pulse">
             <div className="size-8 border-3 border-primary/30 border-t-primary rounded-full animate-spin mx-auto mb-3" />
             <p className="text-foreground font-semibold text-sm">{loadingLabel}</p>
-            <p className="text-muted-foreground text-xs mt-1">Vision AI is identifying landmarks & places</p>
+            <p className="text-muted-foreground text-xs mt-1">
+              {language === "th" ? "Vision AI กำลังระบุสถานที่และจุดท่องเที่ยวสำคัญ" : "Vision AI is identifying landmarks & places"}
+            </p>
           </div>
         )}
         
         {!isAnalyzing && (
           <div className="flex justify-center">
             <Button variant="outline" size="sm" onClick={clearImages} className="rounded-xl gap-1.5 text-xs">
-              <X className="size-3.5" /> Upload Different Photos
+              <X className="size-3.5" /> {language === "th" ? "เลือกรูปภาพอื่น" : "Upload Different Photos"}
             </Button>
           </div>
         )}
@@ -136,13 +144,15 @@ const ImageUpload = ({
       {/* Header text */}
       <div className="space-y-2 text-center">
         <p className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-secondary px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-          Step 1 of 4
+          {language === "th" ? "ขั้นตอนที่ 1 จาก 4" : "Step 1 of 4"}
         </p>
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl text-foreground">
-          Upload a photo, get a trip
+          {language === "th" ? "อัปโหลดภาพท่องเที่ยว สร้างแผนการเดินทางทันที" : "Upload a photo, get a trip"}
         </h1>
         <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground">
-          Drop in a destination photo and Pixinerary's vision AI identifies it, then drafts a full itinerary around it.
+          {language === "th"
+            ? "เพียงวางรูปภาพสถานที่ท่องเที่ยว Vision AI จะระบุพิกัดและวางแผนตารางท่องเที่ยวให้คุณอัตโนมัติ"
+            : "Drop in a destination photo and Pixinerary's vision AI identifies it, then drafts a full itinerary around it."}
         </p>
       </div>
 
@@ -168,14 +178,31 @@ const ImageUpload = ({
           <CloudUpload className="size-6 text-sky-500" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-foreground">Drag & drop your travel photos</p>
-          <p className="text-xs text-muted-foreground mt-0.5">or click to browse — JPG, PNG up to 10MB</p>
+          <p className="text-sm font-semibold text-foreground">
+            {language === "th" ? "ลาก & วางภาพสถานที่ท่องเที่ยวของคุณที่นี่" : "Drag & drop your travel photos"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {language === "th" ? "หรือคลิกเพื่อเลือกไฟล์ — JPG, PNG ขนาดไม่เกิน 10MB" : "or click to browse — JPG, PNG up to 10MB"}
+          </p>
+          <p className="text-[11px] text-muted-foreground/80 mt-1.5 flex items-center justify-center gap-1.5 flex-wrap">
+            <span className="font-medium text-foreground/80">
+              {language === "th" ? "🏖️ ภาพวิว/แลนด์มาร์กท่องเที่ยว" : "🏖️ Scenic & landmark travel photos"}
+            </span>
+            <span className="text-muted-foreground/40">•</span>
+            <span>
+              {language === "th"
+                ? "ระบบมี AI ตรวจจับและแจ้งเตือนหากเป็นภาพบุคคล อาหาร หรือเอกสาร"
+                : "AI detects and alerts if images are portraits, food, or documents"}
+            </span>
+          </p>
         </div>
       </div>
 
       {/* Sample Destinations */}
       <div className="flex flex-col items-center gap-3">
-        <p className="text-xs font-medium text-muted-foreground">Or try a sample destination</p>
+        <p className="text-xs font-medium text-muted-foreground">
+          {language === "th" ? "หรือลองทดสอบด้วยภาพตัวอย่าง" : "Or try a sample destination"}
+        </p>
         <div className="flex flex-wrap justify-center gap-2">
           {SAMPLE_DESTINATIONS.map((sample) => (
             <button

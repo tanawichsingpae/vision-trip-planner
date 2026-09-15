@@ -1,11 +1,5 @@
 import { Check } from "lucide-react";
-
-const steps = [
-  { id: 1, label: "Upload" },
-  { id: 2, label: "Locations" },
-  { id: 3, label: "Preferences" },
-  { id: 4, label: "Itinerary" },
-];
+import { useLanguage } from "@/context/LanguageContext";
 
 interface StepIndicatorProps {
   currentStep: number;
@@ -14,6 +8,14 @@ interface StepIndicatorProps {
 }
 
 const StepIndicator = ({ currentStep, maxUnlockedStep = currentStep, onStepClick }: StepIndicatorProps) => {
+  const { language } = useLanguage();
+
+  const steps = [
+    { id: 1, label: language === "th" ? "อัปโหลดภาพ" : "Upload" },
+    { id: 2, label: language === "th" ? "สถานที่ท่องเที่ยว" : "Locations" },
+    { id: 3, label: language === "th" ? "สไตล์ & ความต้องการ" : "Preferences" },
+    { id: 4, label: language === "th" ? "ตารางท่องเที่ยว" : "Itinerary" },
+  ];
   return (
     <div className="mb-8 flex items-center justify-center">
       <ol className="flex items-center gap-1.5 sm:gap-2">

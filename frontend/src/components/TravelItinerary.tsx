@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { Calendar, Clock, Trash2, Plus, Edit2, Check, MapPin, GripVertical, RefreshCw, Phone, Globe, Car, Sparkles, Search, Loader2 } from "lucide-react";
+import { Calendar, Clock, Trash2, Plus, Edit2, Check, MapPin, GripVertical, RefreshCw, Phone, Globe, Car, Sparkles, Search, Loader2, Camera, ChevronDown, Navigation } from "lucide-react";
 import QRCode from "qrcode";
 import { getPlaceImage } from "@/utils/getPlaceImage";
-import { importMapsLibrary } from "@/lib/mapsLoader";
+import { fetchWikimediaPhoto } from "@/api/geocode";
+import { getCuratedFallbackPhoto } from "@/services/photoService";
+import { getFallbackOpeningHours } from "@/api/places";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -21,11 +23,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { ChangePhotoModal } from "@/components/ChangePhotoModal";
 
 import { type SuggestedPlace } from "@/components/AISuggestedPlaces";
 import { useDistanceMatrix } from "@/hooks/useDistanceMatrix";
 import { type ForecastHour } from "@/services/environmentService";
 import { type ItineraryCoherence } from "@/api/spatialPlanner";
+import { useLanguage } from "@/context/LanguageContext";
+import { translateTextSync, hasThaiScript } from "@/services/translatorService";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -43,6 +48,14 @@ export interface Activity {
   image?: string;
   image_url?: string | null;
   photo_url?: string | null;
+  isUserPhoto?: boolean;
+  english_name?: string;
+  title_th?: string;
+  title_en?: string;
+  description_th?: string;
+  description_en?: string;
+  wiki_title?: string;
+  image_keyword?: string;
   lat?: number;
   lng?: number;
   rating?: number | null;
@@ -64,6 +77,7 @@ interface TravelItineraryProps {
   itinerary: DayPlan[];
   onUpdate: (itinerary: DayPlan[]) => void;
   onSelectActivity?: (activity: Activity) => void;
+  selectedActivityId?: string | null;
   onHoverActivity?: (id: string | null) => void;
   activeDragId?: string | null;
   onReloadMap?: () => void;
@@ -73,6 +87,9 @@ interface TravelItineraryProps {
   coherenceResult?: ItineraryCoherence | null;
   onAIRefine?: () => void;
   isAIRefining?: boolean;
+  onOptimizeDay?: (dayIndex: number) => void;
+  isOptimizingDay?: number | null;
+  cityName?: string;
 }
 
 
@@ -115,24 +132,6 @@ export const DAY_COLORS = [
   '#a855f7'  // Day 15
 ];
 
-export const PLACEHOLDER_IMAGES: Record<string, string> = {
-  "Arrive at Ngurah Rai Airport": "https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=600&h=400&fit=crop",
-  "Seminyak Beach": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&h=400&fit=crop",
-  "Lunch at Coral Kitchen": "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&h=400&fit=crop",
-  "Tanah Lot Temple Sunset": "https://images.unsplash.com/photo-1577717903315-1691ae25ab3f?w=600&h=400&fit=crop",
-  "Mount Batur Sunrise Trek": "https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=600&h=400&fit=crop",
-  "Tegallalang Rice Terrace": "https://images.unsplash.com/photo-1558005137-d9619a5c539f?w=600&h=400&fit=crop",
-  "Lunch in Ubud": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&h=400&fit=crop",
-  "Ubud Monkey Forest": "https://images.unsplash.com/photo-1540202404-a2f29016b523?w=600&h=400&fit=crop",
-  "Spa & Relaxation": "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=600&h=400&fit=crop",
-  "Uluwatu Temple": "https://images.unsplash.com/photo-1555400038-63f5ba517a47?w=600&h=400&fit=crop",
-  "Local Art Market": "https://images.unsplash.com/photo-1555529771-835f59fc5efe?w=600&h=400&fit=crop",
-  "Farewell Lunch": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&h=400&fit=crop",
-  "Departure": "https://images.unsplash.com/photo-1436491865332-7a61a109db56?w=600&h=400&fit=crop",
-  "Tanah Lot Temple": "https://images.unsplash.com/photo-1577717903315-1691ae25ab3f?w=600&h=400&fit=crop",
-  "Mount Batur": "https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?w=600&h=400&fit=crop",
-};
-
 export const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
   food: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&h=600&fit=crop",
   culture: "https://images.unsplash.com/photo-1548013146-72479768bada?w=800&h=600&fit=crop",
@@ -154,24 +153,35 @@ export const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
 
 export const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=600&h=400&fit=crop";
 
-export function getActivityImage(activity: Activity): string {
-  if (activity.photo_url && typeof activity.photo_url === "string" && activity.photo_url.trim().length > 0 && !activity.photo_url.includes("undefined")) {
+export function getActivityImage(activity: Activity, cityName?: string): string {
+  if (
+    activity.photo_url &&
+    typeof activity.photo_url === "string" &&
+    activity.photo_url.trim().length > 0 &&
+    !activity.photo_url.includes("undefined") &&
+    !activity.photo_url.includes("picsum")
+  ) {
     return activity.photo_url;
   }
-  if (activity.image_url && typeof activity.image_url === "string" && activity.image_url.trim().length > 0 && !activity.image_url.includes("undefined")) {
+  if (
+    activity.image_url &&
+    typeof activity.image_url === "string" &&
+    activity.image_url.trim().length > 0 &&
+    !activity.image_url.includes("undefined") &&
+    !activity.image_url.includes("picsum")
+  ) {
     return activity.image_url;
   }
-  if (activity.image && typeof activity.image === "string" && activity.image.trim().length > 0 && !activity.image.includes("undefined")) {
+  if (
+    activity.image &&
+    typeof activity.image === "string" &&
+    activity.image.trim().length > 0 &&
+    !activity.image.includes("undefined") &&
+    !activity.image.includes("picsum")
+  ) {
     return activity.image;
   }
-  if (activity.title && PLACEHOLDER_IMAGES[activity.title]) {
-    return PLACEHOLDER_IMAGES[activity.title];
-  }
-  const typeKey = (activity.type || "attraction").toLowerCase();
-  if (CATEGORY_FALLBACK_IMAGES[typeKey]) {
-    return CATEGORY_FALLBACK_IMAGES[typeKey];
-  }
-  return DEFAULT_IMAGE;
+  return getCuratedFallbackPhoto(activity.type, activity.image_keyword || activity.english_name || activity.title, { cityName });
 }
 
 
@@ -292,124 +302,8 @@ const TravelConnector = ({
 };
 
 // ─────────────────────────────────────────
-// Interactive Street View Component
+// Sortable Activity Card Component
 // ─────────────────────────────────────────
-const streetViewUnavailableCache = new Set<string>();
-
-function InteractiveStreetView({
-  lat,
-  lng,
-  title,
-  onClose,
-}: {
-  lat: number;
-  lng: number;
-  title?: string;
-  onClose: () => void;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let isMounted = true;
-    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
-
-    if (streetViewUnavailableCache.has(key)) {
-      toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
-      onClose();
-      return;
-    }
-
-    async function initStreetView() {
-      try {
-        if (typeof google === "undefined" || !google.maps || !google.maps.StreetViewService) {
-          await importMapsLibrary("streetView");
-        }
-
-        if (typeof google === "undefined" || !google.maps || !google.maps.StreetViewService) {
-          if (isMounted) {
-            toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
-            streetViewUnavailableCache.add(key);
-            onClose();
-          }
-          return;
-        }
-
-        const svService = new google.maps.StreetViewService();
-        svService.getPanorama(
-          { location: { lat, lng }, radius: 50 },
-          (data, status) => {
-            if (!isMounted) return;
-
-            if (status === google.maps.StreetViewStatus.OK && data && data.location && containerRef.current) {
-              setLoading(false);
-              const panorama = new google.maps.StreetViewPanorama(containerRef.current, {
-                position: data.location.latLng || { lat, lng },
-                pov: { heading: 0, pitch: 0 },
-                zoom: 1,
-                disableDefaultUI: true,
-                showRoadLabels: false,
-                linksControl: true,
-                panControl: true,
-                zoomControl: true,
-                fullscreenControl: true,
-                enableCloseButton: false,
-              });
-
-              panorama.addListener("status_changed", () => {
-                if (panorama.getStatus() !== google.maps.StreetViewStatus.OK) {
-                  if (isMounted) {
-                    toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
-                    streetViewUnavailableCache.add(key);
-                    onClose();
-                  }
-                }
-              });
-            } else {
-              toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
-              streetViewUnavailableCache.add(key);
-              onClose();
-            }
-          }
-        );
-      } catch (err) {
-        console.warn("Street View initialization error:", err);
-        if (isMounted) {
-          toast.warning(`ไม่มี Street View สำหรับ "${title || "สถานที่นี้"}"`);
-          streetViewUnavailableCache.add(key);
-          onClose();
-        }
-      }
-    }
-
-    initStreetView();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [lat, lng, title, onClose]);
-
-  return (
-    <div
-      className="relative w-full h-[180px] bg-muted/50 rounded-lg border border-border overflow-hidden mt-1.5"
-      onPointerDown={(e) => e.stopPropagation()}
-      onMouseDown={(e) => e.stopPropagation()}
-      onTouchStart={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
-    >
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10 text-xs text-muted-foreground gap-2">
-          <Loader2 className="w-4 h-4 animate-spin text-primary" />
-          <span>กำลังโหลด Street View...</span>
-        </div>
-      )}
-      <div ref={containerRef} className="w-full h-full" />
-    </div>
-  );
-}
-
-
 interface SortableCardProps {
   activity: Activity;
   dayIndex: number;
@@ -429,6 +323,8 @@ interface SortableCardProps {
   dayDate?: Date;
   activityWeather?: ForecastHour | null; // weather for this specific hour
   apiKey?: string;
+  onChangePhoto?: (dayIndex: number, activity: Activity) => void;
+  cityName?: string;
 }
 
 const SortableCard = ({
@@ -449,13 +345,13 @@ const SortableCard = ({
   dayDate,
   activityWeather,
   apiKey,
+  onChangePhoto,
+  cityName,
 }: SortableCardProps) => {
-  const [
-    showStreetView,
-    setShowStreetView,
-  ] = useState(false);
+  const { language, locPlace, locDesc } = useLanguage();
+  const displayTitle = locPlace(activity);
+  const displayDescription = locDesc(activity);
 
-  const GOOGLE_MAPS_API_KEY = apiKey || import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const {
     attributes,
     listeners,
@@ -487,20 +383,49 @@ const SortableCard = ({
         } ${isDragOverlay ? "shadow-2xl scale-[1.01] rotate-0.5" : ""} ${isSelected ? "shadow-lg scale-[1.01]" : "border-border hover:border-primary/30"
         }`}
     >
-      <div className="relative h-40 overflow-hidden pdf-img-compact">
+      <div className="relative h-44 sm:h-48 overflow-hidden pdf-img-compact">
         <img
-          src={getActivityImage(activity)}
+          src={getActivityImage(activity, cityName)}
           alt={activity.title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
           onError={(e) => {
-            const fallback = CATEGORY_FALLBACK_IMAGES[activity.type?.toLowerCase() || "attraction"] || DEFAULT_IMAGE;
+            const fallback = getCuratedFallbackPhoto(activity.type, activity.title, { cityName });
             if (e.currentTarget.src !== fallback) {
               e.currentTarget.src = fallback;
             }
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
+
+        {/* User Photo Badge */}
+        {activity.isUserPhoto && (
+          <div className="absolute top-3 left-3 z-20 flex items-center gap-1 bg-emerald-600/90 text-white backdrop-blur-sm rounded-full px-2.5 py-0.5 text-[10px] font-semibold shadow-md">
+            <Camera className="w-3 h-3" />
+            <span>รูปของคุณ</span>
+          </div>
+        )}
+
+        {/* Change Photo Button */}
+        {onChangePhoto && (
+          <div className="absolute bottom-3 left-3 z-20 opacity-0 group-hover:opacity-100 transition-opacity pdf-hidden">
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangePhoto(dayIndex, activity);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md text-[11px] font-medium shadow-md transition-all duration-200 hover:scale-105 cursor-pointer"
+              title="เปลี่ยนรูปภาพสถานที่นี้"
+            >
+              <Camera className="w-3 h-3" />
+              <span>เปลี่ยนรูป</span>
+            </button>
+          </div>
+        )}
 
         <div className="absolute top-3 right-3 z-20 flex items-center gap-1 bg-card/90 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium text-foreground shadow-sm">
           <div
@@ -583,7 +508,7 @@ const SortableCard = ({
         </div>
       </div>
 
-      <div className="p-4 relative pb-10">
+      <div className="p-4 relative pb-4">
         <div className="flex items-center justify-between mb-2">
           <Badge variant="outline" className={`text-[10px] ${config.color}`}>
             {config.label}
@@ -623,18 +548,18 @@ const SortableCard = ({
           </div>
         ) : (
           <div className="flex items-start justify-between gap-2">
-            <h4 className="font-semibold text-foreground text-sm leading-snug line-clamp-2">{activity.title}</h4>
+            <h4 className="font-semibold text-foreground text-sm sm:text-base leading-snug break-words line-clamp-2">{displayTitle}</h4>
             <button
-              onClick={(e) => { e.stopPropagation(); onStartEdit(activity.id, activity.title); }}
+              onClick={(e) => { e.stopPropagation(); onStartEdit(activity.id, displayTitle); }}
               className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors shrink-0 pdf-hidden"
-              title="Edit Title"
+              title={language === "th" ? "แก้ไขชื่อ" : "Edit Title"}
             >
               <Edit2 className="w-3 h-3" />
             </button>
           </div>
         )}
 
-        <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{activity.description}</p>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1.5 leading-relaxed line-clamp-3">{displayDescription}</p>
 
         {/* Rating */}
         {activity.rating != null && activity.rating > 0 && (
@@ -670,46 +595,125 @@ const SortableCard = ({
           </div>
         )}
 
-        {/* Opening Hours */}
-        <div className="pdf-hidden">
-        {activity.openingHours && activity.openingHours.length > 0 && (() => {
-          // Google Places API weekday_text starts on Monday at index 0
-          // JS getDay() starts on Sunday at 0. So (getDay() + 6) % 7 maps JS day to Google index.
+        {/* Opening Hours Badge & 7-Day Schedule */}
+        {activity.type !== "transport" && (() => {
+          const hoursList = (activity.openingHours && activity.openingHours.length > 0)
+            ? activity.openingHours
+            : getFallbackOpeningHours(activity.type, activity.title);
+
+          if (!hoursList || hoursList.length === 0) return null;
+
           const dateToUse = dayDate || new Date();
-          const currentDayIndex = (dateToUse.getDay() + 6) % 7;
-          // Fallback if the array length doesn't match 7 days for some reason
-          const currentDayText = activity.openingHours[currentDayIndex] || activity.openingHours[0];
+          const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+          const currentDayName = dayNames[dateToUse.getDay()];
+          const dayIndexGoogle = (dateToUse.getDay() + 6) % 7;
+
+          const todayEntry = hoursList.find(line => line.toLowerCase().startsWith(currentDayName.toLowerCase())) 
+            || hoursList[dayIndexGoogle] 
+            || hoursList[0];
+
+          const colonIndex = todayEntry.indexOf(":");
+          const todayHours = colonIndex > -1 ? todayEntry.slice(colonIndex + 1).trim() : todayEntry;
+          const isClosedToday = todayHours.toLowerCase().includes("closed") || todayHours.toLowerCase().includes("ปิด");
+          const isOpen24Today = todayHours.toLowerCase().includes("open 24") || todayHours.toLowerCase().includes("24 ชั่วโมง") || todayHours.toLowerCase().includes("24 hours");
+
+          const thaiDayMap: Record<string, { th: string; short: string }> = {
+            monday: { th: "วันจันทร์", short: "จ." },
+            tuesday: { th: "วันอังคาร", short: "อ." },
+            wednesday: { th: "วันพุธ", short: "พ." },
+            thursday: { th: "วันพฤหัสบดี", short: "พฤ." },
+            friday: { th: "วันศุกร์", short: "ศ." },
+            saturday: { th: "วันเสาร์", short: "ส." },
+            sunday: { th: "วันอาทิตย์", short: "อา." },
+          };
 
           return (
-            <details
-              className="text-[10px] text-muted-foreground mt-1 group cursor-pointer relative z-20"
-              onPointerDown={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <summary className="flex items-center gap-1 hover:text-foreground transition-colors list-none outline-none">
-                <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="font-medium line-clamp-1 group-open:line-clamp-none">
-                  {currentDayText}
-                </span>
-                <svg className="w-3 h-3 opacity-50 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </summary>
-              <div className="pl-4 mt-1.5 mb-1 flex flex-col gap-1 border-l-2 border-border/50 ml-1.5">
-                {activity.openingHours.map((hours, idx) => (
-                  <span key={idx} className={idx === currentDayIndex ? "text-foreground font-semibold" : ""}>
-                    {hours}
-                  </span>
-                ))}
+            <div className="mt-2">
+              <div className="pdf-hidden">
+                <details
+                  className="group cursor-pointer relative z-20 text-[11px]"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <summary className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/40 transition-colors list-none outline-none select-none">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          isClosedToday
+                            ? "bg-rose-500"
+                            : isOpen24Today
+                            ? "bg-blue-500"
+                            : "bg-emerald-500 animate-pulse"
+                        }`}
+                      />
+                      <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="font-medium text-foreground truncate">
+                        <span className="text-muted-foreground mr-1">เวลาเปิด-ปิด:</span>
+                        {isClosedToday ? (
+                          <span className="text-rose-600 dark:text-rose-400 font-semibold">ปิดทำการวันนี้</span>
+                        ) : isOpen24Today ? (
+                          <span className="text-blue-600 dark:text-blue-400 font-semibold">เปิด 24 ชม.</span>
+                        ) : (
+                          <span className="font-semibold text-foreground">{todayHours}</span>
+                        )}
+                      </span>
+                    </div>
+                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0 group-open:rotate-180 transition-transform duration-200" />
+                  </summary>
+
+                  <div className="mt-1.5 p-2.5 bg-card/95 rounded-lg border border-border/60 shadow-sm text-[11px] space-y-1.5 backdrop-blur-sm">
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b border-border/40 pb-1">
+                      <span>ตารางเวลาเปิด-ปิด (7 วัน)</span>
+                      <span className="text-[9px] font-normal text-muted-foreground/80">เวลาท้องถิ่น</span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      {hoursList.map((hoursLine, idx) => {
+                        const cIdx = hoursLine.indexOf(":");
+                        const rawDay = cIdx > -1 ? hoursLine.slice(0, cIdx).trim() : "";
+                        const rawTime = cIdx > -1 ? hoursLine.slice(cIdx + 1).trim() : hoursLine;
+                        const dayKey = rawDay.toLowerCase();
+                        const thaiInfo = thaiDayMap[dayKey];
+                        const isThisToday = rawDay.toLowerCase() === currentDayName.toLowerCase() || (idx === dayIndexGoogle && !thaiInfo);
+                        const isClosedLine = rawTime.toLowerCase().includes("closed") || rawTime.toLowerCase().includes("ปิด");
+                        const isOpen24Line = rawTime.toLowerCase().includes("open 24") || rawTime.toLowerCase().includes("24 ชั่วโมง") || rawTime.toLowerCase().includes("24 hours");
+
+                        return (
+                          <div
+                            key={idx}
+                            className={`flex items-center justify-between px-2 py-0.5 rounded transition-colors ${
+                              isThisToday
+                                ? "bg-primary/10 text-primary font-semibold border border-primary/20"
+                                : "text-muted-foreground hover:bg-muted/30"
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              {isThisToday && (
+                                <span className="text-[9px] px-1 py-0.2 bg-primary text-primary-foreground rounded-sm font-bold">
+                                  วันนี้
+                                </span>
+                              )}
+                              <span>{thaiInfo ? `${thaiInfo.th} (${rawDay.slice(0, 3)})` : rawDay || `Day ${idx + 1}`}</span>
+                            </span>
+                            <span className={isClosedLine ? "text-rose-500 font-medium" : isOpen24Line ? "text-blue-500 font-medium" : "text-foreground/90 font-medium"}>
+                              {isClosedLine ? "ปิดทำการ" : isOpen24Line ? "เปิด 24 ชั่วโมง" : rawTime}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </details>
               </div>
-            </details>
+
+              {/* Print / PDF view */}
+              <div className="hidden pdf-block text-[10px] text-muted-foreground mt-1">
+                <span className="font-medium">เวลาเปิด-ปิด: {todayHours}</span>
+              </div>
+            </div>
           );
         })()}
-        </div>
 
         {/* Price Level + Contact Info */}
         {(activity.priceLevel != null || activity.phoneNumber || activity.website) && (
@@ -728,7 +732,7 @@ const SortableCard = ({
                 title={activity.phoneNumber}
               >
                 <Phone className="w-3 h-3" />
-                <span className="truncate max-w-[100px]">{activity.phoneNumber}</span>
+                <span className="truncate max-w-[180px]">{activity.phoneNumber}</span>
               </a>
             )}
             {activity.website && (
@@ -757,42 +761,81 @@ const SortableCard = ({
           </div>
         )}
 
-        {/* Street View thumbnail / toggle */}
-        {activity.lat != null && activity.lng != null && (
-          <div className="mt-2 pdf-hidden">
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowStreetView(v => !v); }}
+        {/* Navigation & Map Action Buttons */}
+        <div className="mt-3 pt-2.5 border-t border-border/50 flex flex-col gap-2 pdf-hidden">
+          {/* Row 1: Primary Action - Full-width Turn-by-turn Navigation */}
+          {activity.lat != null && activity.lng != null && activity.lat !== 0 && activity.lng !== 0 ? (
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&destination=${activity.lat},${activity.lng}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors"
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white text-xs font-semibold shadow-xs transition-all duration-150"
+              title={language === "th" ? "เปิดแอป Google Maps เพื่อเริ่มนำทางแบบ Turn-by-turn ทันที" : "Open Google Maps for turn-by-turn navigation"}
             >
-              <Car className="w-3 h-3" />
-              {showStreetView ? "Hide Street View" : "Street View"}
-            </button>
-            {showStreetView && (
-              <InteractiveStreetView
-                lat={activity.lat}
-                lng={activity.lng}
-                title={activity.title}
-                onClose={() => setShowStreetView(false)}
-              />
-            )}
-          </div>
-        )}
+              <Navigation className="w-3.5 h-3.5 fill-white text-white" />
+              <span>{language === "th" ? "นำทาง (Google Maps)" : "Directions"}</span>
+            </a>
+          ) : (
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activity.english_name || activity.title)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white text-xs font-semibold shadow-xs transition-all duration-150"
+              title={language === "th" ? "เปิดแอป Google Maps เพื่อเริ่มนำทาง" : "Open Google Maps for directions"}
+            >
+              <Navigation className="w-3.5 h-3.5 fill-white text-white" />
+              <span>{language === "th" ? "นำทาง (Google Maps)" : "Directions"}</span>
+            </a>
+          )}
 
-        {/* Google Maps Link */}
-        <a
-          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activity.title)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          onPointerDown={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          className="absolute bottom-4 right-4 p-2 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors z-20 shadow-sm flex items-center justify-center group/map pdf-hidden"
-          title="View on Google Maps"
-        >
-          <MapPin className="w-3.5 h-3.5 transition-transform group-hover/map:scale-110" />
-        </a>
+          {/* Row 2: Symmetrical 2-Column Grid (Street View & View on Map) */}
+          <div className="grid grid-cols-2 gap-2">
+            {activity.lat != null && activity.lng != null && activity.lat !== 0 && activity.lng !== 0 ? (
+              <a
+                href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${activity.lat},${activity.lng}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[11px] font-medium bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-all duration-150 hover:border-primary/40 hover:text-primary"
+                title={language === "th" ? "เปิดชมภาพจำลอง 360° Street View บน Google Maps ทันที" : "Open 360° Street View on Google Maps"}
+              >
+                <Car className="w-3.5 h-3.5 shrink-0 text-sky-500" />
+                <span>Street View</span>
+              </a>
+            ) : (
+              <a
+                href={`https://www.google.com/maps/@?api=1&map_action=pano&query=${encodeURIComponent(activity.english_name || activity.title)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[11px] font-medium bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-all duration-150 hover:border-primary/40 hover:text-primary"
+                title={language === "th" ? "เปิดชมภาพจำลอง 360° Street View บน Google Maps ทันที" : "Open 360° Street View on Google Maps"}
+              >
+                <Car className="w-3.5 h-3.5 shrink-0 text-sky-500" />
+                <span>Street View</span>
+              </a>
+            )}
+
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activity.english_name || activity.title)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[11px] font-medium bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-all duration-150 hover:border-primary/40 hover:text-primary"
+              title={language === "th" ? "ดูข้อมูลและรีวิวบน Google Maps" : "View reviews on Google Maps"}
+            >
+              <MapPin className="w-3.5 h-3.5 shrink-0 text-primary" />
+              <span>{language === "th" ? "ดูบนแผนที่" : "View on Map"}</span>
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -834,6 +877,7 @@ const AddActivityPopover = ({
   dayDate?: Date;
   destinationName?: string;
 }) => {
+  const { language, locPlace, locDesc } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<SuggestedPlace | null>(null);
   const [time, setTime] = useState("12:00");
@@ -843,7 +887,6 @@ const AddActivityPopover = ({
   const [hasSearched, setHasSearched] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const placesServiceRef = useRef<google.maps.places.PlacesService | null>(null);
 
   const times = Array.from({ length: 48 }, (_, i) => {
     const hours = Math.floor(i / 2).toString().padStart(2, "0");
@@ -851,15 +894,7 @@ const AddActivityPopover = ({
     return `${hours}:${minutes}`;
   });
 
-  // Preload Google Places Service
-  useEffect(() => {
-    if (isOpen && typeof google !== "undefined" && google.maps?.places && !placesServiceRef.current) {
-      const dummyDiv = document.createElement("div");
-      placesServiceRef.current = new google.maps.places.PlacesService(dummyDiv);
-    }
-  }, [isOpen]);
-
-  // Live place search with Google Places textSearch
+  // Live place search with Geoapify & OpenStreetMap
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -874,53 +909,149 @@ const AddActivityPopover = ({
 
     debounceRef.current = setTimeout(async () => {
       try {
-        if (!placesServiceRef.current) {
-          await importMapsLibrary("places");
-          if (typeof google !== "undefined" && google.maps?.places && !placesServiceRef.current) {
-            const dummyDiv = document.createElement("div");
-            placesServiceRef.current = new google.maps.places.PlacesService(dummyDiv);
+        const searchInput =
+          destinationName && !query.toLowerCase().includes(destinationName.toLowerCase())
+            ? `${query} ${destinationName}`
+            : query;
+
+        let mapped: SuggestedPlace[] = [];
+        const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string;
+        const geoapifyKey = import.meta.env.VITE_GEOAPIFY_API_KEY as string;
+
+        // 0. Try Mapbox Geocoding Autocomplete (High precision & instant response)
+        if (mapboxToken) {
+          try {
+            const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+              searchInput
+            )}.json?access_token=${mapboxToken}&limit=5`;
+            const mRes = await fetch(mapboxUrl);
+            if (mRes.ok) {
+              const mData = await mRes.json();
+              const feats = mData.features || [];
+              if (feats.length > 0) {
+                mapped = await Promise.all(
+                  feats.map(async (feat: any) => {
+                    const name = feat.text || feat.place_name?.split(",")?.[0] || query;
+                    const coords = feat.center || [0, 0];
+                    const photoUrl = await fetchSmartPhoto(name);
+                    const nameTh = hasThaiScript(name) ? name : translateTextSync(name, "th");
+                    const nameEn = !hasThaiScript(name) ? name : translateTextSync(name, "en");
+                    return {
+                      id: feat.id || `mb-${Date.now()}-${Math.random()}`,
+                      name,
+                      name_th: nameTh,
+                      name_en: nameEn,
+                      title_th: nameTh,
+                      title_en: nameEn,
+                      description: feat.place_name || "Location",
+                      description_th: feat.place_name || "สถานที่",
+                      description_en: feat.place_name || "Location",
+                      category: "attraction",
+                      image: photoUrl || getCuratedFallbackPhoto("attraction", name),
+                      image_url: photoUrl || null,
+                      photo_url: photoUrl || null,
+                      lat: coords[1],
+                      lng: coords[0],
+                      rating: 4.6,
+                      userRatingsTotal: 80,
+                    };
+                  })
+                );
+              }
+            }
+          } catch (mErr) {
+            console.warn("Mapbox autocomplete failed:", mErr);
           }
         }
 
-        if (!placesServiceRef.current) {
-          setIsSearching(false);
-          return;
-        }
+        // 1. Fallback: Geoapify Places Autocomplete
+        if (mapped.length === 0 && geoapifyKey) {
+          const url = `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(
+            searchInput
+          )}&apiKey=${geoapifyKey}&limit=5`;
 
-        const searchInput = destinationName && !query.toLowerCase().includes(destinationName.toLowerCase())
-          ? `${query} ${destinationName}`
-          : query;
-
-        placesServiceRef.current.textSearch(
-          { query: searchInput },
-          (results, status) => {
-            setIsSearching(false);
-            setHasSearched(true);
-            if (status === google.maps.places.PlacesServiceStatus.OK && results) {
-              const mapped: SuggestedPlace[] = results.slice(0, 5).map((p) => {
-                const photoUrl = p.photos?.[0]?.getUrl({ maxWidth: 400, maxHeight: 300 });
-                const lat = p.geometry?.location?.lat() || 0;
-                const lng = p.geometry?.location?.lng() || 0;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            const features = data.features || [];
+            mapped = await Promise.all(
+              features.map(async (p: any) => {
+                const props = p.properties || {};
+                const coords = p.geometry?.coordinates || [0, 0];
+                const name = props.name || props.address_line1 || query;
+                const photoUrl = await fetchWikimediaPhoto(name);
+                const nameTh = hasThaiScript(name) ? name : translateTextSync(name, "th");
+                const nameEn = !hasThaiScript(name) ? name : translateTextSync(name, "en");
+                const desc = props.formatted || props.address_line2 || "Custom searched location";
                 return {
-                  id: p.place_id || `place-${Date.now()}-${Math.random()}`,
-                  name: p.name || query,
-                  description: p.formatted_address || "Custom searched location",
-                  category: p.types?.includes("restaurant") || p.types?.includes("food") ? "food" : "attraction",
-                  image: photoUrl || "",
+                  id: props.place_id || `place-${Date.now()}-${Math.random()}`,
+                  name,
+                  name_th: nameTh,
+                  name_en: nameEn,
+                  title_th: nameTh,
+                  title_en: nameEn,
+                  description: desc,
+                  description_th: desc,
+                  description_en: desc,
+                  category:
+                    props.category === "catering" || props.category === "restaurant"
+                      ? "food"
+                      : "attraction",
+                  image: photoUrl || getCuratedFallbackPhoto(props.category === "catering" || props.category === "restaurant" ? "food" : "attraction", name),
                   image_url: photoUrl || null,
                   photo_url: photoUrl || null,
-                  lat,
-                  lng,
-                  rating: p.rating ?? null,
-                  userRatingsTotal: p.user_ratings_total ?? null,
+                  lat: coords[1],
+                  lng: coords[0],
+                  rating: 4.5,
+                  userRatingsTotal: 60,
                 };
-              });
-              setSearchResults(mapped);
-            } else {
-              setSearchResults([]);
-            }
+              })
+            );
           }
-        );
+        }
+
+        if (mapped.length === 0) {
+          const osmUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+            searchInput
+          )}&format=json&limit=5`;
+          const osmRes = await fetch(osmUrl, {
+            headers: { "User-Agent": "PixineraryApp/1.0" },
+          });
+          if (osmRes.ok) {
+            const osmData = await osmRes.json();
+            mapped = await Promise.all(
+              osmData.map(async (p: any) => {
+                const name = p.display_name?.split(",")?.[0] || query;
+                const photoUrl = await fetchWikimediaPhoto(name);
+                const nameTh = hasThaiScript(name) ? name : translateTextSync(name, "th");
+                const nameEn = !hasThaiScript(name) ? name : translateTextSync(name, "en");
+                return {
+                  id: String(p.place_id),
+                  name,
+                  name_th: nameTh,
+                  name_en: nameEn,
+                  title_th: nameTh,
+                  title_en: nameEn,
+                  description: p.display_name,
+                  description_th: p.display_name,
+                  description_en: p.display_name,
+                  category: "attraction",
+                  image: photoUrl || getCuratedFallbackPhoto("attraction", name),
+                  image_url: photoUrl || null,
+                  photo_url: photoUrl || null,
+                  lat: parseFloat(p.lat),
+                  lng: parseFloat(p.lon),
+                  rating: 4.5,
+                  userRatingsTotal: 30,
+                };
+              })
+            );
+          }
+        }
+
+        setSearchResults(mapped);
+        setIsSearching(false);
+        setHasSearched(true);
       } catch (err) {
         console.error("Place search error:", err);
         setIsSearching(false);
@@ -963,7 +1094,7 @@ const AddActivityPopover = ({
           className="w-full py-6 rounded-2xl border-2 border-dashed border-border hover:border-primary/40 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-primary transition-colors"
         >
           <Plus className="w-5 h-5" />
-          <span className="text-sm font-medium">Add Activity</span>
+          <span className="text-sm font-medium">{language === "th" ? "เพิ่มกิจกรรม" : "Add Activity"}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-3 z-[100]" align="center">
@@ -973,7 +1104,7 @@ const AddActivityPopover = ({
             <div className="relative">
               <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
               <Input
-                placeholder="Search place by name..."
+                placeholder={language === "th" ? "ค้นหาสถานที่ตามชื่อ..." : "Search place by name..."}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="pl-8 h-9 text-xs pr-8"
@@ -986,11 +1117,11 @@ const AddActivityPopover = ({
             {/* If user typed a query -> show search results */}
             {query.trim() ? (
               <div className="space-y-2">
-                <h4 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">Search Results</h4>
+                <h4 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">{language === "th" ? "ผลการค้นหา" : "Search Results"}</h4>
                 {isSearching ? (
                   <div className="py-4 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                    Searching Google Maps...
+                    {language === "th" ? "กำลังค้นหาสถานที่..." : "Searching Google Maps..."}
                   </div>
                 ) : searchResults.length > 0 ? (
                   <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
@@ -1007,15 +1138,15 @@ const AddActivityPopover = ({
                           onError={(e) => { e.currentTarget.src = CATEGORY_FALLBACK_IMAGES[place.category?.toLowerCase() || "attraction"] || DEFAULT_IMAGE; }}
                         />
                         <div className="flex-1 overflow-hidden">
-                          <p className="text-xs font-semibold truncate">{place.name}</p>
-                          <p className="text-[10px] text-muted-foreground truncate">{place.description}</p>
+                          <p className="text-xs font-semibold truncate">{locPlace(place)}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{locDesc(place)}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : hasSearched ? (
                   <div className="py-4 text-center text-xs text-muted-foreground">
-                    No places found matching "{query}"
+                    {language === "th" ? `ไม่พบสถานที่ตรงกับ "${query}"` : `No places found matching "${query}"`}
                   </div>
                 ) : null}
               </div>
@@ -1024,7 +1155,7 @@ const AddActivityPopover = ({
               <div className="space-y-2">
                 {topSuggestions.length > 0 && (
                   <>
-                    <h4 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">AI Suggested Places</h4>
+                    <h4 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">{language === "th" ? "สถานที่แนะนำโดย AI" : "AI Suggested Places"}</h4>
                     <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                       {topSuggestions.map((place) => (
                         <div
@@ -1039,8 +1170,8 @@ const AddActivityPopover = ({
                             onError={(e) => { e.currentTarget.src = CATEGORY_FALLBACK_IMAGES[place.category?.toLowerCase() || "attraction"] || DEFAULT_IMAGE; }}
                           />
                           <div className="flex-1 overflow-hidden">
-                            <p className="text-xs font-semibold truncate">{place.name}</p>
-                            <p className="text-[10px] text-muted-foreground truncate capitalize">{place.category}</p>
+                            <p className="text-xs font-semibold truncate">{locPlace(place)}</p>
+                            <p className="text-[10px] text-muted-foreground truncate capitalize">{place.category === "food" ? (language === "th" ? "ร้านอาหาร/คาเฟ่" : "Food") : (language === "th" ? "สถานที่ท่องเที่ยว" : "Attraction")}</p>
                           </div>
                         </div>
                       ))}
@@ -1056,8 +1187,12 @@ const AddActivityPopover = ({
                     onClick={() => {
                       onAdd(dayIndex, {
                         id: `act-${Date.now()}`,
-                        name: "New Activity",
-                        description: "Add details here",
+                        name: language === "th" ? "กิจกรรมใหม่" : "New Activity",
+                        name_th: "กิจกรรมใหม่",
+                        name_en: "New Activity",
+                        description: language === "th" ? "เพิ่มรายละเอียดที่นี่" : "Add details here",
+                        description_th: "เพิ่มรายละเอียดที่นี่",
+                        description_en: "Add details here",
                         category: "attraction",
                         image: "",
                         lat: 0,
@@ -1068,7 +1203,7 @@ const AddActivityPopover = ({
                     }}
                   >
                     <Plus className="w-3.5 h-3.5 mr-1" />
-                    Add Blank Activity
+                    {language === "th" ? "เพิ่มกิจกรรมใหม่" : "Add Blank Activity"}
                   </Button>
                 </div>
               </div>
@@ -1079,12 +1214,12 @@ const AddActivityPopover = ({
           <div className="space-y-3">
             <div className="flex items-center gap-2 mb-2">
               <button onClick={() => setSelectedPlace(null)} className="text-xs text-muted-foreground hover:text-foreground">
-                ← Back
+                {language === "th" ? "← ย้อนกลับ" : "← Back"}
               </button>
-              <h4 className="font-semibold text-xs text-foreground truncate flex-1">{selectedPlace.name}</h4>
+              <h4 className="font-semibold text-xs text-foreground truncate flex-1">{locPlace(selectedPlace)}</h4>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Select Time</Label>
+              <Label className="text-xs">{language === "th" ? "เลือกเวลา" : "Select Time"}</Label>
               <Select value={time} onValueChange={setTime}>
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue placeholder="Time" />
@@ -1107,7 +1242,7 @@ const AddActivityPopover = ({
                 handleReset();
               }}
             >
-              Confirm Add
+              {language === "th" ? "ยืนยันการเพิ่ม" : "Confirm Add"}
             </Button>
           </div>
         )}
@@ -1139,6 +1274,10 @@ interface DayColumnProps {
   suggestions: SuggestedPlace[];
   addActivity: (dayIndex: number, place: SuggestedPlace, time: string) => void;
   destinationName?: string;
+  cityName?: string;
+  onChangePhoto?: (dayIndex: number, activity: Activity) => void;
+  onOptimizeDay?: (dayIndex: number) => void;
+  isOptimizingDay?: number | null;
 }
 
 const DayColumn = ({
@@ -1160,7 +1299,12 @@ const DayColumn = ({
   suggestions,
   addActivity,
   destinationName,
+  cityName,
+  onChangePhoto,
+  onOptimizeDay,
+  isOptimizingDay,
 }: DayColumnProps) => {
+  const { language } = useLanguage();
   let currentDayDate: Date | undefined;
   if (tripStartDate) {
     currentDayDate = new Date(tripStartDate);
@@ -1187,25 +1331,52 @@ const DayColumn = ({
   };
 
   return (
-    <div className="bg-slate-50/50 dark:bg-slate-900/20 rounded-3xl p-6 border border-border/50 h-full flex flex-col pdf-card-shadow">
-      <div className="flex items-center gap-3 mb-6 pdf-day-header">
-        <div
-          className="w-12 h-12 rounded-2xl flex items-center justify-center text-primary-foreground font-bold text-base shadow-lg"
-          style={{ backgroundColor: DAY_COLORS[dayIndex % DAY_COLORS.length] }}
-        >
-          {day.day}
+    <div className="bg-slate-50/50 dark:bg-slate-900/20 rounded-3xl p-4 sm:p-5 border border-border/50 h-full flex flex-col pdf-card-shadow">
+      <div className="flex items-center justify-between gap-3 mb-5 pdf-day-header">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center text-primary-foreground font-bold text-base shadow-md shrink-0"
+            style={{ backgroundColor: DAY_COLORS[dayIndex % DAY_COLORS.length] }}
+          >
+            {day.day}
+          </div>
+          <div>
+            <h3 className="font-semibold text-foreground text-base sm:text-lg leading-tight">
+              {currentDayDate
+                ? `${language === "th" ? `วันที่ ${day.day}` : `Day ${day.day}`} – ${currentDayDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}`
+                : `${language === "th" ? `วันที่ ${day.day}` : `Day ${day.day}`}`}
+            </h3>
+            {!tripStartDate && <p className="text-xs sm:text-sm text-muted-foreground">{day.date}</p>}
+            {isDraggingAttraction && (
+              <p className="text-xs text-primary font-medium mt-0.5 animate-pulse">
+                {language === "th" ? "↓ วางลงที่นี่เพื่อเพิ่มกิจกรรม" : "↓ Drop here to add"}
+              </p>
+            )}
+          </div>
         </div>
-        <div>
-          <h3 className="font-semibold text-foreground text-lg">
-            {currentDayDate
-              ? `Day ${day.day} – ${currentDayDate.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}`
-              : `Day ${day.day}`}
-          </h3>
-          {!tripStartDate && <p className="text-sm text-muted-foreground">{day.date}</p>}
-          {isDraggingAttraction && (
-            <p className="text-xs text-primary font-medium mt-0.5 animate-pulse">↓ Drop here to add</p>
-          )}
-        </div>
+
+        {/* Day-level Optimize Button */}
+        {onOptimizeDay && (
+          <button
+            type="button"
+            onClick={() => onOptimizeDay(dayIndex)}
+            disabled={isOptimizingDay === dayIndex || day.activities.length <= 1}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background/90 hover:bg-muted text-foreground border border-border/80 shadow-2xs hover:shadow-xs active:scale-95 text-xs font-semibold transition-all disabled:opacity-40 cursor-pointer shrink-0 pdf-hidden"
+            title={`จัดลำดับเส้นทางและเวลาของ Day ${day.day} ให้ราบรื่น (2-Opt & Meal Flow)`}
+          >
+            {isOptimizingDay === dayIndex ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                <span className="hidden sm:inline text-[11px]">กำลังจัด...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5 text-primary" />
+                <span className="text-[11px] sm:text-xs">Optimize Day</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       <SortableContext items={day.activities.map((a, i) => a.id || `act-${dayIndex}-${i}`)} strategy={verticalListSortingStrategy}>
@@ -1229,6 +1400,8 @@ const DayColumn = ({
                 index={index}
                 dayDate={currentDayDate}
                 activityWeather={getActivityWeather(activity)}
+                onChangePhoto={onChangePhoto}
+                cityName={cityName || destinationName}
               />
               {index < day.activities.length - 1 && segments[index] && (
                 <TravelConnector
@@ -1260,24 +1433,11 @@ const DayColumn = ({
   );
 };
 
-interface TravelItineraryProps {
-  itinerary: DayPlan[];
-  onUpdate: (itinerary: DayPlan[]) => void;
-  onSelectActivity?: (activity: Activity) => void;
-  onHoverActivity?: (id: string | null) => void;
-  activeDragId?: string | null;
-  onReloadMap?: () => void;
-  suggestions?: SuggestedPlace[];
-  tripStartDate?: Date;
-  hourlyWeather?: ForecastHour[]; // Hourly forecast for per-activity weather
-  coherenceResult?: ItineraryCoherence | null;
-  destinationName?: string;
-}
-
 const TravelItinerary = ({
   itinerary,
   onUpdate,
   onSelectActivity,
+  selectedActivityId,
   onHoverActivity,
   activeDragId,
   onReloadMap,
@@ -1286,13 +1446,19 @@ const TravelItinerary = ({
   hourlyWeather = [],
   coherenceResult,
   destinationName,
+  cityName,
   onAIRefine,
   isAIRefining = false,
+  onOptimizeDay,
+  isOptimizingDay = null,
 }: TravelItineraryProps) => {
+  const { language, t } = useLanguage();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
+  const [photoModalTarget, setPhotoModalTarget] = useState<{ dayIndex: number; activity: Activity } | null>(null);
+  const selectedId = selectedActivityId !== undefined ? selectedActivityId : internalSelectedId;
 
   const removeActivity = (dayIndex: number, activityId: string) => {
     const updated = itinerary.map((day, i) =>
@@ -1310,17 +1476,30 @@ const TravelItinerary = ({
   };
 
   const addActivity = (dayIndex: number, place: SuggestedPlace, time: string) => {
+    const placeNameTh = place.name_th || (place as any).title_th || (hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "th"));
+    const placeNameEn = place.name_en || (place as any).title_en || place.english_name || (!hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "en"));
+    const placeDescTh = place.description_th || (hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "th"));
+    const placeDescEn = place.description_en || (!hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "en"));
+
     const newActivity: Activity = {
       id: `act-${Date.now()}`,
       time: time,
       title: place.name,
+      title_th: placeNameTh,
+      title_en: placeNameEn,
+      name_th: place.name_th || placeNameTh,
+      name_en: place.name_en || placeNameEn,
       description: place.description,
+      description_th: placeDescTh,
+      description_en: placeDescEn,
       type: place.category === "food" ? "food" : "attraction",
       image: place.image,
       image_url: place.image_url,
       photo_url: place.photo_url,
       lat: place.lat,
       lng: place.lng,
+      english_name: place.english_name || placeNameEn,
+      image_keyword: place.image_keyword,
     };
     const updated = itinerary.map((day, i) =>
       i === dayIndex ? { ...day, activities: sortByTime([...day.activities, newActivity]) } : day
@@ -1354,8 +1533,33 @@ const TravelItinerary = ({
     onUpdate(updated);
   };
 
+  const handleUpdatePhoto = (newPhotoUrl: string, isUserPhoto: boolean) => {
+    if (!photoModalTarget) return;
+    const { dayIndex, activity } = photoModalTarget;
+    const updated = itinerary.map((day, i) => {
+      if (i === dayIndex) {
+        const newActivities = day.activities.map((a) =>
+          a.id === activity.id
+            ? {
+                ...a,
+                photo_url: newPhotoUrl,
+                image_url: newPhotoUrl,
+                image: newPhotoUrl,
+                isUserPhoto,
+              }
+            : a
+        );
+        return { ...day, activities: newActivities };
+      }
+      return day;
+    });
+    onUpdate(updated);
+    setPhotoModalTarget(null);
+  };
+
   const handleCardClick = (activity: Activity) => {
-    setSelectedId(activity.id === selectedId ? null : activity.id);
+    const nextId = activity.id === selectedId ? null : activity.id;
+    setInternalSelectedId(nextId);
     onSelectActivity?.(activity);
   };
 
@@ -1367,7 +1571,7 @@ const TravelItinerary = ({
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Calendar className="w-6 h-6 text-primary" />
-          Your Travel Itinerary
+          {t("itineraryTitle")}
         </h2>
         <div className="flex items-center gap-2.5 sm:gap-4 flex-wrap">
           {tripStartDate ? (() => {
@@ -1375,11 +1579,11 @@ const TravelItinerary = ({
             endDate.setDate(endDate.getDate() + itinerary.length - 1);
             return (
               <span className="text-xs sm:text-sm text-muted-foreground">
-                {tripStartDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – {endDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · {itinerary.length} days
+                {tripStartDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short" })} – {endDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short", year: "numeric" })} · {itinerary.length} {t("daysCount")}
               </span>
             );
           })() : (
-            <span className="text-xs sm:text-sm text-muted-foreground">{itinerary.length} days</span>
+            <span className="text-xs sm:text-sm text-muted-foreground">{itinerary.length} {t("daysCount")}</span>
           )}
 
           {/* AI Self-Review & Auto-Optimize Button with Confirmation Dialog */}
@@ -1389,17 +1593,17 @@ const TravelItinerary = ({
                 <button
                   disabled={isAIRefining}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-primary-foreground text-xs sm:text-sm font-semibold rounded-full shadow-2xs hover:bg-primary/90 active:scale-95 transition-all pdf-hidden disabled:opacity-50 cursor-pointer"
-                  title="ให้ AI ตรวจสอบกฎการเดินทาง เส้นทาง และจัดระเบียบตารางใหม่อัตโนมัติ"
+                  title={language === "th" ? "ให้ AI ตรวจสอบกฎการเดินทาง เส้นทาง และจัดระเบียบตารางใหม่อัตโนมัติ" : "Let AI verify travel rules, routes, and auto-optimize schedule"}
                 >
                   {isAIRefining ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>กำลังตรวจ & จัดระเบียบ...</span>
+                      <span>{language === "th" ? "กำลังตรวจ & จัดระเบียบ..." : "Reviewing & Optimizing..."}</span>
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>AI Review & Auto-Optimize</span>
+                      <span>{language === "th" ? "AI Review & จัดระเบียบ" : "AI Review & Auto-Optimize"}</span>
                     </>
                   )}
                 </button>
@@ -1411,25 +1615,27 @@ const TravelItinerary = ({
                       <Sparkles className="size-5" />
                     </div>
                     <AlertDialogTitle className="text-base sm:text-lg font-bold text-foreground">
-                      ยืนยันให้ AI จัดระเบียบตารางเที่ยว?
+                      {language === "th" ? "ยืนยันให้ AI จัดระเบียบตารางเที่ยวทั้งทริป?" : "Optimize entire trip with AI?"}
                     </AlertDialogTitle>
                   </div>
                   <AlertDialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed pt-1">
-                    AI จะช่วยตรวจสอบความต่อเนื่องของเส้นทาง จัดกลุ่มสถานที่ใกล้เคียง ปรับเวลาอาหาร (เที่ยง/เย็น) และแก้จุดที่เดินทางวกวนให้อัตโนมัติ
+                    {language === "th"
+                      ? "AI จะตรวจสอบและจัดระเบียบตามเกณฑ์งานวิจัยสากล (TTDP & OPTW): จัดกลุ่มสถานที่ใกล้เคียง, เรียงเส้นทางเป็นระเบียงราบรื่น (2-Opt Anti-Zigzag), ปรับเวลาอาหารเที่ยงและเย็น, ตรวจสอบงบประมาณ, ความเหมาะสมของกลุ่มผู้เดินทาง, และหลีกเลี่ยงความซ้ำซากจำเจของหมวดสถานที่"
+                      : "AI will review and optimize your itinerary based on TTDP & OPTW standards: clustering nearby POIs, 2-Opt anti-zigzag smooth routing, meal timings, budget pacing, and variety balance."}
                     <span className="block mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] sm:text-xs font-medium text-amber-700 dark:text-amber-300">
-                      💡 <strong>ข้อแนะนำ:</strong> ลำดับเวลาและกิจกรรมที่คุณเคยลากสลับไว้อาจถูกปรับแต่งใหม่เพื่อให้เส้นทางราบรื่นที่สุด
+                      💡 <strong>{language === "th" ? "ข้อแนะนำ:" : "Tip:"}</strong> {language === "th" ? "ลำดับเวลาและสถานที่อาจถูกปรับแต่งให้สอดคล้องกับเส้นทางและเวลาเปิด-ปิดจริงอย่างมีประสิทธิภาพสูงสุด" : "Times and POI order may be refined to match actual opening hours and travel distances efficiently."}
                     </span>
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter className="flex-row items-center justify-end gap-2 pt-3">
                   <AlertDialogCancel className="rounded-xl text-xs h-9 px-4 mt-0">
-                    ยกเลิก
+                    {t("cancel")}
                   </AlertDialogCancel>
                   <AlertDialogAction
                     onClick={onAIRefine}
                     className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-xs h-9 px-4 font-semibold"
                   >
-                    เริ่มจัดระเบียบแผน ✨
+                    {language === "th" ? "เริ่มจัดระเบียบแผน ✨" : "Start Optimizing ✨"}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -1443,14 +1649,13 @@ const TravelItinerary = ({
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-secondary text-secondary-foreground border border-border text-xs sm:text-sm font-medium rounded-full shadow-2xs hover:bg-secondary/80 transition-colors pdf-hidden"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>Reload Map</span>
+              <span>{t("reloadMap")}</span>
             </button>
           )}
         </div>
       </div>
 
-
-      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5 items-start pdf-grid-cols-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 min-[1800px]:grid-cols-3 gap-5 items-start pdf-grid-cols-2">
 
         {itinerary.map((day, dayIndex) => (
           <DayColumn
@@ -1473,9 +1678,27 @@ const TravelItinerary = ({
             suggestions={suggestions}
             addActivity={addActivity}
             destinationName={destinationName}
+            cityName={cityName || destinationName}
+            onChangePhoto={(dIdx, act) => setPhotoModalTarget({ dayIndex: dIdx, activity: act })}
+            onOptimizeDay={onOptimizeDay}
+            isOptimizingDay={isOptimizingDay}
           />
         ))}
       </div>
+
+      {/* Interactive Photo Editor Modal */}
+      {photoModalTarget && (
+        <ChangePhotoModal
+          isOpen={Boolean(photoModalTarget)}
+          onClose={() => setPhotoModalTarget(null)}
+          activityTitle={photoModalTarget.activity.title}
+          englishName={photoModalTarget.activity.english_name}
+          imageKeyword={photoModalTarget.activity.image_keyword}
+          currentPhotoUrl={getActivityImage(photoModalTarget.activity)}
+          cityName={cityName || destinationName}
+          onSelectPhoto={handleUpdatePhoto}
+        />
+      )}
     </div>
   );
 };

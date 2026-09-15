@@ -10,8 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { analyzeImage, type VisionResult } from "@/services/aiService";
 import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
 import {
   Upload,
   Sparkles,
@@ -44,6 +46,8 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis,
   Radar,
+  ReferenceLine,
+  CartesianGrid,
 } from "recharts";
 
 interface RobustnessImageItem {
@@ -127,13 +131,14 @@ function isTruthy(v: string | boolean | undefined): boolean {
 }
 
 export default function Exp3RobustnessTest() {
+  const { isThai, t } = useLanguage();
   const [groundTruth, setGroundTruth] = useState<string>("");
   const [imageList, setImageList] = useState<RobustnessImageItem[]>([]);
   const [selectedModels, setSelectedModels] = useState<AIModelType[]>([
-    "google-gemini-25-flash",
-    "openai-gpt4o-mini",
-    "google-gemini-25-pro",
-    "openai-gpt4o",
+    "google-gemini-38-flash",
+    "openai-gpt-54-mini",
+    "anthropic-claude-sonnet5",
+    "openai-gpt-54",
   ]);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -379,15 +384,25 @@ export default function Exp3RobustnessTest() {
       (dbLogs.filter((r) => isTruthy(r.is_correct)).length / dbLogs.length) * 100
     );
 
-    // 4-Axis Robustness Radar Data
-    const radarData = CONDITION_CATEGORIES.map((cat) => ({
-      subject: cat.name.split(" / ")[0],
-      accuracy: catMap[cat.id]?.total > 0 ? Math.round((catMap[cat.id].correct / catMap[cat.id].total) * 100) : 0,
-      fullMark: 100,
-    }));
+    // 4-Axis Robustness Radar Data with Thai translation support
+    const radarData = CONDITION_CATEGORIES.map((cat) => {
+      let subjectLabel = cat.name.split(" / ")[0];
+      if (isThai) {
+        if (cat.id === "Lighting") subjectLabel = "สภาพแสง (Lighting)";
+        else if (cat.id === "Weather") subjectLabel = "สภาพอากาศ (Weather)";
+        else if (cat.id === "ViewAngle") subjectLabel = "มุมมองภาพ (Perspective)";
+        else if (cat.id === "Quality") subjectLabel = "คุณภาพรูป (Quality)";
+      }
+      return {
+        subject: subjectLabel,
+        accuracy: catMap[cat.id]?.total > 0 ? Math.round((catMap[cat.id].correct / catMap[cat.id].total) * 100) : 0,
+        baseline: 100, // Ideal reference baseline
+        fullMark: 100,
+      };
+    });
 
     return { labelBreakdown, categoryBreakdown, modelBreakdown, radarData, overallAcc, total: dbLogs.length };
-  }, [dbLogs]);
+  }, [dbLogs, isThai]);
 
   const copyRobustnessLatex = () => {
     if (!analytics) return;
@@ -418,20 +433,23 @@ ${catRows}
 
   return (
     <ExperimentLayout>
-      <div className="space-y-8">
+      <div className="space-y-6">
         {/* Header Title & Academic Badges */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="text-left">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Experiment 3: Environmental Robustness & Degradation
+                {t("Experiment 3: การทดสอบความทนทานต่อสภาพแวดล้อม (Robustness)", "Experiment 3: Environmental Robustness & Degradation")}
               </h2>
               <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-xs font-semibold">
-                Thesis Chap. 4.3
+                {t("วิทยานิพนธ์ บทที่ 4.3", "Thesis Chap. 4.3")}
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Stress-test VPR performance under variable lighting, extreme weather, camera viewpoints, and occlusion noise.
+              {t(
+                "ทดสอบความทนทานต่อความแปรผันของแสง สภาพอากาศสุดขั้ว มุมมองภาพที่แปลกตา และสิ่งบดบัง/สัญญาณรบกวน",
+                "Stress-test VPR performance under variable lighting, extreme weather, camera viewpoints, and occlusion noise."
+              )}
             </p>
           </div>
 
@@ -444,10 +462,13 @@ ${catRows}
               className="text-xs bg-white text-amber-700 border-amber-200 hover:bg-amber-50 shadow-2xs h-8"
             >
               {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-amber-600" />}
-              {copiedLatex ? "Copied LaTeX" : "Export Robustness LaTeX"}
+              {copiedLatex ? t("คัดลอก LaTeX สำเร็จ", "Copied LaTeX") : t("ส่งออกตาราง LaTeX", "Export Robustness LaTeX")}
             </Button>
           </div>
         </div>
+
+        {/* Executive Summary Takeaways Card */}
+        <KeyTakeawaysCard expId="exp3" />
 
         {/* Top Hero KPI Dashboard */}
         {analytics && (
@@ -458,13 +479,13 @@ ${catRows}
               <Card className="bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-xs text-left col-span-2 md:col-span-1">
                 <CardContent className="p-4">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Overall Robustness
+                    {t("ความทนทานรวม (Overall)", "Overall Robustness")}
                   </span>
                   <p className="text-3xl font-extrabold text-white mt-2">
                     {analytics.overallAcc}%
                   </p>
                   <p className="text-[11px] text-slate-400 mt-1 font-mono">
-                    {analytics.total} total trials evaluated
+                    {analytics.total} {t("การทดสอบทั้งหมด", "total trials evaluated")}
                   </p>
                 </CardContent>
               </Card>
@@ -477,7 +498,15 @@ ${catRows}
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold text-slate-700 truncate max-w-[110px]" title={cat.category}>
-                          {cat.category.split(" / ")[0]}
+                          {isThai
+                            ? cat.categoryId === "Lighting"
+                              ? "สภาพแสง"
+                              : cat.categoryId === "Weather"
+                              ? "สภาพอากาศ"
+                              : cat.categoryId === "ViewAngle"
+                              ? "มุมมองภาพ"
+                              : "คุณภาพรูป"
+                            : cat.category.split(" / ")[0]}
                         </span>
                         <Icon className="w-4 h-4" style={{ color: cat.color }} />
                       </div>
@@ -491,7 +520,7 @@ ${catRows}
                         />
                       </div>
                       <p className="text-[10px] text-slate-400 mt-1 font-mono">
-                        {cat.correct}/{cat.total} correct
+                        {cat.correct}/{cat.total} {t("ถูกต้อง", "correct")}
                       </p>
                     </CardContent>
                   </Card>
@@ -508,12 +537,20 @@ ${catRows}
                     <div>
                       <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                         <TrendingDown className="w-4 h-4 text-amber-600" />
-                        {chartView === "radar" ? "Multi-Axis Environmental Robustness Radar" : "Degradation Ranking by Label"}
+                        {chartView === "radar"
+                          ? t("เรดาร์โปรไฟล์ความทนทาน 4 มิติ", "Multi-Axis Environmental Robustness Radar")
+                          : t("อันดับการลดลงของความแม่นยำ (Degradation)", "Degradation Ranking by Label")}
                       </CardTitle>
                       <CardDescription className="text-xs text-slate-500">
                         {chartView === "radar"
-                          ? "4-dimensional resilience profile (Lighting, Weather, Perspective, Quality)."
-                          : "Ordered from lowest accuracy to highest — highlights failure modes and vulnerabilities."}
+                          ? t(
+                              "โปรไฟล์ความทนทาน 4 มิติ (สภาพแสง, อากาศ, มุมมอง, คุณภาพรูปภาพ)",
+                              "4-dimensional resilience profile (Lighting, Weather, Perspective, Quality)."
+                            )
+                          : t(
+                              "เรียงลำดับจากจุดที่ความแม่นยำต่ำสุดไปสูงสุด เพื่อชี้ชัดจุดเปราะบางของระบบ",
+                              "Ordered from lowest accuracy to highest — highlights failure modes and vulnerabilities."
+                            )}
                       </CardDescription>
                     </div>
 
@@ -526,7 +563,7 @@ ${catRows}
                           chartView === "radar" ? "bg-white text-amber-700 shadow-xs hover:bg-white" : "text-slate-600"
                         }`}
                       >
-                        Radar Profile
+                        {t("สไปเดอร์เรดาร์", "Radar Profile")}
                       </Button>
                       <Button
                         variant={chartView === "degradation" ? "default" : "ghost"}
@@ -536,7 +573,7 @@ ${catRows}
                           chartView === "degradation" ? "bg-white text-amber-700 shadow-xs hover:bg-white" : "text-slate-600"
                         }`}
                       >
-                        Degradation Bar
+                        {t("กราฟแท่งความเสื่อมถอย", "Degradation Bar")}
                       </Button>
                     </div>
                   </div>
@@ -547,14 +584,23 @@ ${catRows}
                       <ResponsiveContainer width="100%" height="100%">
                         <RadarChart data={analytics.radarData} margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
                           <PolarGrid stroke="#e2e8f0" />
-                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "#475569", fontWeight: 600 }} />
+                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: "#475569", fontWeight: 600 }} />
                           <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 9 }} stroke="#94a3b8" />
                           <RechartsTooltip
-                            formatter={(v: any) => [`${v}%`, "Accuracy"]}
-                            contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px" }}
+                            formatter={(v: any) => [`${v}%`, isThai ? "ความแม่นยำ" : "Accuracy"]}
+                            contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px", border: "1px solid #e2e8f0" }}
+                          />
+                          {/* Ideal Reference Baseline Radar */}
+                          <Radar
+                            name={isThai ? "เกณฑ์อุดมคติ (100%)" : "Ideal Baseline (100%)"}
+                            dataKey="baseline"
+                            stroke="#cbd5e1"
+                            strokeDasharray="3 3"
+                            fill="#f8fafc"
+                            fillOpacity={0.1}
                           />
                           <Radar
-                            name="Overall Robustness"
+                            name={isThai ? "ความทนทานจริง" : "Empirical Robustness"}
                             dataKey="accuracy"
                             stroke="#f59e0b"
                             fill="#f59e0b"
@@ -571,10 +617,11 @@ ${catRows}
                           layout="vertical"
                           margin={{ top: 5, right: 30, left: 70, bottom: 5 }}
                         >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                           <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} />
                           <YAxis type="category" dataKey="label" tick={{ fontSize: 10 }} width={75} />
                           <RechartsTooltip
-                            formatter={(v: number) => [`${v}%`, "Accuracy"]}
+                            formatter={(v: number) => [`${v}%`, isThai ? "ความแม่นยำ" : "Accuracy"]}
                             contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px", borderColor: "#e2e8f0" }}
                           />
                           <Bar dataKey="accuracy" radius={[0, 4, 4, 0]}>

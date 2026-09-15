@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { getCuratedFallbackPhoto } from "@/services/photoService";
 import {
   CameraOff,
   AlertTriangle,
@@ -27,8 +28,10 @@ import {
   MapPin,
   Edit3,
   ShieldAlert,
+  Upload,
 } from "lucide-react";
 import { type VisionResult, type ImageCandidate } from "@/services/aiService";
+import { useLanguage } from "@/context/LanguageContext";
 
 export type OutlierCategory =
   | "NON_TRAVEL"
@@ -53,6 +56,10 @@ export interface OutlierItem {
   initial_candidates?: ImageCandidate[];
   canRestore: boolean;
   isExcursion?: boolean;
+  detected_content?: string;
+  detailed_description?: string;
+  suggested_action?: string;
+  non_travel_category?: string;
 }
 
 interface VisionOutlierModalProps {
@@ -65,8 +72,41 @@ interface VisionOutlierModalProps {
   onDiscardAllNonTravel?: () => void;
   onSwitchCandidate?: (outlierId: string, candidate: ImageCandidate) => void;
   onManualOverridePlace?: (outlierId: string, placeName: string) => void;
+  onReplaceOutlierPhoto?: (outlierId: string, newFile: File) => void;
   onConfirmProceed?: () => void;
 }
+
+export const getNonTravelCategoryMeta = (category?: string, detectedContent?: string) => {
+  const text = `${category || ""} ${detectedContent || ""}`.toLowerCase();
+  if (text.includes("food") || text.includes("อาหาร") || text.includes("จานเดียว") || text.includes("เครื่องดื่ม") || text.includes("dish") || text.includes("drink")) {
+    return { emoji: "🍽️", label: detectedContent || "รูปถ่ายอาหาร / เครื่องดื่ม", color: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/30" };
+  }
+  if (text.includes("selfie") || text.includes("portrait") || text.includes("เซลฟี่") || text.includes("บุคคล") || text.includes("หน้าคน")) {
+    return { emoji: "👤", label: detectedContent || "รูปเซลฟี่บุคคล / พอร์ตเทรต", color: "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/30" };
+  }
+  if (text.includes("document") || text.includes("receipt") || text.includes("สลิป") || text.includes("เอกสาร") || text.includes("ใบเสร็จ") || text.includes("slip")) {
+    return { emoji: "📄", label: detectedContent || "สลิปโอนเงิน / ใบเสร็จ / เอกสาร", color: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30" };
+  }
+  if (text.includes("screenshot") || text.includes("สกรีนช็อต") || text.includes("แคปหน้าจอ")) {
+    return { emoji: "📱", label: detectedContent || "ภาพแคปหน้าจอสมาร์ตโฟน / แชท", color: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30" };
+  }
+  if (text.includes("pet") || text.includes("animal") || text.includes("สัตว์") || text.includes("แมว") || text.includes("สุนัข") || text.includes("หมา")) {
+    return { emoji: "🐾", label: detectedContent || "สัตว์เลี้ยง / สัตว์", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" };
+  }
+  if (text.includes("vehicle") || text.includes("car") || text.includes("รถ") || text.includes("ยานพาหนะ")) {
+    return { emoji: "🚗", label: detectedContent || "ยานพาหนะ / รถยนต์", color: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30" };
+  }
+  if (text.includes("meme") || text.includes("graphic") || text.includes("มีม") || text.includes("การ์ตูน") || text.includes("ภาพวาด")) {
+    return { emoji: "🎨", label: detectedContent || "ภาพกราฟิก / มีม / การ์ตูน", color: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/30" };
+  }
+  if (text.includes("blur") || text.includes("dark") || text.includes("เบลอ") || text.includes("มืด")) {
+    return { emoji: "🌫️", label: detectedContent || "ภาพเบลอ / มืดสนิทจนมองไม่ชัด", color: "bg-stone-500/10 text-stone-600 dark:text-stone-400 border-stone-500/30" };
+  }
+  if (text.includes("object") || text.includes("สิ่งของ") || text.includes("สินค้า") || text.includes("ผลิตภัณฑ์")) {
+    return { emoji: "📦", label: detectedContent || "สิ่งของเครื่องใช้ / สินค้า", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30" };
+  }
+  return { emoji: "🚫", label: detectedContent || "ภาพที่ไม่ใช่สถานที่ท่องเที่ยว", color: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30" };
+};
 
 const CATEGORY_CONFIG: Record<
   OutlierCategory,
@@ -125,8 +165,10 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
   onDiscardAllNonTravel,
   onSwitchCandidate,
   onManualOverridePlace,
+  onReplaceOutlierPhoto,
   onConfirmProceed,
 }) => {
+  const { language } = useLanguage();
   const [activeTab, setActiveTab] = useState<"outliers" | "kept">("outliers");
   const [categoryFilter, setCategoryFilter] = useState<"ALL" | OutlierCategory>("ALL");
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -187,7 +229,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <DialogTitle className="text-lg sm:text-xl font-bold text-foreground">
-                  ตรวจสอบและคัดกรองสถานที่ (Vision AI Guard)
+                  {language === "th" ? "ตรวจสอบและคัดกรองสถานที่ (Vision AI Guard)" : "Location Verification (Vision AI Guard)"}
                 </DialogTitle>
                 <Badge
                   variant="outline"
@@ -197,7 +239,9 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
                 </Badge>
               </div>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                ระบบคัดกรองภาพที่ไม่ใช่วิว/แลนด์มาร์กท่องเที่ยว หรืออยู่นอกพื้นที่หลัก เพื่อรักษาความถูกต้องของแผนเดินทาง
+                {language === "th"
+                  ? "ระบบคัดกรองภาพที่ไม่ใช่วิว/แลนด์มาร์กท่องเที่ยว หรืออยู่นอกพื้นที่หลัก เพื่อรักษาความถูกต้องของแผนเดินทาง"
+                  : "Filters out photos that are not travel landmarks or outside the main travel region to maintain itinerary coherence."}
               </DialogDescription>
             </div>
           </div>
@@ -210,7 +254,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
               </div>
               <div>
                 <span className="block text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
-                  ภาพทั้งหมด
+                  {language === "th" ? "ภาพทั้งหมด" : "Total Photos"}
                 </span>
                 <span className="text-sm sm:text-base font-bold text-foreground">{totalAnalyzed}</span>
               </div>
@@ -222,7 +266,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
               </div>
               <div>
                 <span className="block text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-400 tracking-wider">
-                  ผ่านเกณฑ์แล้ว
+                  {language === "th" ? "ผ่านเกณฑ์แล้ว" : "Accepted"}
                 </span>
                 <span className="text-sm sm:text-base font-bold text-emerald-700 dark:text-emerald-300">
                   {keptLocations.length}
@@ -236,7 +280,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
               </div>
               <div>
                 <span className="block text-[10px] uppercase font-bold text-amber-700 dark:text-amber-400 tracking-wider">
-                  แยกออก/รอตรวจ
+                  {language === "th" ? "แยกออก/รอตรวจ" : "Review / Outlier"}
                 </span>
                 <span className="text-sm sm:text-base font-bold text-amber-700 dark:text-amber-300">
                   {outliers.length}
@@ -256,7 +300,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
               }`}
             >
               <AlertTriangle className="size-3.5 text-amber-500" />
-              <span>ภาพที่ถูกแยกออก ({outliers.length})</span>
+              <span>{language === "th" ? `ภาพที่ถูกแยกออก (${outliers.length})` : `Flagged Photos (${outliers.length})`}</span>
             </button>
             <button
               onClick={() => setActiveTab("kept")}
@@ -267,7 +311,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
               }`}
             >
               <CheckCircle2 className="size-3.5 text-emerald-500" />
-              <span>สถานที่ที่พร้อมจัดทริป ({keptLocations.length})</span>
+              <span>{language === "th" ? `สถานที่ที่พร้อมจัดทริป (${keptLocations.length})` : `Ready Locations (${keptLocations.length})`}</span>
             </button>
           </div>
         </DialogHeader>
@@ -380,96 +424,136 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
                   )}
                 </div>
 
-                {/* Outlier Cards List */}
-                <div className="space-y-3.5">
-                  {filteredOutliers.map((item) => {
-                    const config = CATEGORY_CONFIG[item.category];
-                    const CategoryIcon = config.icon;
-                    const photoUrl = getCandidatePhoto(item);
-                    const isNonTravel = item.category === "NON_TRAVEL";
-                    const isEditing = editingItemId === item.id;
-                    const altCandidates = (
-                      item.top_candidates ||
-                      item.originalResult.top_candidates ||
-                      []
-                    )
-                      .filter(
-                        (c) => c.name.toLowerCase() !== item.place.toLowerCase()
+                  {/* Top Notification Banner if non-travel items present */}
+                  {nonTravelCount > 0 && (
+                    <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-xs animate-in fade-in">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex size-8 items-center justify-center rounded-xl bg-red-500/20 text-red-600 dark:text-red-400 shrink-0 font-bold">
+                          <CameraOff className="size-4" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-red-700 dark:text-red-300">
+                            ตรวจพบภาพที่ไม่ใช่สถานที่ท่องเที่ยว {nonTravelCount} ภาพ
+                          </p>
+                          <p className="text-[11px] text-red-600/85 dark:text-red-400/85">
+                            AI ได้ระบุสิ่งของ/บุคคลในภาพแล้ว คุณสามารถกดปุ่ม "อัปโหลดภาพใหม่" เพื่อนำภาพสถานที่จริงมาแทนที่ได้ทันที
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Outlier Cards List */}
+                  <div className="space-y-3.5">
+                    {filteredOutliers.map((item) => {
+                      const config = CATEGORY_CONFIG[item.category];
+                      const CategoryIcon = config.icon;
+                      const photoUrl = getCandidatePhoto(item);
+                      const isNonTravel = item.category === "NON_TRAVEL";
+                      const nonTravelMeta = isNonTravel
+                        ? getNonTravelCategoryMeta(item.non_travel_category, item.detected_content)
+                        : null;
+                      const isEditing = editingItemId === item.id;
+                      const altCandidates = (
+                        item.top_candidates ||
+                        item.originalResult.top_candidates ||
+                        []
                       )
-                      .slice(0, 2);
+                        .filter(
+                          (c) => c.name.toLowerCase() !== item.place.toLowerCase()
+                        )
+                        .slice(0, 2);
 
-                    return (
-                      <div
-                        key={item.id}
-                        className={`flex flex-col gap-3.5 p-4 rounded-2xl border transition-all shadow-2xs group ${config.cardBorder}`}
-                      >
-                        {/* Top Row: Thumbnail + Info */}
-                        <div className="flex flex-col sm:flex-row gap-3.5 items-start">
-                          {/* Photo Thumbnail */}
-                          <div className="w-full sm:w-28 h-28 rounded-xl overflow-hidden bg-muted shrink-0 relative border border-border/60 shadow-2xs">
-                            {photoUrl ? (
-                              <img
-                                src={photoUrl}
-                                alt={item.place}
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                onError={(e) => {
-                                  e.currentTarget.src =
-                                    "https://picsum.photos/seed/travel/800/600";
-                                }}
-                              />
-                            ) : (
-                              <div
-                                className={`w-full h-full ${config.iconBg} flex items-center justify-center`}
-                              >
-                                <CategoryIcon className="size-8" />
-                              </div>
-                            )}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
-                            {isNonTravel && (
-                              <div className="absolute top-1.5 left-1.5 bg-red-600 text-white rounded-md p-1 shadow-xs">
-                                <CameraOff className="size-3.5" />
-                              </div>
-                            )}
-                          </div>
+                      return (
+                        <div
+                          key={item.id}
+                          className={`flex flex-col gap-3.5 p-4 rounded-2xl border transition-all shadow-2xs group ${config.cardBorder}`}
+                        >
+                          {/* Top Row: Thumbnail + Info */}
+                          <div className="flex flex-col sm:flex-row gap-3.5 items-start">
+                            {/* Photo Thumbnail */}
+                            <div className="w-full sm:w-28 h-28 rounded-xl overflow-hidden bg-muted shrink-0 relative border border-border/60 shadow-2xs">
+                              {photoUrl ? (
+                                <img
+                                  src={photoUrl}
+                                  alt={item.place}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                  onError={(e) => {
+                                    e.currentTarget.src = getCuratedFallbackPhoto(item.category, item.place);
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  className={`w-full h-full ${config.iconBg} flex items-center justify-center`}
+                                >
+                                  <CategoryIcon className="size-8" />
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
+                              {isNonTravel && (
+                                <div className="absolute top-1.5 left-1.5 bg-red-600 text-white rounded-md p-1 shadow-xs">
+                                  <CameraOff className="size-3.5" />
+                                </div>
+                              )}
+                            </div>
 
-                          {/* Info & Badges */}
-                          <div className="flex-1 min-w-0 w-full space-y-2">
-                            <div className="flex items-start justify-between gap-2 flex-wrap">
-                              <div>
-                                <h4 className="font-bold text-foreground text-sm sm:text-base leading-snug">
-                                  {item.place}
-                                  {item.country && item.country !== "-" && (
-                                    <span className="text-xs font-normal text-muted-foreground ml-1.5">
-                                      ({item.country})
+                            {/* Info & Badges */}
+                            <div className="flex-1 min-w-0 w-full space-y-2">
+                              <div className="flex items-start justify-between gap-2 flex-wrap">
+                                <div>
+                                  <h4 className="font-bold text-foreground text-sm sm:text-base leading-snug">
+                                    {item.place}
+                                    {item.country && item.country !== "-" && (
+                                      <span className="text-xs font-normal text-muted-foreground ml-1.5">
+                                        ({item.country})
+                                      </span>
+                                    )}
+                                  </h4>
+                                </div>
+
+                                {/* Category & Detected Badges */}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {nonTravelMeta && (
+                                    <span
+                                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shrink-0 ${nonTravelMeta.color}`}
+                                    >
+                                      <span>{nonTravelMeta.emoji}</span>
+                                      <span>{nonTravelMeta.label}</span>
                                     </span>
                                   )}
-                                </h4>
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border shrink-0 ${config.badgeStyle}`}
+                                  >
+                                    <CategoryIcon className="size-3" />
+                                    {config.label}
+                                  </span>
+                                </div>
                               </div>
 
-                              {/* Category Badge */}
-                              <span
-                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border shrink-0 ${config.badgeStyle}`}
-                              >
-                                <CategoryIcon className="size-3" />
-                                {config.label}
-                              </span>
-                            </div>
-
-                            {/* Reason Callout Box */}
-                            <div
-                              className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs leading-relaxed ${
-                                isNonTravel
-                                  ? "bg-red-500/5 border-red-500/20 text-red-700 dark:text-red-300"
-                                  : "bg-background/80 border-border/60 text-muted-foreground"
-                              }`}
-                            >
-                              <Info
-                                className={`size-3.5 shrink-0 mt-0.5 ${
-                                  isNonTravel ? "text-red-500" : "text-amber-500"
+                              {/* Reason Callout Box */}
+                              <div
+                                className={`flex items-start gap-2 p-3 rounded-xl border text-xs leading-relaxed ${
+                                  isNonTravel
+                                    ? "bg-red-500/5 border-red-500/20 text-red-700 dark:text-red-300"
+                                    : "bg-background/80 border-border/60 text-muted-foreground"
                                 }`}
-                              />
-                              <span className="font-medium">{item.reasonDescription}</span>
-                            </div>
+                              >
+                                {isNonTravel ? (
+                                  <ShieldAlert className="size-4 shrink-0 mt-0.5 text-red-500" />
+                                ) : (
+                                  <Info className="size-4 shrink-0 mt-0.5 text-amber-500" />
+                                )}
+                                <div className="space-y-1 flex-1">
+                                  <div className="font-bold text-[12px]">{item.reasonTitle}</div>
+                                  <p className="font-normal opacity-90">{item.reasonDescription}</p>
+                                  {isNonTravel && item.suggested_action && (
+                                    <div className="mt-2 pt-2 border-t border-red-500/20 flex items-start gap-1.5 text-foreground/80 font-medium">
+                                      <Sparkles className="size-3.5 text-primary shrink-0 mt-0.5" />
+                                      <span>{item.suggested_action}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
 
                             {/* Metric Tags */}
                             <div className="flex items-center gap-2 flex-wrap text-[10px]">
@@ -537,7 +621,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
                               {isNonTravel ? (
                                 <>
                                   <ShieldAlert className="size-3.5 text-red-500" />
-                                  <span>แนะนำให้ตัดภาพนี้ออก หรือพิมพ์ระบุสถานที่เอง</span>
+                                  <span>แนะนำให้อัปโหลดภาพสถานที่ท่องเที่ยวใหม่แทนที่ หรือตัดภาพนี้ออก</span>
                                 </>
                               ) : (
                                 <>
@@ -549,6 +633,26 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
 
                             {/* Decision Buttons */}
                             <div className="flex items-center gap-2 flex-wrap">
+                              {/* Re-upload to Replace (Specially for Non-Travel) */}
+                              {isNonTravel && onReplaceOutlierPhoto && (
+                                <label className="cursor-pointer inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-2xs">
+                                  <Upload className="size-3.5" />
+                                  <span>อัปโหลดรูปภาพใหม่แทนที่</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        onReplaceOutlierPhoto(item.id, file);
+                                        e.target.value = "";
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              )}
+
                               {/* Primary Discard Action */}
                               {onDiscardOutlier && (
                                 <Button
@@ -592,7 +696,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
                                 }`}
                               >
                                 <Check className="size-3.5" />
-                                {isNonTravel ? "ใช้ภาพนี้ต่อไป" : "ถูกต้องแล้ว ยืนยันใช้ต่อ"}
+                                {isNonTravel ? "ฝืนใช้ภาพนี้ต่อ" : "ถูกต้องแล้ว ยืนยันใช้ต่อ"}
                               </Button>
                             </div>
                           </div>
@@ -637,10 +741,12 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
             <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
               <CameraOff className="size-12 text-amber-500 mb-3" />
               <p className="font-bold text-foreground text-base">
-                ยังไม่มีสถานที่ที่ผ่านเกณฑ์
+                {language === "th" ? "ยังไม่มีสถานที่ที่ผ่านเกณฑ์" : "No accepted locations yet"}
               </p>
               <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                ภาพทั้งหมดถูกแยกออกในแถบ Outlier คุณสามารถกดยืนยันหรือระบุชื่อสถานที่เองได้จากแถบด้านซ้าย
+                {language === "th"
+                  ? "ภาพทั้งหมดถูกแยกออกในแถบ Outlier คุณสามารถกดยืนยันหรือระบุชื่อสถานที่เองได้จากแถบด้านซ้าย"
+                  : "All photos were flagged as outliers. You can review and restore them from the Flagged tab."}
               </p>
             </div>
           ) : (
@@ -658,11 +764,11 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           <h4 className="font-bold text-foreground text-xs truncate">
-                            {loc.place}
+                            {language === "th" ? (loc.place_th || loc.place) : (loc.place_en || loc.place)}
                           </h4>
                         </div>
                         <p className="text-[11px] text-muted-foreground truncate">
-                          {loc.country} • {loc.type}
+                          {language === "th" ? (loc.country_th || loc.country) : (loc.country_en || loc.country)} • {loc.type}
                         </p>
                       </div>
                     </div>
@@ -687,8 +793,10 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
           <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
             <Sparkles className="size-3.5 text-primary" />
             <span>
-              พร้อมสำหรับทริป:{" "}
-              <strong className="text-foreground">{keptLocations.length} สถานที่</strong>
+              {language === "th" ? "พร้อมสำหรับทริป: " : "Ready for trip: "}
+              <strong className="text-foreground">
+                {keptLocations.length} {language === "th" ? "สถานที่" : "places"}
+              </strong>
             </span>
           </p>
 
@@ -697,7 +805,7 @@ export const VisionOutlierModal: React.FC<VisionOutlierModalProps> = ({
               onClick={handleClose}
               className="w-full sm:w-auto px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-semibold text-xs shadow-2xs gap-1.5"
             >
-              <span>ยอมรับและดำเนินการต่อ</span>
+              <span>{language === "th" ? "ยอมรับและดำเนินการต่อ" : "Accept & Continue"}</span>
               <ChevronRight className="size-3.5" />
             </Button>
           </div>

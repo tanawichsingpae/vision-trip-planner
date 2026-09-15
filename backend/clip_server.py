@@ -25,6 +25,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 AVIATIONSTACK_API_KEY = os.getenv("AVIATIONSTACK_API_KEY")
 DUFFEL_API_KEY = os.getenv("DUFFEL_API_KEY")
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
+GEOAPIFY_API_KEY = os.getenv("GEOAPIFY_API_KEY", "f5da5b71d4814a67b02fcef0b4525897")
+MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN")
+FOURSQUARE_API_KEY = os.getenv("FOURSQUARE_API_KEY")
 
 # Primary AI Client: OpenRouter (OpenAI SDK compatible)
 ai_api_key = OPENROUTER_API_KEY or OPENAI_API_KEY
@@ -167,7 +170,11 @@ def get_embedding_url():
         return jsonify({"error": "No URL provided"}), 400
 
     try:
-        response = requests.get(data["url"], timeout=10)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+        }
+        response = requests.get(data["url"], headers=headers, timeout=10)
 
         response.raise_for_status()
 
@@ -195,7 +202,80 @@ def get_embedding_url():
         return jsonify({"error": str(e)}), 500
 
 
+# --------------------
+# Foursquare Places API Proxy (Bypasses Browser CORS)
+# --------------------
+
+@app.route("/foursquare/search", methods=["GET"])
+def foursquare_search():
+    query = request.args.get("query", "").strip()
+    ll = request.args.get("ll", "").strip()
+    radius = request.args.get("radius", "50000").strip()
+    limit = request.args.get("limit", "1").strip()
+
+    api_key = FOURSQUARE_API_KEY or os.getenv("FOURSQUARE_API_KEY", "")
+    if not api_key or len(api_key) < 5:
+        return jsonify({"results": []})
+
+    auth_header = api_key if api_key.startswith("Bearer ") else f"Bearer {api_key.strip()}"
+    headers = {
+        "Authorization": auth_header,
+        "X-Places-Api-Version": "2025-06-17",
+        "Accept": "application/json"
+    }
+    params = {
+        "query": query,
+        "limit": limit
+    }
+    if ll:
+        params["ll"] = ll
+        params["radius"] = radius
+
+    try:
+        res = requests.get(
+            "https://places-api.foursquare.com/places/search",
+            headers=headers,
+            params=params,
+            timeout=10
+        )
+        return jsonify(res.json()), res.status_code
+    except Exception as e:
+        print("Foursquare search error:", e)
+        return jsonify({"error": str(e), "results": []}), 500
+
+
+@app.route("/foursquare/photos/<place_id>", methods=["GET"])
+def foursquare_photos(place_id):
+    limit = request.args.get("limit", "10").strip()
+    api_key = FOURSQUARE_API_KEY or os.getenv("FOURSQUARE_API_KEY", "")
+    if not api_key or len(api_key) < 5:
+        return jsonify([])
+
+    auth_header = api_key if api_key.startswith("Bearer ") else f"Bearer {api_key.strip()}"
+    headers = {
+        "Authorization": auth_header,
+        "X-Places-Api-Version": "2025-06-17",
+        "Accept": "application/json"
+    }
+    params = {"limit": limit}
+    try:
+        res = requests.get(
+            f"https://places-api.foursquare.com/places/{place_id}/photos",
+            headers=headers,
+            params=params,
+            timeout=10
+        )
+        if res.status_code == 200:
+            return jsonify(res.json()), 200
+        else:
+            return jsonify([]), 200
+    except Exception as e:
+        print("Foursquare photos error:", e)
+        return jsonify([]), 200
+
+
 import html
+
 import re
 import urllib.parse
 
@@ -331,10 +411,14 @@ def search_web_duckduckgo(query: str, max_results: int = 4):
     return results[:max_results]
 
 LEGACY_MODEL_MAP = {
-    "gemini-2.5-flash": "google/gemini-2.5-flash",
-    "gemini-1.5-pro": "google/gemini-2.5-pro",
-    "gpt-4o-mini": "openai/gpt-4o-mini",
-    "gpt-4o": "openai/gpt-4o",
+    "gemini-2.5-flash": "google/gemini-3.8-flash",
+    "gemini-3.8-flash": "google/gemini-3.8-flash",
+    "gemini-1.5-pro": "google/gemini-3.8-flash",
+    "gpt-4o-mini": "openai/gpt-5.4-mini",
+    "gpt-4o": "openai/gpt-5.4",
+    "claude-sonnet": "anthropic/claude-sonnet-5",
+    "qwen-vl": "qwen/qwen3-vl-32b-instruct",
+    "llama4": "meta-llama/llama-4-maverick",
 }
 
 @app.route("/ai", methods=["POST"])
@@ -349,7 +433,7 @@ def call_ai():
         return jsonify({"error": "No JSON payload provided"}), 400
 
     try:
-        raw_model = data.get("model", "google/gemini-2.5-flash")
+        raw_model = data.get("model", "google/gemini-3.8-flash")
         # Resolve legacy model names if passed
         model_name = LEGACY_MODEL_MAP.get(raw_model, raw_model)
         expect_json = data.get("expect_json", True)
@@ -428,10 +512,12 @@ def call_ai():
                 "content": "You are a helpful AI assistant. You must respond ONLY with valid JSON matching the requested schema. Do not output any markdown headers, conversational text, or formatting outside of JSON."
             })
 
-        response = openrouter_client.chat.completions.create(
-            model=model_name,
-            messages=formatted_messages,
-        )
+        create_kwargs = {
+            "model": model_name,
+            "messages": formatted_messages,
+            "max_tokens": 8192 if expect_json else 4096,
+        }
+        response = openrouter_client.chat.completions.create(**create_kwargs)
 
         content = response.choices[0].message.content
         if content is None:
@@ -461,6 +547,132 @@ def call_ai():
     except Exception as e:
         print("AI Error:", e)
         return jsonify({"error": str(e)}), 500
+
+
+# --------------------
+# Geoapify & Routing Proxy
+# --------------------
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    import math
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2.0) ** 2 +
+         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+         math.sin(dlon / 2.0) ** 2)
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return R * c
+
+@app.route("/routing", methods=["GET"])
+def proxy_routing():
+    """
+    Proxies routing requests to Geoapify. If Geoapify returns 400 (e.g. waypoint is off-road,
+    in water, or on an unroutable peak like Mount Batur) or any network error,
+    it automatically falls back to Haversine driving estimates, returning HTTP 200 JSON
+    without polluting the browser console with red HTTP 400 errors.
+    """
+    try:
+        waypoints = request.args.get("waypoints")  # format: "lat1,lon1|lat2,lon2"
+        mode = request.args.get("mode", "drive")
+
+        if not waypoints or "|" not in waypoints:
+            return jsonify({"error": "Invalid waypoints format, expected lat1,lon1|lat2,lon2"}), 400
+
+        parts = waypoints.split("|")
+        origin_lat, origin_lon = map(float, parts[0].split(","))
+        dest_lat, dest_lon = map(float, parts[1].split(","))
+
+        # Check for same point
+        if abs(origin_lat - dest_lat) < 0.0001 and abs(origin_lon - dest_lon) < 0.0001:
+            return jsonify({
+                "status": "ok",
+                "distance": 0,
+                "time": 60,
+                "distanceText": "0 m",
+                "durationText": "1 min",
+                "source": "exact"
+            })
+
+        # Strategy 1: Mapbox Directions API v5 (Fast, accurate driving distance & duration)
+        mapbox_token = os.getenv("MAPBOX_ACCESS_TOKEN", MAPBOX_ACCESS_TOKEN)
+        if mapbox_token:
+            mapbox_url = f"https://api.mapbox.com/directions/v5/mapbox/driving/{origin_lon},{origin_lat};{dest_lon},{dest_lat}?access_token={mapbox_token}&geometries=geojson"
+            try:
+                m_resp = requests.get(mapbox_url, timeout=5)
+                if m_resp.ok:
+                    m_data = m_resp.json()
+                    routes = m_data.get("routes", [])
+                    if routes:
+                        r0 = routes[0]
+                        distance_m = r0.get("distance", 0)
+                        time_sec = r0.get("duration", 0)
+                        dist_km = distance_m / 1000.0
+                        mins = int(round(time_sec / 60))
+                        dur_text = f"{mins} min" if time_sec < 3600 else f"{int(time_sec // 3600)}h {int(round((time_sec % 3600) / 60))}min"
+                        dist_text = f"{dist_km:.1f} km" if distance_m >= 1000 else f"{int(distance_m)} m"
+                        return jsonify({
+                            "status": "ok",
+                            "distance": distance_m,
+                            "time": time_sec,
+                            "distanceText": dist_text,
+                            "durationText": dur_text,
+                            "source": "mapbox"
+                        })
+                else:
+                    print(f"[Routing Proxy] Mapbox returned {m_resp.status_code}: {m_resp.text[:100]}")
+            except Exception as m_err:
+                print(f"[Routing Proxy] Mapbox request error: {m_err}")
+
+        # Strategy 2: Geoapify Routing API (Fallback)
+        api_key = os.getenv("GEOAPIFY_API_KEY", GEOAPIFY_API_KEY)
+        if api_key:
+            url = f"https://api.geoapify.com/v1/routing?waypoints={waypoints}&mode={mode}&apiKey={api_key}"
+            try:
+                resp = requests.get(url, timeout=6)
+                if resp.ok:
+                    data = resp.json()
+                    features = data.get("features", [])
+                    if features and "properties" in features[0]:
+                        props = features[0]["properties"]
+                        distance_m = props.get("distance", 0)
+                        time_sec = props.get("time", 0)
+                        dist_km = distance_m / 1000.0
+                        mins = int(round(time_sec / 60))
+                        dur_text = f"{mins} min" if time_sec < 3600 else f"{int(time_sec // 3600)}h {int(round((time_sec % 3600) / 60))}min"
+                        dist_text = f"{dist_km:.1f} km" if distance_m >= 1000 else f"{int(distance_m)} m"
+                        return jsonify({
+                            "status": "ok",
+                            "distance": distance_m,
+                            "time": time_sec,
+                            "distanceText": dist_text,
+                            "durationText": dur_text,
+                            "source": "geoapify"
+                        })
+                else:
+                    print(f"[Routing Proxy] Geoapify returned {resp.status_code} for {waypoints}: {resp.text[:100]}")
+            except Exception as req_err:
+                print(f"[Routing Proxy] Geoapify request error: {req_err}")
+
+        # Haversine fallback (35 km/h avg speed + 3 min buffer)
+        dist_km = _haversine_km(origin_lat, origin_lon, dest_lat, dest_lon)
+        est_sec = int(round((dist_km / 35.0) * 3600)) + 180
+        dist_m = int(round(dist_km * 1000))
+        mins = int(round(est_sec / 60))
+        dur_text = f"{mins} min" if mins < 60 else f"{mins // 60}h {mins % 60}min"
+        dist_text = f"{dist_km:.1f} km" if dist_km >= 1.0 else f"{dist_m} m"
+
+        return jsonify({
+            "status": "ok",
+            "distance": dist_m,
+            "time": est_sec,
+            "distanceText": dist_text,
+            "durationText": dur_text,
+            "source": "haversine_fallback"
+        })
+    except Exception as e:
+        print(f"[Routing Proxy] General error: {e}")
+        return jsonify({"error": str(e), "status": "error"}), 500
 
 
 

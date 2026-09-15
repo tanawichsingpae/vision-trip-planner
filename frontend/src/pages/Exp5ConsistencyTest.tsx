@@ -9,8 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { analyzeImage, type VisionResult } from "@/services/aiService";
 import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
 import {
   Upload,
   RefreshCw,
@@ -76,10 +78,11 @@ function isTruthy(v: string | boolean | undefined): boolean {
 }
 
 export default function Exp5ConsistencyTest() {
+  const { isThai, t } = useLanguage();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [groundTruth, setGroundTruth] = useState<string>("");
-  const [selectedModel, setSelectedModel] = useState<AIModelType>("google-gemini-25-flash");
+  const [selectedModel, setSelectedModel] = useState<AIModelType>("google-gemini-38-flash");
   const [numRuns, setNumRuns] = useState<number>(5);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -338,20 +341,23 @@ ${rows}
 
   return (
     <ExperimentLayout>
-      <div className="space-y-8">
+      <div className="space-y-6">
         {/* Header Title */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="text-left">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Experiment 5: Model Consistency & Operational Stability
+                {t("Experiment 5: การทดสอบความเสถียรและความคงเส้นคงวา (Consistency)", "Experiment 5: Model Consistency & Operational Stability")}
               </h2>
               <Badge className="bg-rose-50 text-rose-700 border-rose-200 text-xs font-semibold">
-                Thesis Chap. 4.5
+                {t("วิทยานิพนธ์ บทที่ 4.5", "Thesis Chap. 4.5")}
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Quantify multi-run determinism, response stability index (agreement rate), and latency jitter variance.
+              {t(
+                "วัดผลความแน่นอนในการตัดสินใจซ้ำ (Determinism), อัตราความสอดคล้องของคำตอบ (Agreement Rate) และการแกว่งตัวของเวลา (Latency Jitter)",
+                "Quantify multi-run determinism, response stability index (agreement rate), and latency jitter variance."
+              )}
             </p>
           </div>
 
@@ -364,10 +370,13 @@ ${rows}
               className="text-xs bg-white text-rose-700 border-rose-200 hover:bg-rose-50 shadow-2xs h-8"
             >
               {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-rose-600" />}
-              {copiedLatex ? "Copied LaTeX" : "Export Stability LaTeX"}
+              {copiedLatex ? t("คัดลอก LaTeX สำเร็จ", "Copied LaTeX") : t("ส่งออกตาราง LaTeX", "Export Stability LaTeX")}
             </Button>
           </div>
         </div>
+
+        {/* Executive Summary Takeaways Card */}
+        <KeyTakeawaysCard expId="exp5" />
 
         {/* Live Trial Session Summary Cards */}
         {sessionMetrics && (
@@ -378,7 +387,7 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800">
-                      Stability Index (Agreement)
+                      {t("ดัชนีความเสถียร (Agreement)", "Stability Index (Agreement)")}
                     </span>
                     <ShieldCheck className="w-4 h-4 text-rose-600" />
                   </div>
@@ -386,7 +395,7 @@ ${rows}
                     {sessionMetrics.agreementRate}%
                   </p>
                   <p className="text-[10px] text-rose-600 mt-0.5">
-                    {sessionMetrics.consensusCount} of {sessionMetrics.totalRuns} runs gave identical output
+                    {sessionMetrics.consensusCount} {t("จาก", "of")} {sessionMetrics.totalRuns} {t("รอบตอบผลลัพธ์ตรงกัน", "runs gave identical output")}
                   </p>
                 </CardContent>
               </Card>
@@ -395,13 +404,13 @@ ${rows}
               <Card className="bg-white border-slate-200/90 shadow-xs text-left">
                 <CardContent className="p-4">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    Consensus Output
+                    {t("ผลลัพธ์ที่เป็นเอกฉันท์ (Consensus)", "Consensus Output")}
                   </span>
                   <p className="text-base font-bold text-slate-900 mt-2 truncate" title={sessionMetrics.modePred}>
                     {sessionMetrics.modePred}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
-                    Accuracy: <strong>{sessionMetrics.accuracyRate}%</strong> across runs
+                    {t("ความแม่นยำ:", "Accuracy:")} <strong>{sessionMetrics.accuracyRate}%</strong> {t("ตลอดทุกรอบ", "across runs")}
                   </p>
                 </CardContent>
               </Card>
@@ -411,7 +420,7 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Mean Latency & Jitter
+                      {t("เวลาเฉลี่ยและการแกว่งตัว (Jitter)", "Mean Latency & Jitter")}
                     </span>
                     <Activity className="w-4 h-4 text-indigo-600" />
                   </div>
@@ -419,7 +428,7 @@ ${rows}
                     {sessionMetrics.meanLat} <span className="text-xs text-slate-400 font-normal">± {sessionMetrics.sdLat} ms</span>
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
-                    Jitter SD ($\sigma$): {sessionMetrics.sdLat} ms
+                    {t("ส่วนเบี่ยงเบนมาตรฐาน Jitter (σ):", "Jitter SD (σ):")} {sessionMetrics.sdLat} ms
                   </p>
                 </CardContent>
               </Card>
@@ -428,13 +437,13 @@ ${rows}
               <Card className="bg-white border-slate-200/90 shadow-xs text-left">
                 <CardContent className="p-4">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    Repetition Sample
+                    {t("จำนวนรอบที่รันซ้ำ", "Repetition Sample")}
                   </span>
                   <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">
-                    {sessionMetrics.totalRuns} Runs
+                    {sessionMetrics.totalRuns} {t("รอบ", "Runs")}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    Deterministic testing
+                    {t("การทดสอบความแน่นอน", "Deterministic testing")}
                   </p>
                 </CardContent>
               </Card>
@@ -448,26 +457,44 @@ ${rows}
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                       <Activity className="w-4 h-4 text-rose-600" />
-                      Latency Jitter Timeline ($\mu \pm \sigma$)
+                      {t("ไทม์ไลน์การแกว่งตัวของเวลาประมวลผล (Latency Jitter)", "Latency Jitter Timeline (μ ± σ)")}
                     </CardTitle>
                     <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] font-mono">
-                      Mean: {sessionMetrics.meanLat}ms (±{sessionMetrics.sdLat}ms)
+                      {isThai ? "เฉลี่ย" : "Mean"}: {sessionMetrics.meanLat}ms (±{sessionMetrics.sdLat}ms)
                     </Badge>
                   </div>
                   <CardDescription className="text-xs text-slate-500">
-                    Execution time variance across sequence. Shaded reference indicates standard deviation.
+                    {t(
+                      "ความแปรปรวนของเวลาประมวลผลในแต่ละรอบ เส้นประระบุช่วงส่วนเบี่ยงเบนมาตรฐาน (SD)",
+                      "Execution time variance across sequence. Shaded reference indicates standard deviation."
+                    )}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-4">
-                  <div className="h-48 w-full">
+                  <div className="h-52 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={sessionMetrics.latencyChartData} margin={{ top: 10, right: 20, left: -10, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                         <XAxis dataKey="run" tick={{ fontSize: 10 }} />
                         <YAxis tick={{ fontSize: 10 }} unit="ms" />
                         <RechartsTooltip
-                          formatter={(v: any) => [`${v} ms`, "Latency"]}
-                          contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px" }}
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              return (
+                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-lg text-xs space-y-1 text-left">
+                                  <p className="font-bold text-slate-900 border-b border-slate-100 pb-1">
+                                    {isThai ? `รอบที่ ${data.run}` : `Run #${data.run}`}
+                                  </p>
+                                  <div className="flex items-center justify-between gap-4 text-rose-600 font-semibold">
+                                    <span>{isThai ? "เวลาตอบสนอง:" : "Latency:"}</span>
+                                    <span className="font-mono font-bold">{data.latency} ms</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
                         />
                         <ReferenceLine y={sessionMetrics.meanLat} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: `Mean: ${sessionMetrics.meanLat}ms`, fill: "#64748b", fontSize: 10 }} />
                         <ReferenceLine y={sessionMetrics.meanLat + sessionMetrics.sdLat} stroke="#fca5a5" strokeDasharray="2 2" />
@@ -484,10 +511,10 @@ ${rows}
                 <CardHeader className="pb-2 border-b border-slate-100">
                   <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-rose-600" />
-                    Response Agreement Distribution
+                    {t("สัดส่วนความสอดคล้องของคำตอบ", "Response Agreement Distribution")}
                   </CardTitle>
                   <CardDescription className="text-xs text-slate-500">
-                    Degree of output determinism across all repetition trials.
+                    {t("ระดับความคงเส้นคงวาของโมเดลเมื่อรันภาพเดิมซ้ำหลายรอบ", "Degree of output determinism across all repetition trials.")}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-2 pb-4 flex flex-col items-center">
@@ -512,10 +539,10 @@ ${rows}
                   </div>
                   <div className="text-center mt-1">
                     <span className="text-xs font-bold text-slate-800">
-                      {sessionMetrics.agreementRate}% Modal Agreement
+                      {sessionMetrics.agreementRate}% {t("ความสอดคล้องเอกฉันท์", "Modal Agreement")}
                     </span>
                     <p className="text-[10px] text-slate-400">
-                      {sessionMetrics.consensusCount} matching predictions out of {sessionMetrics.totalRuns} runs
+                      {sessionMetrics.consensusCount} {t("รอบตอบตรงกันจากทั้งหมด", "matching predictions out of")} {sessionMetrics.totalRuns} {t("รอบ", "runs")}
                     </p>
                   </div>
                 </CardContent>

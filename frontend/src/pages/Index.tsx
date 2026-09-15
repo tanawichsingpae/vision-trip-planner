@@ -19,9 +19,12 @@ import {
   Plus,
   Loader2,
   Check,
+  Languages,
 } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
+import { hasThaiScript, translateTextSync } from "@/services/translatorService";
 import html2pdf from "html2pdf.js";
 import { getPlaceImage } from "@/utils/getPlaceImage";
 import {
@@ -65,11 +68,13 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getCoordinates, distanceMetres } from "@/api/geocode";
-import { getNearbyAttractions, fetchPlaceDetails, fetchPlaceDetailsByPlaceId } from "@/api/places";
+import { getNearbyAttractions, fetchPlaceDetails, fetchPlaceDetailsByPlaceId, getFallbackOpeningHours } from "@/api/places";
 import { gatherCandidatePOIs, kMeansCluster, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, rebalanceCrossDayPOIs, auditItineraryIssues, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
-import { generateTravelPlan, refineItineraryWithAI, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
+import { generateTravelPlan, refineItineraryWithAI, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, inferFallbackNonTravelContent, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
+import { fetchRecommendedAccommodations } from "@/services/hotelService";
 
 import { getEnvironmentData, type EnvironmentData } from "@/services/environmentService";
+import { getCuratedFallbackPhoto, findMatchingUserPhoto } from "@/services/photoService";
 import { toast } from "sonner";
 import { useAI, AI_MODEL_OPTIONS, getAIModelInfo, MODEL_ID_MAP } from "@/context/AIProviderContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -139,11 +144,11 @@ const AttractionDragOverlay = ({ name, photo_url }: { name: string; photo_url?: 
     <div className="w-64 md:w-72 rounded-2xl overflow-hidden bg-card border border-primary shadow-2xl scale-105 rotate-1">
       <div className="relative h-40 overflow-hidden">
         <img
-          src={photo_url || `https://picsum.photos/seed/${encodeURIComponent(name)}/800/600`}
+          src={photo_url || getCuratedFallbackPhoto("sightseeing", name)}
           alt={name}
           className="w-full h-full object-cover"
           onError={(e) => {
-            e.currentTarget.src = "https://picsum.photos/seed/travel/800/600";
+            e.currentTarget.src = getCuratedFallbackPhoto("sightseeing", name);
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
@@ -170,7 +175,7 @@ const ItineraryDragOverlay = ({ activity }: { activity: Activity }) => {
           alt={activity.title}
           className="w-full h-full object-cover"
           onError={(e) => {
-            e.currentTarget.src = "https://picsum.photos/seed/travel/800/600";
+            e.currentTarget.src = getCuratedFallbackPhoto(activity.type, activity.title);
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
@@ -294,6 +299,7 @@ function fileToBase64Thumbnail(file: File, maxWidth = 480): Promise<string> {
 
 const Index = () => {
   const { model, setModel, provider } = useAI();
+  const { language, toggleLanguage, t, locPlace, locDesc } = useLanguage();
   const [step, setStep] = useState(0);
   const [maxUnlockedStep, setMaxUnlockedStep] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -307,6 +313,7 @@ const Index = () => {
   const [suggestions, setSuggestions] = useState<SuggestedPlace[]>([]);
   const [accommodations, setAccommodations] = useState<SuggestedPlace[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<{ lat: number, lng: number } | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeSuggestion, setActiveSuggestion] = useState<SuggestedPlace | null>(null);
   const [hoveredActivityId, setHoveredActivityId] = useState<string | null>(null);
@@ -336,10 +343,72 @@ const Index = () => {
   useEffect(() => {
     if (itinerary.length > 0) {
       const pace = preferences?.pace || "Moderate";
-      const score = calculateCoherenceScore(itinerary, pace, tripStartDate ?? undefined);
+      const score = calculateCoherenceScore(
+        itinerary,
+        pace,
+        tripStartDate ?? undefined,
+        preferences ? {
+          budget: preferences.budget,
+          travelerType: preferences.travelerType,
+          activities: preferences.activities,
+          pace: preferences.pace,
+        } : undefined,
+        environmentData?.forecast
+      );
       setCoherenceResult(score);
     }
-  }, [itinerary, preferences?.pace, tripStartDate]);
+  }, [itinerary, preferences, tripStartDate, environmentData?.forecast]);
+
+  // Auto-geocode any activities in itinerary with missing or zero coordinates
+  useEffect(() => {
+    let hasMissingCoords = false;
+    for (const day of itinerary) {
+      for (const act of day.activities) {
+        if (!act.lat || !act.lng || act.lat === 0 || act.lng === 0) {
+          hasMissingCoords = true;
+          break;
+        }
+      }
+      if (hasMissingCoords) break;
+    }
+
+    if (!hasMissingCoords) return;
+
+    let isCancelled = false;
+    (async () => {
+      let didUpdate = false;
+      const updatedItinerary = await Promise.all(
+        itinerary.map(async (day) => {
+          const updatedActivities = await Promise.all(
+            day.activities.map(async (act) => {
+              if (!act.lat || !act.lng || act.lat === 0 || act.lng === 0) {
+                try {
+                  const details = await fetchPlaceDetails(act.title);
+                  if (details && details.lat && details.lng) {
+                    didUpdate = true;
+                    return { ...act, lat: details.lat, lng: details.lng };
+                  }
+                } catch {
+                  // Ignore fallback errors
+                }
+              }
+              return act;
+            })
+          );
+          return { ...day, activities: updatedActivities };
+        })
+      );
+
+      if (!isCancelled && didUpdate) {
+        setItinerary(updatedItinerary);
+        setMapItinerary(updatedItinerary);
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [itinerary]);
 
   const handleSaveCurrentTrip = useCallback(async (isSilent: boolean = false) => {
     if (!itinerary || itinerary.length === 0) {
@@ -576,6 +645,84 @@ const Index = () => {
     }
   }, [outliers]);
 
+  const handleReplaceOutlierPhoto = useCallback(async (outlierId: string, newFile: File) => {
+    const targetOutlier = outliers.find(o => o.id === outlierId);
+    if (!targetOutlier) return;
+
+    const toastId = toast.loading("กำลังวิเคราะห์รูปภาพใหม่ที่อัปโหลด...");
+
+    try {
+      const res = await analyzeImage(newFile, model, useClip);
+      let uploadedImageUrl: string | undefined = undefined;
+      try {
+        uploadedImageUrl = await fileToBase64Thumbnail(newFile);
+      } catch {
+        uploadedImageUrl = URL.createObjectURL(newFile);
+      }
+
+      // If the new image is a valid place
+      if (res.is_identifiable_place !== false && res.confidence >= 0.20) {
+        let lat: number | undefined = undefined;
+        let lng: number | undefined = undefined;
+        try {
+          const targetLoc = res.city ? `${res.city}, ${res.country}` : res.country;
+          const coords = await getCoordinates(res.place, undefined, targetLoc);
+          lat = coords.lat;
+          lng = coords.lng;
+        } catch {
+          // Keep undefined coords
+        }
+
+        const newVisionResult: VisionResult & { lat?: number; lng?: number } = {
+          ...res,
+          uploadedImageUrl,
+          lat,
+          lng,
+        };
+
+        // Remove from outliers
+        setOutliers(prev => prev.filter(o => o.id !== outlierId));
+
+        // Add to detected locations
+        setDetectedLocations(prev => [...prev, newVisionResult]);
+
+        toast.success(`แทนที่สำเร็จ! ตรวจพบสถานที่: "${res.place}" ✨`, { id: toastId });
+      } else {
+        // Still not a valid place (e.g. uploaded another food or selfie)
+        const fallback = inferFallbackNonTravelContent(res.type, res.rejection_reason);
+        const detectedLabel = res.detected_content || fallback.detectedContent;
+
+        setOutliers(prev =>
+          prev.map(o => {
+            if (o.id === outlierId) {
+              return {
+                ...o,
+                place: `ภาพไม่ระบุสถานที่ (${detectedLabel})`,
+                photoUrl: uploadedImageUrl,
+                reasonTitle: `ตรวจพบ: ${detectedLabel}`,
+                reasonDescription: res.detailed_description || res.rejection_reason || fallback.detailedDescription,
+                detected_content: detectedLabel,
+                detailed_description: res.detailed_description || fallback.detailedDescription,
+                suggested_action: res.suggested_action || fallback.suggestedAction,
+                non_travel_category: res.non_travel_category || res.type,
+                originalResult: { ...res, uploadedImageUrl },
+              };
+            }
+            return o;
+          })
+        );
+
+        toast.error(
+          `ภาพที่อัปโหลดใหม่ยังคงไม่ใช่สถานที่: ตรวจพบว่าเป็น "${detectedLabel}" กรุณาลองใหม่อีกครั้ง`,
+          { id: toastId, duration: 6000 }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to analyze replacement photo:", err);
+      toast.error("เกิดข้อผิดพลาดในการวิเคราะห์รูปภาพใหม่ กรุณาลองอีกครั้ง", { id: toastId });
+    }
+  }, [outliers, model, useClip]);
+
   const handleSwitchCandidateFromOutlier = useCallback((outlierId: string, candidate: any) => {
     const outlierIndex = outliers.findIndex(o => o.id === outlierId);
     if (outlierIndex === -1) return;
@@ -640,8 +787,6 @@ const Index = () => {
 
     try {
       const currentPace = preferences?.pace || "Moderate";
-      const auditReport = auditItineraryIssues(itinerary, currentPace, tripStartDate ?? undefined);
-
       const prefsWithModel: TripPreferences = preferences || {
         days: itinerary.length,
         pace: currentPace,
@@ -652,11 +797,25 @@ const Index = () => {
         endDate: tripStartDate || new Date(),
       };
 
+      const auditReport = auditItineraryIssues(
+        itinerary,
+        currentPace,
+        tripStartDate ?? undefined,
+        {
+          budget: prefsWithModel.budget,
+          travelerType: prefsWithModel.travelerType,
+          activities: prefsWithModel.activities,
+          pace: prefsWithModel.pace,
+        },
+        environmentData?.forecast
+      );
+
       const refined = await refineItineraryWithAI(
         itinerary,
         auditReport.warnings,
         prefsWithModel,
-        model
+        model,
+        environmentData?.forecast
       );
 
       // Re-apply 2-Opt TSP & hours fitting
@@ -664,7 +823,11 @@ const Index = () => {
         ? { lat: prefsWithModel.hotelLat, lng: prefsWithModel.hotelLng }
         : (selectedPlace || { lat: 13.7563, lng: 100.5018 });
 
-      const rebalanced = rebalanceCrossDayPOIs(refined);
+      const targetItinerary = (refined && Array.isArray(refined) && refined.length >= itinerary.length)
+        ? refined
+        : itinerary;
+
+      const rebalanced = rebalanceCrossDayPOIs(targetItinerary);
       const optimized = rebalanced.map((day, dIdx) => {
         const prevDayLastAct = dIdx > 0 ? rebalanced[dIdx - 1]?.activities.slice(-1)[0] : undefined;
         const dayStart = (prefsWithModel.hasHotel === "yes" && prefsWithModel.hotelLat && prefsWithModel.hotelLng)
@@ -680,7 +843,7 @@ const Index = () => {
         const optActivities = optimizeDayActivities(day.activities, currentPace, dayStart, dayOfWeek);
         return {
           ...day,
-          activities: [...optActivities].sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00")),
+          activities: optActivities,
         };
       });
 
@@ -696,7 +859,55 @@ const Index = () => {
     } finally {
       setIsAIRefining(false);
     }
-  }, [itinerary, preferences, tripStartDate, model, selectedPlace]);
+  }, [itinerary, preferences, tripStartDate, model, selectedPlace, environmentData?.forecast]);
+
+  const [optimizingDayIndex, setOptimizingDayIndex] = useState<number | null>(null);
+
+  const handleOptimizeDay = useCallback((dayIndex: number) => {
+    if (!itinerary || !itinerary[dayIndex]) return;
+    const targetDay = itinerary[dayIndex];
+    if (targetDay.activities.length <= 1) {
+      toast.info(`Day ${targetDay.day} มีสถานที่น้อยเกินไปสำหรับการจัดลำดับใหม่`);
+      return;
+    }
+
+    setOptimizingDayIndex(dayIndex);
+    try {
+      const currentPace = preferences?.pace || "Moderate";
+      const hotelLoc = preferences?.hasHotel === "yes" && preferences.hotelLat && preferences.hotelLng
+        ? { lat: preferences.hotelLat, lng: preferences.hotelLng }
+        : (selectedPlace || { lat: 13.7563, lng: 100.5018 });
+
+      const prevDayLastAct = dayIndex > 0 ? itinerary[dayIndex - 1]?.activities.slice(-1)[0] : undefined;
+      const dayStart = (preferences?.hasHotel === "yes" && preferences.hotelLat && preferences.hotelLng)
+        ? hotelLoc
+        : (dayIndex === 0
+          ? hotelLoc
+          : (prevDayLastAct?.lat && prevDayLastAct?.lng ? { lat: prevDayLastAct.lat, lng: prevDayLastAct.lng } : hotelLoc));
+
+      const dayDate = new Date(tripStartDate || new Date());
+      dayDate.setDate(dayDate.getDate() + dayIndex);
+      const dayOfWeek = dayDate.getDay();
+
+      const optActivities = optimizeDayActivities(targetDay.activities, currentPace, dayStart, dayOfWeek);
+
+      const updated = itinerary.map((d, idx) =>
+        idx === dayIndex ? { ...d, activities: optActivities } : d
+      );
+
+      setItinerary(updated);
+      setMapItinerary(updated);
+
+      toast.success(`จัดระเบียบเส้นทาง Day ${targetDay.day} ให้ราบรื่นเรียบร้อย ✨`, {
+        description: "จัดเรียงเส้นทางระเบียงเดียว (2-Opt) มื้ออาหารไม่ติดกัน พร้อมปรับเวลาตามเวลาเปิด-ปิดจริง",
+      });
+    } catch (err) {
+      console.error("Failed to optimize day:", err);
+      toast.error(`ไม่สามารถจัดระเบียบ Day ${targetDay.day} ได้`);
+    } finally {
+      setOptimizingDayIndex(null);
+    }
+  }, [itinerary, preferences, tripStartDate, selectedPlace]);
 
 
   const handleImagesUploaded = useCallback(async (files: File[]) => {
@@ -728,7 +939,8 @@ const Index = () => {
       const geoResults = await Promise.all(
         results.map(async (r) => {
           try {
-            const coords = await getCoordinates(r.place, undefined, r.country);
+            const targetLoc = r.city ? `${r.city}, ${r.country}` : r.country;
+            const coords = await getCoordinates(r.place, undefined, targetLoc);
             return { ...r, lat: coords.lat, lng: coords.lng };
           } catch {
             return r;
@@ -746,7 +958,38 @@ const Index = () => {
       setStep(1);
       setMaxUnlockedStep(prev => Math.max(prev, 1));
 
-      if (detectedOutliers.length > 0) {
+      const nonTravelOutliers = detectedOutliers.filter(o => o.category === "NON_TRAVEL");
+      const nonTravelCount = nonTravelOutliers.length;
+
+      if (kept.length === 0 && nonTravelCount > 0) {
+        // ALL images are non-travel images!
+        const distinctTypes = Array.from(new Set(nonTravelOutliers.map(o => o.detected_content || o.reasonTitle))).join(", ");
+        toast.error(
+          `ไม่พบสถานที่ท่องเที่ยว: ตรวจพบว่าเป็น ${distinctTypes}`,
+          {
+            description: "กรุณาอัปโหลดรูปภาพสถานที่ท่องเที่ยว วิว หรือแลนด์มาร์กใหม่อีกครั้ง",
+            duration: 9000,
+            action: {
+              label: "ตรวจสอบ Outlier",
+              onClick: () => setIsOutlierModalOpen(true),
+            },
+          }
+        );
+      } else if (nonTravelCount > 0) {
+        // Some images are non-travel, but some valid places exist
+        const distinctTypes = Array.from(new Set(nonTravelOutliers.map(o => o.detected_content || o.reasonTitle))).slice(0, 2).join(", ");
+        toast.warning(
+          `AI คัดกรองภาพที่ไม่ใช่สถานที่ออก ${nonTravelCount} ภาพ (${distinctTypes})`,
+          {
+            description: "คุณสามารถอัปโหลดภาพสถานที่ท่องเที่ยวใหม่มาแทนที่ หรือตัดภาพออกได้",
+            action: {
+              label: "ตรวจสอบ Outlier",
+              onClick: () => setIsOutlierModalOpen(true),
+            },
+            duration: 7000,
+          }
+        );
+      } else if (detectedOutliers.length > 0) {
         toast.warning(
           `Vision AI ตรวจพบ Outlier หรือสถานที่ที่ต้องยืนยัน ${detectedOutliers.length} รายการ`,
           {
@@ -787,8 +1030,9 @@ const Index = () => {
     try {
       // Step 1: Destination Geocoding
       const mainLocation = detectedLocations[0];
-      const mainLocationStr = `${mainLocation.place}, ${mainLocation.country}`;
-      const coords = await getCoordinates(mainLocationStr);
+      const cityPart = mainLocation.city ? `${mainLocation.city}, ` : "";
+      const mainLocationStr = `${mainLocation.place}, ${cityPart}${mainLocation.country}`;
+      let coords = await getCoordinates(mainLocationStr, undefined, mainLocation.city || mainLocation.place);
       setSelectedPlace(coords);
 
       // Step 1b: Spatial Candidate Gathering, K-Means Clustering, Macro-TSP Sequencing & Greedy TSP
@@ -833,7 +1077,18 @@ const Index = () => {
       // Step 2a: AI Self-Review & Refinement Loop (Critic-Actor Quality Gate)
       let workingItinerary = generatedItinerary;
       try {
-        const auditReport = auditItineraryIssues(generatedItinerary, prefsWithModel.pace, prefsWithModel.startDate);
+        const auditReport = auditItineraryIssues(
+          generatedItinerary,
+          prefsWithModel.pace,
+          prefsWithModel.startDate,
+          {
+            budget: prefsWithModel.budget,
+            travelerType: prefsWithModel.travelerType,
+            activities: prefsWithModel.activities,
+            pace: prefsWithModel.pace,
+          },
+          environmentData?.forecast
+        );
         if (auditReport.warnings.length > 0 || auditReport.score < 88) {
           setLoadingStep("AI Self-Reviewing & Refining Itinerary Flow...");
           console.log("[AISelfReview] Detected draft issues, auto-refining with AI:", auditReport.warnings);
@@ -841,11 +1096,14 @@ const Index = () => {
             generatedItinerary,
             auditReport.warnings,
             prefsWithModel,
-            model
+            model,
+            environmentData?.forecast
           );
-          if (refined && refined.length > 0) {
+          if (refined && Array.isArray(refined) && refined.length >= (prefsWithModel.days || 1)) {
             workingItinerary = refined;
-            console.log("[AISelfReview] Refined itinerary successfully applied");
+            console.log("[AISelfReview] Refined itinerary successfully applied with", refined.length, "days");
+          } else {
+            console.warn(`[AISelfReview] Refined itinerary returned ${refined?.length} days, expected at least ${prefsWithModel.days}. Preserving multi-day draft.`);
           }
         }
       } catch (selfReviewErr) {
@@ -873,41 +1131,101 @@ const Index = () => {
       setTripStartDate(prefs.startDate);
       if (aiTypicalWeather) setTypicalWeather(aiTypicalWeather);
 
+      // Step 2c: Itinerary Centroid Self-Correction (Fail-Safe Quality Gate)
+      // If generated activities cluster tightly in another city than initial coords (e.g. Bangkok vs Chiang Rai),
+      // auto-correct destination center to the real activity cluster!
+      try {
+        const sampleTitles: string[] = [];
+        for (const day of workingItinerary) {
+          for (const act of day.activities) {
+            if (act.title && !sampleTitles.includes(act.title)) {
+              sampleTitles.push(act.title);
+              if (sampleTitles.length >= 4) break;
+            }
+          }
+          if (sampleTitles.length >= 4) break;
+        }
+
+        if (sampleTitles.length >= 2) {
+          const sampleCity = mainLocation.city || mainLocation.place;
+          const sampleCoords = (
+            await Promise.all(
+              sampleTitles.map(async (t) => {
+                try {
+                  return await getCoordinates(t, undefined, sampleCity);
+                } catch {
+                  return null;
+                }
+              })
+            )
+          ).filter((c): c is Coordinates => Boolean(c && c.lat && c.lng));
+
+          if (sampleCoords.length >= 2) {
+            const centroid = {
+              lat: sampleCoords.reduce((sum, c) => sum + c.lat, 0) / sampleCoords.length,
+              lng: sampleCoords.reduce((sum, c) => sum + c.lng, 0) / sampleCoords.length,
+            };
+
+            const isCohesive = sampleCoords.every(c => distanceMetres(c, centroid) < 60_000);
+            const distFromDestination = distanceMetres(coords, centroid);
+
+            if (isCohesive && distFromDestination > 80_000) {
+              console.warn(
+                `[ItineraryCentroidCorrection] Cohesive activity cluster detected in another city (${Math.round(distFromDestination / 1000)}km away from initial coords). Auto-correcting destination center from [${coords.lat}, ${coords.lng}] to [${centroid.lat}, ${centroid.lng}]`
+              );
+              coords = { lat: centroid.lat, lng: centroid.lng };
+              setSelectedPlace(coords);
+              toast.info("ระบบปรับศูนย์กลางแผนที่ให้ตรงกับสถานที่ท่องเที่ยวในแผนอัตโนมัติ ✨", { duration: 4000 });
+            }
+          }
+        }
+      } catch (centroidErr) {
+        console.warn("[ItineraryCentroidCorrection] Check error:", centroidErr);
+      }
+
       // Step 3: Landmark Geocoding Enrichment
       // ⚠ We process activities SEQUENTIALLY (not parallel) to avoid hitting
-      //   Google Places API rate limits — the root cause of pin clustering.
-      //   Each activity waits 100 ms before the next request starts.
+      //   rate limits — the root cause of pin clustering.
+      //   Each activity waits 80 ms before the next request starts.
       setLoadingStep("Plotting Itinerary Map...");
       toast.info("Geocoding landmarks for precise mapping...", { duration: 3000 });
 
       const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+      const destinationCity = mainLocation.city || mainLocation.place;
 
       /**
-       * Validate that coords are not suspiciously close to the city centre.
-       * If they are within 200 m, geocoding likely fell back to a generic city result.
-       * We retry once with a shorter / more specific query.
+       * Validate that coords are neither out-of-bounds (> 100km) nor suspiciously generic (< 200m).
+       * Tests title, english_name, wiki_title, and cleaned action keywords.
        */
-      async function geocodeWithValidation(title: string): Promise<{ lat: number; lng: number }> {
-        const result = await getCoordinates(title, coords, mainLocation.place);
+      async function geocodeWithValidation(
+        title: string,
+        englishName?: string,
+        wikiTitle?: string
+      ): Promise<{ lat: number; lng: number } | null> {
+        const cleanedTitle = title
+          .replace(/^(Visit|Explore|See|Tour|Dinner at|Lunch at|Breakfast at|Relax at|ชมวิว|กินข้าวที่|เที่ยว|แวะ)\s+/i, "")
+          .trim();
 
-        // If the result is within 200 m of the city centre, it likely fell back to a generic
-        // city-level result. Retry once with a shorter / stripped title.
-        if (distanceMetres(result, coords) < 200) {
-          console.warn(`[geocode] "${title}" resolved within 200m of city centre — retrying…`);
-          const cleaned = title
-            .replace(/^(Visit|Explore|See|Tour|Dinner at|Lunch at|Breakfast at)\s+/i, "")
-            .trim();
+        const candidateList = [title, englishName, wikiTitle, cleanedTitle].filter(
+          (c): c is string => Boolean(c && c.trim().length > 1)
+        );
+        const uniqueCandidates = Array.from(new Set(candidateList));
+
+        for (const candidate of uniqueCandidates) {
           try {
-            const retry = await getCoordinates(
-              `${cleaned}, ${mainLocation.country ?? mainLocation.place}`,
-              coords,
-              mainLocation.place
-            );
-            if (distanceMetres(retry, coords) > 200) return retry;
-          } catch (_) { /* best effort */ }
+            const result = await getCoordinates(candidate, coords, destinationCity);
+            const dist = distanceMetres(result, coords);
+
+            // Valid coordinate if within destination boundary and not collapsed to generic center
+            if (dist >= 200 && dist <= 100_000) {
+              return result;
+            }
+          } catch (_) {
+            /* best effort */
+          }
         }
 
-        return result;
+        return null;
       }
 
       const enrichedItinerary: typeof generatedItinerary = [];
@@ -923,37 +1241,121 @@ const Index = () => {
         const currentDayIndexGoogle = (dayDate.getDay() + 6) % 7; // Map JS Sunday=0 to Google Monday=0
 
         for (const activity of day.activities) {
-          // Filter out closed locations
-          let isClosed = false;
-          if (activity.openingHours && activity.openingHours.length > 0) {
-            const todayHoursText = (activity.openingHours[currentDayIndexGoogle] || "").toLowerCase();
-            if (todayHoursText.includes("closed") || todayHoursText.includes("ปิด")) {
-              isClosed = true;
-            }
-          }
-
-          if (isClosed) {
-            console.warn(`[filter] Removed "${activity.title}" as it is closed on ${dayDate.toDateString()}`);
-            continue; // Skip adding this activity
-          }
-
           setLoadingStep(`Plotting Itinerary Map: ${activity.title}...`);
-          await delay(100); // ← 100 ms gap prevents Google Places API rate-limit failures
+          await delay(80);
+
+          const userUploadedPhoto = findMatchingUserPhoto(
+            activity.title,
+            activity.english_name,
+            activity.image_keyword,
+            detectedLocations,
+            activity.wiki_title
+          );
+          const isUserPhoto = Boolean(userUploadedPhoto);
+
           try {
-            const activityDetails = await geocodeWithValidation(activity.title);
+            // 1. Fetch rich venue details, real photos & exact coordinates (Foursquare + Smart Photo + Mapbox)
+            const placeDetails = await fetchPlaceDetails(
+              activity.title,
+              coords,
+              activity.type,
+              destinationCity,
+              activity.image_keyword,
+              {
+                countryName: mainLocation.country,
+                wikiTitle: activity.wiki_title,
+                indexOffset: dayIndex,
+              }
+            );
+
+            // 2. Determine best coordinates with 4-level fallback:
+            // Priority 1: Verified venue coordinates from Foursquare / Mapbox / Geoapify
+            // Priority 2: Multi-alias geocoding (title, english_name, wiki_title)
+            // Priority 3: Accurate AI / photo coordinates already present on activity
+            // Priority 4: City center default
+            let actLat = coords.lat;
+            let actLng = coords.lng;
+
+            if (placeDetails.lat != null && placeDetails.lng != null) {
+              const dist = distanceMetres({ lat: placeDetails.lat, lng: placeDetails.lng }, coords);
+              if (dist <= 100_000 && dist >= 50) {
+                actLat = placeDetails.lat;
+                actLng = placeDetails.lng;
+              }
+            }
+
+            if (actLat === coords.lat && actLng === coords.lng) {
+              const validated = await geocodeWithValidation(
+                activity.title,
+                activity.english_name,
+                activity.wiki_title
+              );
+              if (validated) {
+                actLat = validated.lat;
+                actLng = validated.lng;
+              } else if (
+                typeof activity.lat === "number" &&
+                typeof activity.lng === "number" &&
+                !isNaN(activity.lat) &&
+                !isNaN(activity.lng) &&
+                activity.lat !== 0 &&
+                activity.lng !== 0
+              ) {
+                const aiDist = distanceMetres({ lat: activity.lat, lng: activity.lng }, coords);
+                if (aiDist <= 100_000) {
+                  actLat = activity.lat;
+                  actLng = activity.lng;
+                }
+              }
+            }
+
+            // 3. Verify opening hours against current day of the trip
+            const openingHours = placeDetails.openingHours || activity.openingHours || getFallbackOpeningHours(activity.type, activity.title);
+            let isClosed = false;
+            if (openingHours && openingHours.length > 0) {
+              const todayHoursText = (openingHours[currentDayIndexGoogle] || "").toLowerCase();
+              if (todayHoursText.includes("closed") || todayHoursText.includes("ปิด")) {
+                isClosed = true;
+              }
+            }
+
+            if (isClosed) {
+              console.warn(`[filter] Removed "${activity.title}" as it is closed on ${dayDate.toDateString()}`);
+              continue; // Skip adding this activity
+            }
+
+            // 4. Resolve the most accurate photo URL:
+            // User Photo > Foursquare / Wikipedia Real Photo > Activity Photo > null
+            const finalPhoto = userUploadedPhoto || placeDetails.photo_url || activity.photo_url || activity.image_url || null;
+
             enrichedActivities.push({
               ...activity,
-              lat: activityDetails.lat,
-              lng: activityDetails.lng,
-              photo_url: activity.photo_url || activityDetails.photoUrl || null,
-              image_url: activity.image_url || activityDetails.photoUrl || null,
-              rating: activity.rating || activityDetails.rating || undefined,
-              userRatingsTotal: activity.userRatingsTotal || activityDetails.userRatingsTotal || undefined,
+              lat: actLat,
+              lng: actLng,
+              photo_url: finalPhoto,
+              image_url: finalPhoto,
+              isUserPhoto: isUserPhoto,
+              rating: placeDetails.rating || activity.rating || undefined,
+              userRatingsTotal: placeDetails.userRatingsTotal || activity.userRatingsTotal || undefined,
+              openNow: placeDetails.openNow ?? activity.openNow ?? null,
+              openingHours: openingHours,
+              priceLevel: placeDetails.priceLevel ?? activity.priceLevel ?? null,
+              website: placeDetails.website || activity.website || null,
+              phoneNumber: placeDetails.phoneNumber || activity.phoneNumber || null,
             });
           } catch (e) {
-            console.warn(`[geocode] All strategies failed for: "${activity.title}"`, e);
-            // Fallback: city centre (marked with _geocodeFailed so MapSection can handle)
-            enrichedActivities.push({ ...activity, lat: coords.lat, lng: coords.lng });
+            console.warn(`[enrichment] Fallback for "${activity.title}":`, e);
+            const fallbackValidated = await geocodeWithValidation(activity.title).catch(() => coords);
+            const finalPhoto = userUploadedPhoto || activity.photo_url || activity.image_url || null;
+            enrichedActivities.push({
+              ...activity,
+              lat: fallbackValidated.lat,
+              lng: fallbackValidated.lng,
+              photo_url: finalPhoto,
+              image_url: finalPhoto,
+              isUserPhoto: isUserPhoto,
+              openingHours: activity.openingHours || getFallbackOpeningHours(activity.type, activity.title),
+            });
           }
         }
 
@@ -1051,7 +1453,7 @@ const Index = () => {
         const optimizedDay = optimizeDayActivities(day.activities, prefs.pace, dayStart, dayOfWeek);
         return {
           ...day,
-          activities: [...optimizedDay].sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"))
+          activities: optimizedDay
         };
       });
 
@@ -1063,14 +1465,33 @@ const Index = () => {
       let finalAccommodations = [...generatedAccommodations];
       if (finalAccommodations.length < 5) {
         try {
-          const extraAccommodations = await generateMoreAccommodations(
-            mainLocation.place,
-            finalAccommodations.map(a => a.name),
-            model
-          );
-          finalAccommodations = [...finalAccommodations, ...extraAccommodations];
-        } catch (err) {
-          console.warn("[Accommodations] Could not fetch additional accommodations:", err);
+          // 1. First fetch real accommodations from Mapbox Search Box / Place API
+          const realRecs = await fetchRecommendedAccommodations({
+            locationName: mainLocation.place,
+            coords: coords,
+            limit: 8,
+            countryName: mainLocation.country,
+            existingNames: finalAccommodations.map(a => a.name),
+          });
+          if (realRecs.length > 0) {
+            finalAccommodations = [...finalAccommodations, ...realRecs];
+          }
+        } catch (placeErr) {
+          console.warn("[Accommodations] Place API recommendation error:", placeErr);
+        }
+
+        // 2. Fallback to LLM if still fewer than 5
+        if (finalAccommodations.length < 5) {
+          try {
+            const extraAccommodations = await generateMoreAccommodations(
+              mainLocation.place,
+              finalAccommodations.map(a => a.name),
+              model
+            );
+            finalAccommodations = [...finalAccommodations, ...extraAccommodations];
+          } catch (err) {
+            console.warn("[Accommodations] Could not fetch additional accommodations:", err);
+          }
         }
       }
       setAccommodations(finalAccommodations);
@@ -1118,19 +1539,33 @@ const Index = () => {
     if (!detectedLocations.length) return;
     const locationName = detectedLocations[0].place;
     const existingPlaces = accommodations.map(a => a.name);
+    const coords = detectedLocations[0].coordinates;
 
     setIsRefreshingAccommodations(true);
     try {
-      const newAccommodations = await generateMoreAccommodations(locationName, existingPlaces, model);
+      // 1. Try Mapbox / Place API for fresh real accommodations first
+      let newAccommodations = await fetchRecommendedAccommodations({
+        locationName,
+        coords,
+        limit: 6,
+        countryName: detectedLocations[0].country,
+        existingNames: existingPlaces,
+      });
+
+      // 2. Fallback to LLM if Place API returned none
+      if (newAccommodations.length === 0) {
+        newAccommodations = await generateMoreAccommodations(locationName, existingPlaces, model);
+      }
+
       if (newAccommodations.length > 0) {
         setAccommodations(prev => [...prev, ...newAccommodations]);
-        toast.success("Added new accommodations!");
+        toast.success("เพิ่มที่พักแนะนำใหม่เรียบร้อยแล้ว!");
       } else {
-        toast.info("No new accommodations found.");
+        toast.info("ไม่พบที่พักแนะนำเพิ่มเติมในขณะนี้");
       }
     } catch (error) {
       console.error("Failed to fetch new accommodations:", error);
-      toast.error("Failed to fetch new accommodations");
+      toast.error("เกิดข้อผิดพลาดในการค้นหาที่พักแนะนำ");
     } finally {
       setIsRefreshingAccommodations(false);
     }
@@ -1171,11 +1606,20 @@ const Index = () => {
       if (targetDayIndex === -1) return;
 
       const attraction = attractionData.attraction;
+      const attrNameTh = (attraction as any).name_th || (attraction as any).title_th || (hasThaiScript(attraction.name) ? attraction.name : translateTextSync(attraction.name, "th"));
+      const attrNameEn = (attraction as any).name_en || (attraction as any).title_en || attraction.english_name || (!hasThaiScript(attraction.name) ? attraction.name : translateTextSync(attraction.name, "en"));
       const newActivity: Activity = {
         id: `act-${Date.now()}`,
         time: "12:00",
         title: attraction.name,
+        title_th: attrNameTh,
+        title_en: attrNameEn,
+        name_th: (attraction as any).name_th || attrNameTh,
+        name_en: (attraction as any).name_en || attrNameEn,
+        english_name: attraction.english_name || attrNameEn,
         description: `Visit ${attraction.name}`,
+        description_th: `เยี่ยมชม ${attrNameTh}`,
+        description_en: `Visit ${attrNameEn}`,
         type: "attraction",
         image: attraction.image,
         image_url: attraction.image_url,
@@ -1207,11 +1651,23 @@ const Index = () => {
       if (targetDayIndex === -1) return;
 
       const place = suggestionData.place;
+      const placeNameTh = place.name_th || (place as any).title_th || (hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "th"));
+      const placeNameEn = place.name_en || (place as any).title_en || place.english_name || (!hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "en"));
+      const placeDescTh = place.description_th || (hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "th"));
+      const placeDescEn = place.description_en || (!hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "en"));
+
       const newActivity: Activity = {
         id: `act-${Date.now()}`,
         time: "12:00",
         title: place.name,
+        title_th: placeNameTh,
+        title_en: placeNameEn,
+        name_th: place.name_th || placeNameTh,
+        name_en: place.name_en || placeNameEn,
+        english_name: place.english_name || placeNameEn,
         description: place.description,
+        description_th: placeDescTh,
+        description_en: placeDescEn,
         type: place.category === "food" ? "food" : "attraction",
         image: place.image,
         image_url: place.image_url,
@@ -1221,7 +1677,7 @@ const Index = () => {
         rating: place.rating,
         userRatingsTotal: place.userRatingsTotal,
         openNow: place.openNow,
-        openingHours: place.openingHours,
+        openingHours: place.openingHours || getFallbackOpeningHours(place.category, place.name),
         priceLevel: place.priceLevel,
         website: place.website,
         phoneNumber: place.phoneNumber,
@@ -1250,11 +1706,21 @@ const Index = () => {
       if (targetDayIndex === -1) return;
 
       const hotel = hotelData.place;
+      const hotelNameTh = hotel.name_th || (hotel as any).title_th || (hasThaiScript(hotel.name) ? hotel.name : translateTextSync(hotel.name, "th"));
+      const hotelNameEn = hotel.name_en || (hotel as any).title_en || hotel.english_name || (!hasThaiScript(hotel.name) ? hotel.name : translateTextSync(hotel.name, "en"));
+
       const checkInActivity: Activity = {
         id: `hotel-checkin-${Date.now()}-1`,
         time: "15:00",
         title: `Check in: ${hotel.name}`,
+        title_th: `เช็คอิน: ${hotelNameTh}`,
+        title_en: `Check in: ${hotelNameEn}`,
+        name_th: hotel.name_th || hotelNameTh,
+        name_en: hotel.name_en || hotelNameEn,
+        english_name: hotel.english_name || hotelNameEn,
         description: `Check in to ${hotel.name}. Settle in and freshen up before starting your trip.`,
+        description_th: `เช็คอินที่ ${hotelNameTh} พักผ่อนและเตรียมตัวก่อนเริ่มการเดินทาง`,
+        description_en: `Check in to ${hotelNameEn}. Settle in and freshen up before starting your trip.`,
         type: "hotel",
         image: hotel.image,
         image_url: hotel.image_url,
@@ -1274,7 +1740,14 @@ const Index = () => {
         id: `hotel-checkout-${Date.now()}-2`,
         time: "11:00",
         title: `Check out: ${hotel.name}`,
+        title_th: `เช็คเอาต์: ${hotelNameTh}`,
+        title_en: `Check out: ${hotelNameEn}`,
+        name_th: hotel.name_th || hotelNameTh,
+        name_en: hotel.name_en || hotelNameEn,
+        english_name: hotel.english_name || hotelNameEn,
         description: `Check out from ${hotel.name}. Pack your bags and enjoy the rest of the day.`,
+        description_th: `เช็คเอาต์จาก ${hotelNameTh} เก็บสัมภาระและเพลิดเพลินกับเวลาที่เหลือ`,
+        description_en: `Check out from ${hotelNameEn}. Pack your bags and enjoy the rest of the day.`,
         type: "hotel",
         image: hotel.image,
         image_url: hotel.image_url,
@@ -1403,27 +1876,68 @@ const Index = () => {
     }
   };
 
-  const handleSelectActivity = useCallback((activity: Activity) => {
-    if (activity.lat && activity.lng) {
+  const handleSelectActivity = useCallback(async (activity: Activity) => {
+    setSelectedActivity({ ...activity });
+    setHoveredActivityId(activity.id);
+
+    if (activity.lat && activity.lng && activity.lat !== 0 && activity.lng !== 0) {
       setSelectedPlace({ lat: activity.lat, lng: activity.lng });
-      setHoveredActivityId(activity.id);
     } else {
-      // Fallback: Try to find matching attraction for coordinates
-      const match = attractions.find(a => a.name === activity.title);
-      if (match) {
+      // 1. Fallback: Try to find matching attraction for coordinates
+      const match = attractions.find(a => a.name.toLowerCase() === activity.title.toLowerCase());
+      if (match && match.lat && match.lng) {
+        activity.lat = match.lat;
+        activity.lng = match.lng;
         setSelectedPlace({ lat: match.lat, lng: match.lng });
-        setHoveredActivityId(activity.id);
+        setSelectedActivity({ ...activity, lat: match.lat, lng: match.lng });
+      } else {
+        // 2. Geocode on demand via fetchPlaceDetails if activity has no coords
+        try {
+          const details = await fetchPlaceDetails(activity.title);
+          if (details && details.lat && details.lng) {
+            const lat = details.lat;
+            const lng = details.lng;
+            activity.lat = lat;
+            activity.lng = lng;
+            setSelectedPlace({ lat, lng });
+            setSelectedActivity({ ...activity, lat, lng });
+
+            // Persist coordinates into itinerary and mapItinerary so pins update
+            setItinerary(prev => prev.map(d => ({
+              ...d,
+              activities: d.activities.map(a => a.id === activity.id ? { ...a, lat, lng } : a)
+            })));
+            setMapItinerary(prev => prev.map(d => ({
+              ...d,
+              activities: d.activities.map(a => a.id === activity.id ? { ...a, lat, lng } : a)
+            })));
+          }
+        } catch (err) {
+          console.warn("[handleSelectActivity] Geocoding fallback error:", err);
+        }
       }
     }
   }, [attractions]);
 
   // Resolve drag overlay content
   const handleAddSuggestion = useCallback((place: SuggestedPlace, dayIndex: number, time: string = "12:00") => {
+    const placeNameTh = place.name_th || (place as any).title_th || (hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "th"));
+    const placeNameEn = place.name_en || (place as any).title_en || place.english_name || (!hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "en"));
+    const placeDescTh = place.description_th || (hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "th"));
+    const placeDescEn = place.description_en || (!hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "en"));
+
     const newActivity: Activity = {
       id: `act-${Date.now()}`,
       time,
       title: place.name,
+      title_th: placeNameTh,
+      title_en: placeNameEn,
+      name_th: place.name_th || placeNameTh,
+      name_en: place.name_en || placeNameEn,
+      english_name: place.english_name || placeNameEn,
       description: place.description,
+      description_th: placeDescTh,
+      description_en: placeDescEn,
       type: place.category === "food" ? "food" : "attraction",
       image: place.image,
       image_url: place.image_url,
@@ -1433,7 +1947,7 @@ const Index = () => {
       rating: place.rating,
       userRatingsTotal: place.userRatingsTotal,
       openNow: place.openNow,
-      openingHours: place.openingHours,
+      openingHours: place.openingHours || getFallbackOpeningHours(place.category, place.name),
       priceLevel: place.priceLevel,
       website: place.website,
       phoneNumber: place.phoneNumber,
@@ -1461,11 +1975,21 @@ const Index = () => {
     checkOutDay: number,
     checkOutTime: string = "11:00"
   ) => {
+    const hotelNameTh = hotel.name_th || (hotel as any).title_th || (hasThaiScript(hotel.name) ? hotel.name : translateTextSync(hotel.name, "th"));
+    const hotelNameEn = hotel.name_en || (hotel as any).title_en || hotel.english_name || (!hasThaiScript(hotel.name) ? hotel.name : translateTextSync(hotel.name, "en"));
+
     const checkInActivity: Activity = {
       id: `hotel-checkin-${Date.now()}-1`,
       time: checkInTime,
       title: `Check in: ${hotel.name}`,
+      title_th: `เช็คอิน: ${hotelNameTh}`,
+      title_en: `Check in: ${hotelNameEn}`,
+      name_th: hotel.name_th || hotelNameTh,
+      name_en: hotel.name_en || hotelNameEn,
+      english_name: hotel.english_name || hotelNameEn,
       description: `Check in to ${hotel.name}. Settle in and freshen up before starting your trip.`,
+      description_th: `เช็คอินที่ ${hotelNameTh} พักผ่อนและเตรียมตัวก่อนเริ่มการเดินทาง`,
+      description_en: `Check in to ${hotelNameEn}. Settle in and freshen up before starting your trip.`,
       type: "hotel",
       image: hotel.image,
       image_url: hotel.image_url,
@@ -1485,7 +2009,14 @@ const Index = () => {
       id: `hotel-checkout-${Date.now()}-2`,
       time: checkOutTime,
       title: `Check out: ${hotel.name}`,
+      title_th: `เช็คเอาต์: ${hotelNameTh}`,
+      title_en: `Check out: ${hotelNameEn}`,
+      name_th: hotel.name_th || hotelNameTh,
+      name_en: hotel.name_en || hotelNameEn,
+      english_name: hotel.english_name || hotelNameEn,
       description: `Check out from ${hotel.name}. Pack your bags and enjoy the rest of the day.`,
+      description_th: `เช็คเอาต์จาก ${hotelNameTh} เก็บสัมภาระและเพลิดเพลินกับเวลาที่เหลือ`,
+      description_en: `Check out from ${hotelNameEn}. Pack your bags and enjoy the rest of the day.`,
       type: "hotel",
       image: hotel.image,
       image_url: hotel.image_url,
@@ -1597,34 +2128,50 @@ const Index = () => {
     return () => restores.forEach((r) => r());
   };
 
-  /** Build Google Maps Static API URL showing all day routes as coloured pins */
-  const buildStaticMapUrl = (plans: DayPlan[], apiKey: string): string => {
-    const colors = ["0x10b981", "0x3b82f6", "0xf59e0b", "0xef4444", "0x8b5cf6", "0x06b6d4", "0xf43f5e"];
-    const base = "https://maps.googleapis.com/maps/api/staticmap";
-    const params = new URLSearchParams({
-      size: "800x400",
-      scale: "2",
-      maptype: "roadmap",
-      key: apiKey,
-    });
+  /** Build Static Maps URL showing all day routes as coloured pins (Mapbox with Geoapify fallback) */
+  const buildStaticMapUrl = (plans: DayPlan[], apiKey?: string): string => {
+    const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string;
+    const geoapifyKey = apiKey || (import.meta.env.VITE_GEOAPIFY_API_KEY as string);
+    const hexColors = ["10b981", "3b82f6", "f59e0b", "ef4444", "8b5cf6", "06b6d4", "f43f5e"];
+    const geoapifyColors = ["%2310b981", "%233b82f6", "%23f59e0b", "%23ef4444", "%238b5cf6", "%2306b6d4", "%23f43f5e"];
 
-    plans.forEach((day, di) => {
-      const color = colors[di % colors.length];
-      day.activities.forEach((act, ai) => {
-        if (!act.lat || !act.lng) return;
-        params.append("markers", `color:${color}|label:${ai + 1}|${act.lat},${act.lng}`);
+    // Strategy 1: Mapbox Static Images API (High visual fidelity)
+    if (mapboxToken) {
+      const mbMarkers: string[] = [];
+      plans.forEach((day, di) => {
+        const color = hexColors[di % hexColors.length];
+        day.activities.forEach((act, ai) => {
+          if (!act.lat || !act.lng) return;
+          const pinLabel = (ai + 1) <= 99 ? `${ai + 1}` : "";
+          mbMarkers.push(`pin-s-${pinLabel}+${color}(${act.lng.toFixed(5)},${act.lat.toFixed(5)})`);
+        });
       });
-      // Draw path for this day
-      const validCoords = day.activities
-        .filter((a) => a.lat && a.lng)
-        .map((a) => `${a.lat},${a.lng}`)
-        .join("|");
-      if (validCoords) {
-        params.append("path", `color:${color}|weight:3|${validCoords}`);
+      if (mbMarkers.length > 0) {
+        const markerParam = mbMarkers.slice(0, 25).join(",");
+        return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${markerParam}/auto/800x400?padding=40&access_token=${mapboxToken}`;
       }
-    });
+    }
 
-    return `${base}?${params.toString()}`;
+    // Strategy 2: Geoapify Static Maps (Fallback)
+    if (geoapifyKey) {
+      const allCoords: { lat: number; lng: number }[] = [];
+      const markers: string[] = [];
+      plans.forEach((day, di) => {
+        const color = geoapifyColors[di % geoapifyColors.length];
+        day.activities.forEach((act, ai) => {
+          if (!act.lat || !act.lng) return;
+          allCoords.push({ lat: act.lat, lng: act.lng });
+          markers.push(`lonlat:${act.lng},${act.lat};color:${color};text:${ai + 1}`);
+        });
+      });
+
+      if (allCoords.length > 0) {
+        const markerParam = markers.slice(0, 20).join("|");
+        return `https://maps.geoapify.com/v1/staticmap?style=osm-bright-smooth&width=800&height=400&marker=${markerParam}&apiKey=${geoapifyKey}`;
+      }
+    }
+
+    return "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&auto=format&fit=crop";
   };
 
   /** Populate the hidden #pdf-cover-section with fresh content before export */
@@ -1650,7 +2197,7 @@ const Index = () => {
     const legendHtml = plans.map((day, i) =>
       `<div style="display:flex;align-items:center;gap:8px;margin:4px 0">
         <span style="width:14px;height:14px;border-radius:50%;background:${dayColors[i % dayColors.length]};display:inline-block;border:2px solid white;box-shadow:0 0 0 1px #ccc"></span>
-        <span style="font-size:13px;font-weight:600;color:#374151">Day ${day.day}${dateRange && startDate ? ` – ${new Date(startDate.getTime() + i * 86400000).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}` : ""}</span>
+        <span style="font-size:13px;font-weight:600;color:#374151">${language === "th" ? `วันที่ ${day.day}` : `Day ${day.day}`}${dateRange && startDate ? ` – ${new Date(startDate.getTime() + i * 86400000).toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { weekday: "short", day: "numeric", month: "short" })}` : ""}</span>
       </div>`
     ).join("");
 
@@ -1660,18 +2207,18 @@ const Index = () => {
       const actHtml = day.activities.map((act, ai) =>
         `<li style="display:flex;gap:8px;font-size:12px;color:#374151;padding:3px 0">
           <span style="color:${color};font-weight:700;min-width:18px">${ai + 1}.</span>
-          <span><strong>${act.time || ""}</strong> ${act.title}</span>
+          <span><strong>${act.time || ""}</strong> ${locPlace(act)}</span>
         </li>`
       ).join("");
       const dayDate = startDate ? new Date(startDate.getTime() + di * 86400000) : null;
       const dayLabel = dayDate
-        ? dayDate.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
+        ? dayDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { weekday: "long", day: "numeric", month: "long" })
         : day.date;
       return `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;break-inside:avoid">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
           <div style="width:32px;height:32px;border-radius:8px;background:${color};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px">${day.day}</div>
           <div>
-            <div style="font-weight:700;font-size:14px;color:#111827">Day ${day.day}</div>
+            <div style="font-weight:700;font-size:14px;color:#111827">${language === "th" ? `วันที่ ${day.day}` : `Day ${day.day}`}</div>
             <div style="font-size:11px;color:#6b7280">${dayLabel}</div>
           </div>
         </div>
@@ -1685,7 +2232,7 @@ const Index = () => {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
           <div>
             <h1 style="font-size:32px;font-weight:800;color:#0f172a;margin:0 0 4px 0">🌍 ${locationName}</h1>
-            <p style="font-size:15px;color:#64748b;margin:0">${dateRange ? dateRange + " · " : ""}${plans.length} day${plans.length !== 1 ? "s" : ""} · ${plans.reduce((s, d) => s + d.activities.length, 0)} activities</p>
+            <p style="font-size:15px;color:#64748b;margin:0">${dateRange ? dateRange + " · " : ""}${language === "th" ? `${plans.length} วัน · ${plans.reduce((s, d) => s + d.activities.length, 0)} กิจกรรม` : `${plans.length} day${plans.length !== 1 ? "s" : ""} · ${plans.reduce((s, d) => s + d.activities.length, 0)} activities`}</p>
           </div>
           <div style="text-align:right">
             <div style="font-size:22px;font-weight:800;color:#3b82f6">Pixinerary</div>
@@ -1700,12 +2247,12 @@ const Index = () => {
 
         <!-- Day Legend -->
         <div style="background:#fff;border-radius:12px;padding:16px;border:1px solid #e5e7eb;margin-bottom:24px">
-          <h3 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin:0 0 12px 0">Day Legend</h3>
+          <h3 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin:0 0 12px 0">${language === "th" ? "สัญลักษณ์สีแต่ละวัน" : "Day Legend"}</h3>
           <div style="display:flex;flex-wrap:wrap;gap:12px 24px">${legendHtml}</div>
         </div>
 
         <!-- Itinerary Overview -->
-        <h3 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin:0 0 16px 0">Itinerary Overview</h3>
+        <h3 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin:0 0 16px 0">${language === "th" ? "ภาพรวมแผนการเดินทาง" : "Itinerary Overview"}</h3>
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">${overviewHtml}</div>
       </div>
     `;
@@ -1716,7 +2263,7 @@ const Index = () => {
     setIsExportingPDF(true);
     toast.info("Generating PDF, please wait...");
 
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? "";
+    const apiKey = import.meta.env.VITE_GEOAPIFY_API_KEY ?? "";
     let restoreImages: (() => void) | null = null;
 
     try {
@@ -1785,7 +2332,7 @@ const Index = () => {
       <div className="fixed -bottom-40 -right-40 size-96 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />
 
       {/* Floating Frosted Top Navigation Bar */}
-      <div className="sticky top-4 z-40 mx-auto w-[96%] lg:w-[80%] max-w-[1920px] px-2 sm:px-4">
+      <div className={`sticky top-4 z-40 mx-auto transition-all duration-300 ${step >= 3 ? "w-[90%] max-w-[2560px]" : "w-[96%] lg:w-[80%] max-w-[1920px]"} px-2 sm:px-4`}>
         <nav className="glass-strong flex items-center justify-between gap-2 rounded-full px-3 py-2 shadow-xs sm:px-5">
           <div className="flex items-center gap-2">
             <Link to="/" className="flex items-center gap-2 group">
@@ -1824,6 +2371,20 @@ const Index = () => {
               </SelectContent>
             </Select>
 
+            {/* Language Switcher Toggle */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={toggleLanguage}
+              className="h-8 rounded-full px-2.5 text-xs font-semibold gap-1.5 text-foreground hover:bg-secondary border border-border/50 transition-colors"
+              title={language === "th" ? "Switch to English" : "เปลี่ยนเป็นภาษาไทย"}
+              aria-label="Toggle language"
+            >
+              <Languages className="size-3.5 text-sky-500 shrink-0" />
+              <span className="font-bold tracking-wider">{language === "th" ? "TH" : "EN"}</span>
+            </Button>
+
             {/* My Trips Button */}
             <Button
               type="button"
@@ -1831,10 +2392,10 @@ const Index = () => {
               size="sm"
               onClick={() => setIsSavedTripsModalOpen(true)}
               className="h-8 rounded-full px-3 text-xs font-semibold gap-1 text-foreground hover:bg-secondary"
-              title="ดูประวัติทริปที่บันทึกไว้"
+              title={language === "th" ? "ดูประวัติทริปที่บันทึกไว้" : "View Saved Trips"}
             >
               <Compass className="size-3.5" />
-              <span className="hidden sm:inline">My Trips</span>
+              <span className="hidden sm:inline">{language === "th" ? "ทริปของฉัน" : "My Trips"}</span>
             </Button>
 
             {/* User Session / Sign in */}
@@ -1843,8 +2404,8 @@ const Index = () => {
         </nav>
       </div>
 
-      {/* Main Content Area (80% width with 10% margins left & right) */}
-      <main className="mx-auto w-[96%] lg:w-[80%] max-w-[1920px] px-2 sm:px-4 pt-6 pb-20">
+      {/* Main Content Area (90% width with 5% margins left & right on Itinerary, 80% on earlier steps) */}
+      <main className={`mx-auto transition-all duration-300 ${step >= 3 ? "w-[90%] max-w-[2560px]" : "w-[96%] lg:w-[80%] max-w-[1920px]"} px-2 sm:px-4 pt-6 pb-20`}>
         {/* Step Indicator */}
         <StepIndicator
           currentStep={step}
@@ -1898,7 +2459,7 @@ const Index = () => {
               >
                 <span className="flex items-center gap-2 text-xs font-semibold text-foreground">
                   <SlidersHorizontal className="size-3.5 text-muted-foreground" />
-                  Advanced AI settings (Visual CLIP scoring)
+                  {language === "th" ? "การตั้งค่า AI ขั้นสูง (การให้คะแนนความแม่นยำด้วย CLIP)" : "Advanced AI settings (Visual CLIP scoring)"}
                 </span>
                 <ChevronDown className={`size-4 text-muted-foreground transition-transform ${showAdvancedSettings ? "rotate-180" : ""}`} />
               </button>
@@ -1906,8 +2467,12 @@ const Index = () => {
               {showAdvancedSettings && (
                 <div className="px-4 pb-4 pt-1 border-t border-border/40 flex items-center justify-between gap-2 animate-in fade-in">
                   <div>
-                    <p className="text-xs font-medium text-foreground">Visual confidence scoring (CLIP)</p>
-                    <p className="text-[11px] text-muted-foreground">Uses the CLIP vision model to rank landmarks by visual similarity.</p>
+                    <p className="text-xs font-medium text-foreground">
+                      {language === "th" ? "การให้คะแนนความมั่นใจทางภาพ (CLIP)" : "Visual confidence scoring (CLIP)"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {language === "th" ? "ใช้โมเดล CLIP ช่วยจัดอันดับความเหมือนของรูปภาพสถานที่ท่องเที่ยว" : "Uses the CLIP vision model to rank landmarks by visual similarity."}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Switch
@@ -1915,7 +2480,9 @@ const Index = () => {
                       checked={useClip}
                       onCheckedChange={setUseClip}
                     />
-                    <span className="text-xs font-medium text-muted-foreground">{useClip ? "On (slower)" : "Off (faster)"}</span>
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {useClip ? (language === "th" ? "เปิด (ช้ากว่า)" : "On (slower)") : (language === "th" ? "ปิด (เร็วกว่า)" : "Off (faster)")}
+                    </span>
                   </div>
                 </div>
               )}
@@ -1935,6 +2502,7 @@ const Index = () => {
               onRemoveLocation={handleRemoveLocation}
               onSwitchCandidate={handleSwitchCandidateFromLocation}
               onUploadNewPhotos={() => setStep(0)}
+              onFilesUploaded={handleImagesUploaded}
             />
 
             {/* Navigation Actions */}
@@ -1947,7 +2515,7 @@ const Index = () => {
                 className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-8 px-3 gap-1.5"
               >
                 <ArrowLeft className="size-3.5" />
-                <span>Upload new photos</span>
+                <span>{language === "th" ? "อัปโหลดภาพใหม่" : "Upload new photos"}</span>
               </Button>
 
               <Button
@@ -1956,7 +2524,7 @@ const Index = () => {
                 disabled={detectedLocations.length === 0}
                 onClick={() => {
                   if (detectedLocations.length === 0) {
-                    toast.info("กรุณากู้คืนหรือระบุสถานที่อย่างน้อย 1 แห่งก่อนดำเนินการต่อครับ");
+                    toast.info(language === "th" ? "กรุณากู้คืนหรือระบุสถานที่อย่างน้อย 1 แห่งก่อนดำเนินการต่อครับ" : "Please restore or identify at least 1 location before continuing");
                     return;
                   }
                   setStep(2);
@@ -1965,7 +2533,7 @@ const Index = () => {
                 }}
                 className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-medium text-xs h-8 px-3 gap-1.5 shadow-xs disabled:opacity-50"
               >
-                <span>Continue to preferences</span>
+                <span>{language === "th" ? "ไปยังขั้นตอนความต้องการเดินทาง" : "Continue to preferences"}</span>
                 <ArrowRight className="size-3.5" />
               </Button>
             </div>
@@ -1983,10 +2551,14 @@ const Index = () => {
                 </div>
                 <div>
                   <p className="text-sm font-bold tracking-tight text-foreground">
-                    Planning for {detectedLocations[0]?.place || "Destination"}, {detectedLocations[0]?.country}
+                    {language === "th"
+                      ? `วางแผนเที่ยว ${detectedLocations[0]?.place_th || detectedLocations[0]?.place || "จุดหมายปลายทาง"}, ${detectedLocations[0]?.country_th || detectedLocations[0]?.country}`
+                      : `Planning for ${detectedLocations[0]?.place_en || detectedLocations[0]?.place || "Destination"}, ${detectedLocations[0]?.country_en || detectedLocations[0]?.country}`}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Tell us how you like to travel ({detectedLocations.length} places identified)
+                    {language === "th"
+                      ? `บอกเราว่าคุณชอบท่องเที่ยวสไตล์ไหน (ระบุได้แล้ว ${detectedLocations.length} สถานที่)`
+                      : `Tell us how you like to travel (${detectedLocations.length} places identified)`}
                   </p>
                 </div>
               </div>
@@ -2001,7 +2573,7 @@ const Index = () => {
                     className="rounded-xl border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary font-semibold text-xs h-7 px-2.5 gap-1 shadow-2xs"
                   >
                     <Compass className="size-3.5" />
-                    <span>ดูแผนปัจจุบัน</span>
+                    <span>{language === "th" ? "ดูแผนปัจจุบัน" : "View Itinerary"}</span>
                   </Button>
                 )}
                 <Button
@@ -2012,7 +2584,7 @@ const Index = () => {
                   className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1"
                 >
                   <ArrowLeft className="size-3.5" />
-                  <span>Back</span>
+                  <span>{language === "th" ? "ย้อนกลับ" : "Back"}</span>
                 </Button>
               </div>
             </div>
@@ -2022,6 +2594,7 @@ const Index = () => {
               key={`pref-form-${preferences ? `${preferences.days}-${preferences.travelerType}-${preferences.budget}-${(preferences.activities || []).join("-")}` : "new"}`}
               onSubmit={handlePreferencesSubmit}
               destinationName={detectedLocations[0]?.place}
+              destinationCoords={detectedLocations[0]?.coordinates}
               onBack={() => setStep(1)}
               initialPreferences={preferences}
               hasExistingItinerary={maxUnlockedStep >= 3 && itinerary.length > 0}
@@ -2068,7 +2641,7 @@ const Index = () => {
                     className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1"
                   >
                     <ArrowLeft className="size-3.5" />
-                    <span>Edit preferences</span>
+                    <span>{language === "th" ? "แก้ไขความต้องการ" : "Edit preferences"}</span>
                   </Button>
 
                   <Button
@@ -2079,7 +2652,7 @@ const Index = () => {
                     className="rounded-xl text-muted-foreground hover:text-foreground font-medium text-xs h-7 px-2.5 gap-1"
                   >
                     <Eye className="size-3.5" />
-                    <span>View photos ({detectedLocations.length})</span>
+                    <span>{language === "th" ? `ดูภาพถ่าย (${detectedLocations.length})` : `View photos (${detectedLocations.length})`}</span>
                   </Button>
                 </div>
 
@@ -2115,24 +2688,27 @@ const Index = () => {
                     ) : (
                       <FileDown className="size-3.5" />
                     )}
-                    <span>Export PDF</span>
+                    <span>{language === "th" ? "ส่งออก PDF" : "Export PDF"}</span>
                   </Button>
 
                   {/* Auto-Save Live Status Badge */}
                   {lastAutoSavedAt && (
                     <span
                       className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary/80 border border-border/70 text-[11px] text-muted-foreground font-medium"
-                      title="ระบบบันทึกความคืบหน้าของทริปลงฐานข้อมูลอัตโนมัติทุก 1 นาที"
+                      title={language === "th" ? "ระบบบันทึกความคืบหน้าของทริปลงฐานข้อมูลอัตโนมัติทุก 1 นาที" : "Trip progress is automatically saved every minute"}
                     >
                       {isAutoSaving ? (
                         <>
                           <Loader2 className="size-3 animate-spin text-primary" />
-                          <span>กำลังบันทึกอัตโนมัติ...</span>
+                          <span>{language === "th" ? "กำลังบันทึกอัตโนมัติ..." : "Auto-saving..."}</span>
                         </>
                       ) : (
                         <>
                           <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          <span>บันทึกอัตโนมัติแล้ว ({lastAutoSavedAt.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })})</span>
+                          <span>
+                            {language === "th" ? "บันทึกอัตโนมัติแล้ว" : "Auto-saved"} (
+                            {lastAutoSavedAt.toLocaleTimeString(language === "th" ? "th-TH" : "en-US", { hour: "2-digit", minute: "2-digit" })})
+                          </span>
                         </>
                       )}
                     </span>
@@ -2150,16 +2726,16 @@ const Index = () => {
                     ) : (
                       <Bookmark className="size-3.5" />
                     )}
-                    <span>{currentTripId ? "อัปเดตการบันทึก" : "Save trip"}</span>
+                    <span>{currentTripId ? (language === "th" ? "อัปเดตการบันทึก" : "Update Trip") : (language === "th" ? "บันทึกทริป" : "Save trip")}</span>
                   </Button>
                 </div>
               </div>
 
 
-              {/* 2-Column Responsive Dashboard */}
+              {/* 2-Column Responsive Dashboard (7:5 ratio for expansive map and timeline) */}
               <div className="grid gap-6 lg:grid-cols-12 items-start">
-                {/* Left Column (7/12 on lg, 8/12 on xl): Itinerary Timeline */}
-                <div className="lg:col-span-7 xl:col-span-8" id="pdf-export-wrapper">
+                {/* Left Column (7/12 on lg & xl): Itinerary Timeline */}
+                <div className="lg:col-span-7 xl:col-span-7 2xl:col-span-7" id="pdf-export-wrapper">
                   <div id="pdf-cover-section" aria-hidden="true" />
                   <TravelItinerary
                     itinerary={itinerary}
@@ -2169,20 +2745,25 @@ const Index = () => {
                     }}
                     activeDragId={activeDragId}
                     onSelectActivity={handleSelectActivity}
+                    selectedActivityId={selectedActivity?.id}
                     onHoverActivity={setHoveredActivityId}
                     onReloadMap={() => setMapItinerary(itinerary)}
                     suggestions={suggestions}
                     tripStartDate={tripStartDate ?? undefined}
                     hourlyWeather={environmentData?.hourly ?? []}
                     coherenceResult={coherenceResult}
+                    destinationName={detectedLocations[0]?.place || preferences?.destination}
+                    cityName={detectedLocations[0]?.place || preferences?.destination}
                     onAIRefine={handleAIRefineItinerary}
                     isAIRefining={isAIRefining}
+                    onOptimizeDay={handleOptimizeDay}
+                    isOptimizingDay={optimizingDayIndex}
                   />
 
                 </div>
 
-                {/* Right Column (5/12 on lg, 4/12 on xl, Sticky): Interactive Map & Live Weather */}
-                <div className="flex flex-col gap-4 lg:col-span-5 xl:col-span-4 lg:sticky lg:top-20 lg:self-start">
+                {/* Right Column (5/12 on lg & xl, Sticky): Interactive Map & Live Weather */}
+                <div className="flex flex-col gap-4 lg:col-span-5 xl:col-span-5 2xl:col-span-5 lg:sticky lg:top-20 lg:self-start">
                   {(() => {
                     const effectiveCoords = selectedPlace
                       || (detectedLocations[0]?.lat && detectedLocations[0]?.lng ? { lat: detectedLocations[0].lat, lng: detectedLocations[0].lng } : null)
@@ -2214,6 +2795,13 @@ const Index = () => {
                             }}
                             itinerary={mapItinerary}
                             dayColors={DAY_COLORS}
+                            selectedActivity={selectedActivity}
+                            selectedPlace={selectedPlace}
+                            hoveredActivityId={hoveredActivityId}
+                            onSelectActivity={(act) => {
+                              setSelectedActivity(act);
+                              setHoveredActivityId(act.id);
+                            }}
                           />
                         </div>
 
@@ -2238,13 +2826,13 @@ const Index = () => {
                 <Tabs defaultValue="places" className="w-full">
                   <TabsList className="w-full justify-start rounded-full bg-secondary/60 p-1 mb-4">
                     <TabsTrigger value="places" className="rounded-full flex-1 text-xs sm:text-sm font-medium">
-                      📍 Suggested Places
+                      📍 {language === "th" ? "สถานที่แนะนำเพิ่มเติม" : "Suggested Places"}
                     </TabsTrigger>
                     <TabsTrigger value="hotels" className="rounded-full flex-1 text-xs sm:text-sm font-medium">
-                      🏨 Stays & Hotels
+                      🏨 {language === "th" ? "ที่พัก & โรงแรม" : "Stays & Hotels"}
                     </TabsTrigger>
                     <TabsTrigger value="flights" className="rounded-full flex-1 text-xs sm:text-sm font-medium">
-                      ✈️ Flight Logistics
+                      ✈️ {language === "th" ? "เที่ยวบิน & การเดินทาง" : "Flight Logistics"}
                     </TabsTrigger>
                   </TabsList>
 
@@ -2263,6 +2851,7 @@ const Index = () => {
                       accommodations={accommodations}
                       onAddToItinerary={handleAddHotel}
                       locationName={detectedLocations[0].place}
+                      destinationCoords={detectedLocations[0]?.coordinates}
                       daysCount={itinerary.length}
                       onRefreshAccommodations={handleRefreshAccommodations}
                       isRefreshing={isRefreshingAccommodations}
@@ -2296,7 +2885,7 @@ const Index = () => {
       {/* Floating AI ChatBot (Reserved exclusively for bottom right) */}
       {step >= 3 && detectedLocations.length > 0 && !isAnalyzing && (
         <ChatBot
-          locationName={detectedLocations[0]?.place || "Destination"}
+          locationName={locPlace(detectedLocations[0]) || "Destination"}
           itinerary={itinerary}
           onUpdateItinerary={(newItinerary) => {
             setItinerary(newItinerary);
@@ -2305,15 +2894,15 @@ const Index = () => {
           preferences={preferences}
           onUpdatePreferences={(updatedPrefs) => {
             setPreferences((prev) => (prev ? { ...prev, ...updatedPrefs } : null));
-            toast.success("อัปเดตความต้องการเดินทางสำเร็จ");
+            toast.success(language === "en" ? "Travel preferences updated" : "อัปเดตความต้องการเดินทางสำเร็จ");
           }}
           onUpdateHotel={(hotelName) => {
             setPreferences((prev) => (prev ? { ...prev, hasHotel: "yes", hotelName } : null));
-            toast.success(`สลับโรงแรมเป็น: ${hotelName}`);
+            toast.success(language === "en" ? `Switched hotel to: ${hotelName}` : `สลับโรงแรมเป็น: ${hotelName}`);
           }}
           onUpdateFlight={(flightCode) => {
             setPreferences((prev) => (prev ? { ...prev, hasFlight: "yes", flightCode } : null));
-            toast.success(`อัปเดตเที่ยวบิน ${flightCode} เรียบร้อยแล้ว ขอให้ถึงที่หมายโดยสวัสดิภาพ ✨✈️`);
+            toast.success(language === "en" ? `Flight ${flightCode} updated! Have a safe and pleasant journey ✨✈️` : `อัปเดตเที่ยวบิน ${flightCode} เรียบร้อยแล้ว ขอให้ถึงที่หมายโดยสวัสดิภาพ ✨✈️`);
           }}
           messages={chatMessages}
           onUpdateMessages={setChatMessages}
@@ -2327,6 +2916,28 @@ const Index = () => {
         onSelectTrip={handleSelectTrip}
         onNewTrip={handleNewTrip}
         currentTripId={currentTripId}
+      />
+
+      {/* Vision Outlier Modal */}
+      <VisionOutlierModal
+        open={isOutlierModalOpen}
+        onOpenChange={setIsOutlierModalOpen}
+        outliers={outliers}
+        keptLocations={detectedLocations}
+        onRestoreLocation={handleRestoreLocation}
+        onDiscardOutlier={handleDiscardOutlier}
+        onDiscardAllNonTravel={handleDiscardAllNonTravel}
+        onSwitchCandidate={handleSwitchCandidateFromOutlier}
+        onManualOverridePlace={handleManualOverridePlace}
+        onReplaceOutlierPhoto={handleReplaceOutlierPhoto}
+        onConfirmProceed={() => {
+          setIsOutlierModalOpen(false);
+          if (detectedLocations.length > 0 && step === 1) {
+            setStep(2);
+            setMaxUnlockedStep(prev => Math.max(prev, 2));
+            window.scrollTo({ top: 100, behavior: "smooth" });
+          }
+        }}
       />
 
       <footer className="border-t border-border/70 py-6 text-center text-xs text-muted-foreground mt-12">

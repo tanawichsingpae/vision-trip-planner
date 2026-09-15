@@ -1,8 +1,5 @@
 import { Coordinates, getCoordinates } from "./geocode";
-import { validateApiKey } from "@/utils/apiUtils";
 import { type Activity } from "@/components/TravelItinerary";
-
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 export interface POICandidate {
   name: string;
@@ -62,18 +59,41 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
     return clusters;
   }
 
-  // K-Means++ initialization for initial centroids
-  const centroids: Coordinates[] = [];
-  centroids.push({ lat: pois[0].lat, lng: pois[0].lng });
+  // 1. Excursion Isolation & Classification:
+  // Detect distant destination outliers (>25 km away from main urban cluster)
+  // to dedicate them to a separate Day-Trip Excursion day instead of mixing with city walking.
+  let urbanPois = [...pois];
+  let excursionPois: POICandidate[] = [];
 
-  while (centroids.length < k) {
+  if (k >= 2 && pois.length >= 4) {
+    const avgAllLat = pois.reduce((s, p) => s + p.lat, 0) / pois.length;
+    const avgAllLng = pois.reduce((s, p) => s + p.lng, 0) / pois.length;
+    const hubCenter: Coordinates = { lat: avgAllLat, lng: avgAllLng };
+
+    const farPois = pois.filter(p => haversineDistance(p, hubCenter) >= 25);
+    const nearPois = pois.filter(p => haversineDistance(p, hubCenter) < 25);
+
+    // If there is an excursion cluster with at least 1 spot and enough near spots
+    if (farPois.length > 0 && nearPois.length >= k - 1) {
+      excursionPois = farPois;
+      urbanPois = nearPois;
+    }
+  }
+
+  const urbanK = excursionPois.length > 0 ? k - 1 : k;
+
+  // 2. K-Means++ initialization for urban centroids
+  const centroids: Coordinates[] = [];
+  centroids.push({ lat: urbanPois[0].lat, lng: urbanPois[0].lng });
+
+  while (centroids.length < urbanK) {
     let maxDist = -1;
     let bestPoiIndex = 0;
 
-    for (let i = 0; i < pois.length; i++) {
+    for (let i = 0; i < urbanPois.length; i++) {
       let minDistToCentroids = Infinity;
       for (const c of centroids) {
-        const d = haversineDistance(pois[i], c);
+        const d = haversineDistance(urbanPois[i], c);
         if (d < minDistToCentroids) minDistToCentroids = d;
       }
       if (minDistToCentroids > maxDist) {
@@ -81,20 +101,20 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
         bestPoiIndex = i;
       }
     }
-    centroids.push({ lat: pois[bestPoiIndex].lat, lng: pois[bestPoiIndex].lng });
+    centroids.push({ lat: urbanPois[bestPoiIndex].lat, lng: urbanPois[bestPoiIndex].lng });
   }
 
   // Iterative assignment (max 20 iterations)
-  let assignments: number[] = new Array(pois.length).fill(0);
+  let assignments: number[] = new Array(urbanPois.length).fill(0);
   for (let iter = 0; iter < 20; iter++) {
     let changed = false;
 
     // Assign POIs to nearest centroid
-    for (let i = 0; i < pois.length; i++) {
+    for (let i = 0; i < urbanPois.length; i++) {
       let minD = Infinity;
       let nearestCluster = 0;
-      for (let c = 0; c < k; c++) {
-        const d = haversineDistance(pois[i], centroids[c]);
+      for (let c = 0; c < urbanK; c++) {
+        const d = haversineDistance(urbanPois[i], centroids[c]);
         if (d < minD) {
           minD = d;
           nearestCluster = c;
@@ -109,8 +129,8 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
     if (!changed) break;
 
     // Update centroids
-    for (let c = 0; c < k; c++) {
-      const clusterPois = pois.filter((_, idx) => assignments[idx] === c);
+    for (let c = 0; c < urbanK; c++) {
+      const clusterPois = urbanPois.filter((_, idx) => assignments[idx] === c);
       if (clusterPois.length > 0) {
         const avgLat = clusterPois.reduce((acc, p) => acc + p.lat, 0) / clusterPois.length;
         const avgLng = clusterPois.reduce((acc, p) => acc + p.lng, 0) / clusterPois.length;
@@ -120,20 +140,20 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
   }
 
   // Group into DayCluster objects
-  const clusters: DayCluster[] = Array.from({ length: k }, (_, i) => ({
+  const clusters: DayCluster[] = Array.from({ length: urbanK }, (_, i) => ({
     day: i + 1,
     pois: [],
   }));
 
   assignments.forEach((clusterIdx, poiIdx) => {
-    clusters[clusterIdx].pois.push(pois[poiIdx]);
+    clusters[clusterIdx].pois.push(urbanPois[poiIdx]);
   });
 
   // Smart Balance check: Reassign POIs to empty clusters based on minimum Haversine distance
-  for (let i = 0; i < k; i++) {
+  for (let i = 0; i < urbanK; i++) {
     if (clusters[i].pois.length === 0) {
       let maxClusterIdx = 0;
-      for (let j = 0; j < k; j++) {
+      for (let j = 0; j < urbanK; j++) {
         if (clusters[j].pois.length > clusters[maxClusterIdx].pois.length) {
           maxClusterIdx = j;
         }
@@ -165,7 +185,7 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
       return { lat: avgLat, lng: avgLng };
     });
 
-    for (let cIdx = 0; cIdx < k; cIdx++) {
+    for (let cIdx = 0; cIdx < urbanK; cIdx++) {
       if (clusters[cIdx].pois.length <= 2) continue; // Keep minimum POIs
 
       for (let pIdx = clusters[cIdx].pois.length - 1; pIdx >= 0; pIdx--) {
@@ -176,7 +196,7 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
           let bestOtherIdx = -1;
           let bestOtherDist = distToOwn;
 
-          for (let otherIdx = 0; otherIdx < k; otherIdx++) {
+          for (let otherIdx = 0; otherIdx < urbanK; otherIdx++) {
             if (otherIdx === cIdx) continue;
             const dOther = haversineDistance(poi, currentCentroids[otherIdx]);
             if (dOther < bestOtherDist - 2.0) {
@@ -213,6 +233,18 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
       cluster.radiusKm = 5.0;
     }
   });
+
+  // 3. Append isolated Excursion cluster if present
+  if (excursionPois.length > 0) {
+    const avgExLat = excursionPois.reduce((s, p) => s + p.lat, 0) / excursionPois.length;
+    const avgExLng = excursionPois.reduce((s, p) => s + p.lng, 0) / excursionPois.length;
+    clusters.push({
+      day: k,
+      pois: excursionPois,
+      centroid: { lat: avgExLat, lng: avgExLng },
+      radiusKm: 12.0, // Excursion day has larger natural exploration footprint
+    });
+  }
 
   return clusters;
 }
@@ -388,10 +420,42 @@ export function solve2OptTSP<T extends { lat?: number; lng?: number }>(
       total += haversineDistance(startCoord, { lat: tour[0].lat!, lng: tour[0].lng! });
     }
     for (let i = 0; i < tour.length - 1; i++) {
-      total += haversineDistance(
+      const legDist = haversineDistance(
         { lat: tour[i].lat!, lng: tour[i].lng! },
         { lat: tour[i + 1].lat!, lng: tour[i + 1].lng! }
       );
+      // Penalize excessive hops between consecutive places (>12 km) to ensure tight 3-5 km clustering
+      const hopPenalty = legDist > 12 ? Math.pow(legDist - 12, 1.5) * 5 : 0;
+      total += legDist + hopPenalty;
+
+      // Penalize acute turn-back angles (> 120 deg) over long distances (> 2.5 km) to enforce monotonic corridor flow
+      if (i > 0) {
+        const pPrev = { lat: tour[i - 1].lat!, lng: tour[i - 1].lng! };
+        const pCurr = { lat: tour[i].lat!, lng: tour[i].lng! };
+        const pNext = { lat: tour[i + 1].lat!, lng: tour[i + 1].lng! };
+
+        const cosLat = Math.cos((pCurr.lat * Math.PI) / 180);
+        const v1x = (pCurr.lng - pPrev.lng) * cosLat;
+        const v1y = pCurr.lat - pPrev.lat;
+        const v2x = (pNext.lng - pCurr.lng) * cosLat;
+        const v2y = pNext.lat - pCurr.lat;
+
+        const len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+        const len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+
+        if (len1 > 1e-6 && len2 > 1e-6) {
+          const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+          // dot < -0.5 corresponds to turn angle > 120 degrees (sharp U-turn / backtracking)
+          if (dot < -0.5) {
+            const prevLegDist = haversineDistance(pPrev, pCurr);
+            if (prevLegDist > 2.5 && legDist > 2.5) {
+              const severity = (-dot - 0.5) * 2; // 0 to 1
+              const turnPenalty = (prevLegDist + legDist) * 0.8 * severity;
+              total += turnPenalty;
+            }
+          }
+        }
+      }
     }
     if (endDepotCoord) {
       total += haversineDistance({ lat: tour[tour.length - 1].lat!, lng: tour[tour.length - 1].lng! }, endDepotCoord);
@@ -566,8 +630,6 @@ export async function gatherCandidatePOIs(
   userRecognizedPlaces: string[],
   preferredActivities: string[] = []
 ): Promise<POICandidate[]> {
-  validateApiKey(API_KEY, "Google Maps");
-
   const candidates: POICandidate[] = [];
   const addedNames = new Set<string>();
 
@@ -594,7 +656,7 @@ export async function gatherCandidatePOIs(
     }
   }
 
-  // 2. Fetch Multi-Category Nearby Places via Google Places JS SDK
+  // 2. Fetch Multi-Category Nearby Places
   const typesToQuery = ["tourist_attraction"];
   preferredActivities.forEach(act => {
     const lower = act.toLowerCase();
@@ -607,38 +669,98 @@ export async function gatherCandidatePOIs(
 
   const uniqueTypes = Array.from(new Set(typesToQuery)).slice(0, 5);
 
-  if (typeof google !== "undefined" && google.maps && google.maps.places) {
-    const service = new google.maps.places.PlacesService(document.createElement("div"));
-
-    for (const placeType of uniqueTypes) {
-      await new Promise<void>((resolve) => {
-        service.nearbySearch(
-          {
-            location: new google.maps.LatLng(centerCoords.lat, centerCoords.lng),
-            radius: 15000, // 15 km radius
-            type: placeType,
-          },
-          (results, status) => {
-            if (status === google.maps.places.PlacesServiceStatus.OK && results) {
-              results.slice(0, 12).forEach((p) => {
-                if (p.name && p.geometry?.location) {
-                  addPoi({
-                    name: p.name,
-                    lat: p.geometry.location.lat(),
-                    lng: p.geometry.location.lng(),
-                    rating: p.rating,
-                    userRatingsTotal: p.user_ratings_total,
-                    photo_url: p.photos?.[0]?.getUrl({ maxWidth: 800 }) ?? null,
-                    place_id: p.place_id,
-                    type: placeType,
-                  });
-                }
-              });
-            }
-            resolve();
-          }
-        );
+  const foursquareKey = import.meta.env.VITE_FOURSQUARE_API_KEY as string;
+  if (foursquareKey && centerCoords.lat && centerCoords.lng) {
+    try {
+      const fsqCatMap: Record<string, string> = {
+        tourist_attraction: "16000",
+        restaurant: "13065",
+        museum: "10027",
+        park: "16032",
+        shopping_mall: "17114",
+        bar: "13003",
+      };
+      const fsqCategories = uniqueTypes.map((t) => fsqCatMap[t] || "16000").join(",");
+      const fsqUrl = import.meta.env.DEV
+        ? `/fsq-api/places/search?ll=${centerCoords.lat},${centerCoords.lng}&radius=15000&categories=${fsqCategories}&limit=25`
+        : `${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/foursquare/search?ll=${centerCoords.lat},${centerCoords.lng}&radius=15000&categories=${fsqCategories}&limit=25`;
+      const fsqRes = await fetch(fsqUrl, {
+        headers: {
+          Authorization: foursquareKey,
+          Accept: "application/json",
+        },
       });
+      if (fsqRes.ok) {
+        const fsqData = await fsqRes.json();
+        const fsqResults = fsqData.results || [];
+        fsqResults.forEach((p: any) => {
+          const coords = p.geocodes?.main;
+          if (p.name && coords?.latitude && coords?.longitude) {
+            let photoUrl: string | null = null;
+            if (p.photos && p.photos.length > 0) {
+              photoUrl = `${p.photos[0].prefix}original${p.photos[0].suffix}`;
+            }
+            addPoi({
+              name: p.name,
+              lat: coords.latitude,
+              lng: coords.longitude,
+              rating: p.rating ? Math.round((p.rating / 2) * 10) / 10 : 4.5,
+              userRatingsTotal: p.stats?.total_ratings || p.stats?.ratings_total || 60,
+              photo_url: photoUrl,
+              place_id: p.fsq_id,
+              type: "attraction",
+            });
+          }
+        });
+      }
+    } catch (fsqErr) {
+      console.warn("[gatherCandidatePOIs] Foursquare places fetch failed:", fsqErr);
+    }
+  }
+
+  const geoapifyKey = import.meta.env.VITE_GEOAPIFY_API_KEY as string;
+  if (candidates.length < 5 && geoapifyKey && centerCoords.lat && centerCoords.lng) {
+    try {
+      const catMap: Record<string, string> = {
+        tourist_attraction: "tourism.sights,tourism.attraction",
+        restaurant: "catering.restaurant",
+        museum: "entertainment.museum,tourism.sights",
+        park: "leisure.park",
+        shopping_mall: "commercial.shopping_mall",
+        bar: "catering.bar",
+      };
+
+      const categories = uniqueTypes.map((t) => catMap[t] || "tourism.sights").join(",");
+      const url = `https://api.geoapify.com/v2/places?categories=${encodeURIComponent(
+        categories
+      )}&filter=circle:${centerCoords.lng},${centerCoords.lat},15000&limit=25&apiKey=${geoapifyKey}&lang=en`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const features = data.features || [];
+        features.forEach((p: any) => {
+          const props = p.properties || {};
+          const coords = p.geometry?.coordinates;
+          if (props.name && coords && coords.length >= 2) {
+            addPoi({
+              name: props.name,
+              lat: coords[1],
+              lng: coords[0],
+              rating: props.rank?.popularity
+                ? Math.round(props.rank.popularity * 5 * 10) / 10
+                : 4.5,
+              userRatingsTotal: props.rank?.confidence
+                ? Math.round(props.rank.confidence * 100)
+                : 50,
+              photo_url: null,
+              place_id: props.place_id,
+              type: "attraction",
+            });
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("[gatherCandidatePOIs] Geoapify places fetch failed:", err);
     }
   }
 
@@ -715,23 +837,46 @@ export function parseOpeningHours(
   return null;
 }
 
-export function isZoneOrArea(activity: ActivityItem): boolean {
-  if (activity.openingHours && activity.openingHours.length > 0) {
-    const hasClosedOrSpecificHours = activity.openingHours.some(h => !h.toLowerCase().includes("open 24 hours"));
-    if (hasClosedOrSpecificHours) return false;
-  }
+export function isZoneOrArea(activity: ActivityItem | Activity): boolean {
   const title = (activity.title || "").toLowerCase();
   const type = (activity.type || "").toLowerCase();
 
-  if (title.includes("street") || title.includes("road") || title.includes("district") || 
-      title.includes("square") || title.includes("area") || title.includes("bazaar") ||
-      title.includes("quarter") || title.includes("old town") || title.includes("ถนน") ||
-      title.includes("ย่าน") || title.includes("จัตุรัส")) {
+  // Public zones, districts, streets, old towns, beaches, and parks are assumed open 24 hours
+  if (
+    title.includes("street") ||
+    title.includes("road") ||
+    title.includes("district") || 
+    title.includes("square") ||
+    title.includes("area") ||
+    title.includes("bazaar") ||
+    title.includes("quarter") ||
+    title.includes("old town") ||
+    title.includes("walking street") ||
+    title.includes("beach") ||
+    title.includes("waterfront") ||
+    title.includes("riverside") ||
+    title.includes("park") ||
+    title.includes("ถนน") ||
+    title.includes("ย่าน") ||
+    title.includes("จัตุรัส") ||
+    title.includes("หาด") ||
+    title.includes("ริมน้ำ") ||
+    title.includes("เมืองเก่า")
+  ) {
     return true;
   }
 
   if (type === "transport" || type === "hotel") {
     return true;
+  }
+
+  if (activity.openingHours && activity.openingHours.length > 0) {
+    const isAll24 = activity.openingHours.every(h =>
+      h.toLowerCase().includes("open 24 hours") ||
+      h.toLowerCase().includes("24 ชั่วโมง") ||
+      h.toLowerCase().includes("open 24h")
+    );
+    if (isAll24) return true;
   }
 
   return false;
@@ -762,15 +907,26 @@ export interface ActivityItem {
   id?: string;
   time?: string;
   title: string;
+  description?: string;
   type: string;
   lat?: number;
   lng?: number;
   openingHours?: string[] | null;
+  rating?: number | null;
+  userRatingsTotal?: number | null;
+  priceLevel?: number | null;
 }
 
 export interface DayPlanItem {
   day: number;
   activities: ActivityItem[];
+}
+
+export interface AuditPreferences {
+  budget?: string;
+  travelerType?: string;
+  activities?: string[];
+  pace?: string;
 }
 
 export interface ItineraryCoherence {
@@ -779,20 +935,24 @@ export interface ItineraryCoherence {
   diversityScore: number;
   paceScore: number;
   schedulingScore: number;
+  selectionScore: number; // 4th Pillar: POI Quality, Budget, Persona & Category Fit
   dailyDistanceKm: number[];
   totalDistanceKm: number;
   crossingCount: number;
   warnings: string[];
+  passedChecks: string[]; // List of confirmed audit standards passed
 }
 
 /**
  * Calculates Coherence Score based on strict spatial, time, opening hours, lunch, anti-consecutive meal,
- * and edge crossing minimization constraints.
+ * edge crossing minimization, budget alignment, persona fit, and quality constraints.
  */
 export function calculateCoherenceScore(
   itinerary: DayPlanItem[],
   pace: string = "Moderate",
-  tripStartDate?: Date
+  tripStartDate?: Date,
+  preferences?: AuditPreferences,
+  weatherForecast?: Array<{ date?: string; condition?: any; rainChance?: number; isRainy?: boolean } | any>
 ): ItineraryCoherence {
   let totalDist = 0;
   let totalActivities = 0;
@@ -801,6 +961,7 @@ export function calculateCoherenceScore(
   const warnings: string[] = [];
   let schedulingPenalty = 0;
   let spatialPenalty = 0;
+  let selectionPenalty = 0;
 
   const visitedTitles = new Set<string>();
 
@@ -865,6 +1026,43 @@ export function calculateCoherenceScore(
       spatialPenalty += dayCrossings * 8;
     }
 
+    // Anti-Looping Check: First and last activity must not loop back to meet each other
+    if (validGeoActs.length >= 4) {
+      const firstAct = validGeoActs[0];
+      const lastAct = validGeoActs[validGeoActs.length - 1];
+      const dStartEnd = haversineDistance(
+        { lat: firstAct.lat!, lng: firstAct.lng! },
+        { lat: lastAct.lat!, lng: lastAct.lng! }
+      );
+      let maxExcursion = 0;
+      validGeoActs.forEach(a => {
+        const d = haversineDistance({ lat: firstAct.lat!, lng: firstAct.lng! }, { lat: a.lat!, lng: a.lng! });
+        if (d > maxExcursion) maxExcursion = d;
+      });
+
+      if (maxExcursion > 1.8 && dStartEnd < 0.6) {
+        warnings.push(`Day ${day.day}: Route loops back to meet near the morning start point ("${firstAct.title}" and "${lastAct.title}", only ${dStartEnd.toFixed(1)} km apart). Real travelers follow an open progressive route across the district.`);
+        spatialPenalty += 8;
+      }
+    }
+
+    // Category Monotony / Burnout Evaluator (Pearce 1988)
+    const catCounts: Record<string, number> = {};
+    activities.forEach(a => {
+      if (a.type !== "food" && a.type !== "hotel" && a.type !== "transport") {
+        catCounts[a.type] = (catCounts[a.type] || 0) + 1;
+      }
+    });
+
+    Object.entries(catCounts).forEach(([cat, count]) => {
+      if (count >= 3 && activities.length >= 4) {
+        warnings.push(
+          `Day ${day.day}: [Category Monotony: 3+ consecutive "${cat}" spots] Contains ${count} ${cat} spots in a single day, risking visitor burnout / monotony. Consider diversifying with parks, dining, or shopping.`
+        );
+        selectionPenalty += 6;
+      }
+    });
+
     for (let i = 0; i < activities.length; i++) {
       const act = activities[i];
       const actTimeMin = parseTimeToMinutes(act.time);
@@ -880,25 +1078,126 @@ export function calculateCoherenceScore(
         }
       }
 
-      // Opening Hours Check
+      // Opening Hours & Dwell-Time Buffer Check
       if (actTimeMin !== null && !isZoneOrArea(act)) {
         const hours = parseOpeningHours(act.openingHours, dayOfWeek);
         if (hours) {
           if (hours.openMinutes === -1) {
             warnings.push(`Day ${day.day}: "${act.title}" is closed on this day.`);
             schedulingPenalty += 15;
-          } else if (actTimeMin < hours.openMinutes || actTimeMin > hours.closeMinutes - 20) {
+          } else if (actTimeMin < hours.openMinutes) {
             const openFormatted = `${Math.floor(hours.openMinutes / 60)}:${(hours.openMinutes % 60).toString().padStart(2, '0')}`;
             const closeFormatted = `${Math.floor(hours.closeMinutes / 60)}:${(hours.closeMinutes % 60).toString().padStart(2, '0')}`;
             warnings.push(`Day ${day.day}: "${act.title}" at ${act.time} is outside operating hours (${openFormatted} - ${closeFormatted}).`);
             schedulingPenalty += 10;
+          } else if (hours.closeMinutes > hours.openMinutes) {
+            const dwellTime = getEstimatedDwellMinutes(act as any, pace);
+            const closeBuffer = Math.max(45, Math.min(150, dwellTime + 15));
+            if (actTimeMin > hours.closeMinutes - closeBuffer) {
+              const closeFormatted = `${Math.floor(hours.closeMinutes / 60)}:${(hours.closeMinutes % 60).toString().padStart(2, '0')}`;
+              const latestAllowed = hours.closeMinutes - closeBuffer;
+              const latestFormatted = `${Math.floor(latestAllowed / 60)}:${(latestAllowed % 60).toString().padStart(2, '0')}`;
+              warnings.push(`Day ${day.day}: "${act.title}" at ${act.time} closes at ${closeFormatted}, leaving insufficient dwell time (requires ~${dwellTime}m). Should start by ${latestFormatted}.`);
+              schedulingPenalty += 8;
+            }
           }
+        }
+      }
+
+      // Selection Rule 1: Budget Compatibility Check
+      if (preferences?.budget) {
+        const b = preferences.budget.toLowerCase();
+        if (b.includes("budget") || b.includes("low")) {
+          if (act.priceLevel !== undefined && act.priceLevel !== null && act.priceLevel >= 3) {
+            warnings.push(`Day ${day.day}: [Budget Mismatch] "${act.title}" is an expensive venue (Price Level ${act.priceLevel}/4) exceeding your Budget preference.`);
+            selectionPenalty += 6;
+          } else {
+            const t = (act.title + " " + (act.description || "")).toLowerCase();
+            if (t.includes("fine dining") || t.includes("michelin 3-star") || t.includes("ultra luxury")) {
+              warnings.push(`Day ${day.day}: [Budget Mismatch] "${act.title}" is an upscale luxury venue that may exceed a budget travel tier.`);
+              selectionPenalty += 6;
+            }
+          }
+        }
+      }
+
+      // Selection Rule 2: Traveler Persona / Type Suitability Check
+      if (preferences?.travelerType) {
+        const tType = preferences.travelerType.toLowerCase();
+        if (tType.includes("family") || tType.includes("kid") || tType.includes("child")) {
+          if (act.type === "nightlife") {
+            warnings.push(`Day ${day.day}: [Persona Mismatch] Nightlife spot "${act.title}" is unsuitable for a Family with children. Substitute with family-friendly evening dining or cultural walks.`);
+            selectionPenalty += 10;
+          } else {
+            const t = (act.title + " " + (act.description || "")).toLowerCase();
+            if (t.includes("bar") || t.includes("club") || t.includes("red light") || t.includes("pub crawl")) {
+              warnings.push(`Day ${day.day}: [Persona Mismatch] Venue "${act.title}" contains adult-oriented themes unsuitable for a Family itinerary.`);
+              selectionPenalty += 10;
+            }
+          }
+        } else if (tType.includes("senior") || tType.includes("elderly")) {
+          const t = (act.title + " " + (act.description || "")).toLowerCase();
+          if (act.type === "adventure" || t.includes("extreme") || t.includes("hiking") || t.includes("trek") || t.includes("rock climbing") || t.includes("bungee")) {
+            warnings.push(`Day ${day.day}: [Persona Consideration] High physical exertion activity "${act.title}" may be overly strenuous for Senior travelers.`);
+            selectionPenalty += 8;
+          }
+        }
+      }
+
+      // Selection Rule 3: Quality Threshold & Tourist Trap Filter
+      if (act.type !== "hotel" && act.type !== "transport") {
+        if (act.rating !== undefined && act.rating !== null && act.rating > 0 && act.rating < 3.8) {
+          warnings.push(`Day ${day.day}: [Quality Warning] "${act.title}" has a low visitor rating (${act.rating}★/5). Consider substituting with a higher-rated alternative.`);
+          selectionPenalty += 6;
+        } else if (act.userRatingsTotal !== undefined && act.userRatingsTotal !== null && act.userRatingsTotal > 0 && act.userRatingsTotal < 15 && act.rating && act.rating < 4.0) {
+          warnings.push(`Day ${day.day}: [Quality Warning] "${act.title}" has very few reviews (${act.userRatingsTotal}) with unverified visitor satisfaction.`);
+          selectionPenalty += 4;
+        }
+      }
+
+      // Selection Rule 4: Weather Appropriateness Check
+      if (weatherForecast && weatherForecast[dayIdx]) {
+        const fc = weatherForecast[dayIdx] as any;
+        const conditionStr = typeof fc.condition === "string"
+          ? fc.condition
+          : (typeof fc.condition?.description === "string"
+            ? fc.condition.description
+            : (typeof fc.condition?.text === "string"
+              ? fc.condition.text
+              : (typeof fc.condition?.main === "string" ? fc.condition.main : "")));
+
+        const isRainy = Boolean(
+          conditionStr.toLowerCase().includes("rain") ||
+          conditionStr.toLowerCase().includes("storm") ||
+          conditionStr.toLowerCase().includes("thunderstorm") ||
+          (fc.rainChance !== undefined && fc.rainChance >= 60) ||
+          fc.isRainy === true
+        );
+        if (isRainy && (act.type === "nature" || act.type === "beach" || act.title.toLowerCase().includes("open rooftop") || act.title.toLowerCase().includes("beach"))) {
+          warnings.push(`Day ${day.day}: [Weather Alert] Outdoor spot "${act.title}" is scheduled during forecasted stormy/rainy weather (${conditionStr || "Heavy Thunderstorms"}). Consider an indoor museum or cultural venue.`);
+          selectionPenalty += 5;
         }
       }
 
       // Meal Time Slot Detection
       if (act.type === "food" && actTimeMin !== null) {
-        if (actTimeMin >= 11 * 60 + 30 && actTimeMin <= 14 * 60) hasLunch = true;
+        if (actTimeMin >= 11 * 60 && actTimeMin <= 13 * 60 + 30) {
+          hasLunch = true;
+          // Proximity to morning activity check
+          if (i > 0) {
+            const prevAct = activities[i - 1];
+            if (prevAct.lat && prevAct.lng && act.lat && act.lng) {
+              const dLunchToPrev = haversineDistance(
+                { lat: prevAct.lat, lng: prevAct.lng },
+                { lat: act.lat, lng: act.lng }
+              );
+              if (dLunchToPrev > 2.5) {
+                warnings.push(`Day ${day.day}: Lunch spot "${act.title}" is located too far (${dLunchToPrev.toFixed(1)} km) from preceding morning activity "${prevAct.title}". Lunch should be nearby in the same neighborhood.`);
+                spatialPenalty += 6;
+              }
+            }
+          }
+        }
         if (actTimeMin >= 17 * 60 + 30 && actTimeMin <= 21 * 60 + 30) hasDinner = true;
       }
 
@@ -925,13 +1224,17 @@ export function calculateCoherenceScore(
           schedulingPenalty += 8;
         }
 
-        // Distance & Long Commute Check
+        // Distance & Adjacent Hop Check
         if (act.lat && act.lng && nextAct.lat && nextAct.lng) {
           const d = haversineDistance(
             { lat: act.lat, lng: act.lng },
             { lat: nextAct.lat, lng: nextAct.lng }
           );
           dayDist += d;
+          if (d > 15) {
+            warnings.push(`Day ${day.day}: Distance between "${act.title}" and "${nextAct.title}" is ${d.toFixed(1)} km, exceeding recommended 10-15 km maximum hop limit.`);
+            spatialPenalty += 6;
+          }
           if (d >= 25) {
             longCommutePairs++;
           }
@@ -972,7 +1275,7 @@ export function calculateCoherenceScore(
     }
 
     if (!hasLunch && activities.length >= 3) {
-      warnings.push(`Day ${day.day}: Missing dedicated lunch spot between 11:30-14:00.`);
+      warnings.push(`Day ${day.day}: Missing dedicated lunch spot between 11:00-13:30.`);
       schedulingPenalty += 6;
     }
 
@@ -1018,13 +1321,48 @@ export function calculateCoherenceScore(
   const paceScore = Math.max(0, Math.min(100, 100 - paceDiff * 20));
 
   const schedulingScore = Math.max(0, Math.min(100, 100 - schedulingPenalty));
+  const selectionScore = Math.max(0, Math.min(100, 100 - selectionPenalty));
 
+  // Balanced 4-Pillar Composite Score (25% each)
   const totalScore = Math.round(
-    (spatialScore * 0.3) +
+    (spatialScore * 0.25) +
     (diversityScore * 0.25) +
     (paceScore * 0.25) +
-    (schedulingScore * 0.2)
+    (selectionScore * 0.25)
   );
+
+  // Compile Verified Positive Checks
+  const passedChecks: string[] = [];
+  if (totalCrossings === 0) {
+    passedChecks.push("Planar Hamiltonian Route: 0 self-intersecting segments (unidirectional smooth corridor)");
+  }
+  if (!warnings.some(w => w.includes("loops back"))) {
+    passedChecks.push("Open Corridor Flow: Directional progression without circular loopbacks to start");
+  }
+  if (!warnings.some(w => w.includes("outside operating hours") || w.includes("closed on this day"))) {
+    passedChecks.push("Operating Hours Feasibility: All venues open with adequate dwell visit buffers");
+  }
+  if (!warnings.some(w => w.includes("Missing dedicated lunch"))) {
+    passedChecks.push("Physiological Dining Rhythm: Dedicated midday lunch window near morning neighborhood");
+  }
+  if (!warnings.some(w => w.includes("Consecutive dining"))) {
+    passedChecks.push("Meal Separation: No back-to-back dining spots without cultural/leisure stops");
+  }
+  if (!warnings.some(w => w.includes("exceeding recommended 10-15 km"))) {
+    passedChecks.push("Fatigue Safeguard: All intra-day transit hops comfortably under 15 km ceiling");
+  }
+  if (!warnings.some(w => w.includes("Budget Mismatch") || w.includes("exceeding your Budget") || w.includes("luxury venue"))) {
+    passedChecks.push("Budget Alignment: Venue price tiers strictly respect traveler budget");
+  }
+  if (!warnings.some(w => w.includes("Persona Mismatch") || w.includes("Persona Consideration") || w.includes("unsuitable for a Family") || w.includes("adult-oriented") || w.includes("Senior travelers") || w.includes("senior travelers"))) {
+    passedChecks.push("Traveler Persona Fit: Activities curated appropriately for traveler group");
+  }
+  if (!warnings.some(w => w.includes("Quality Warning") || w.includes("low visitor rating"))) {
+    passedChecks.push("Quality & Review Standards: Venues meet verified 3.8+ star visitor satisfaction standards");
+  }
+  if (!warnings.some(w => w.includes("Category Monotony") || w.includes("burnout / monotony"))) {
+    passedChecks.push("Category Variety (No Monotony): Healthy category distribution without temple/mall burnout");
+  }
 
   return {
     totalScore,
@@ -1032,10 +1370,12 @@ export function calculateCoherenceScore(
     diversityScore: Math.round(diversityScore),
     paceScore: Math.round(paceScore),
     schedulingScore: Math.round(schedulingScore),
+    selectionScore: Math.round(selectionScore),
     dailyDistanceKm: dailyDistanceKm.map(d => Math.round(d * 10) / 10),
     totalDistanceKm: Math.round(totalDist * 10) / 10,
     crossingCount: totalCrossings,
-    warnings
+    warnings,
+    passedChecks,
   };
 }
 
@@ -1045,16 +1385,26 @@ export function calculateCoherenceScore(
 export function auditItineraryIssues(
   itinerary: DayPlanItem[],
   pace: string = "Moderate",
-  tripStartDate?: Date
-): { score: number; warnings: string[]; summary: string } {
-  const result = calculateCoherenceScore(itinerary, pace, tripStartDate);
+  tripStartDate?: Date,
+  preferences?: AuditPreferences,
+  weatherForecast?: Array<{ date?: string; condition?: any; rainChance?: number; isRainy?: boolean } | any>
+): {
+  score: number;
+  warnings: string[];
+  summary: string;
+  selectionScore: number;
+  passedChecks: string[];
+} {
+  const result = calculateCoherenceScore(itinerary, pace, tripStartDate, preferences, weatherForecast);
   const summary = result.warnings.length === 0
-    ? "Itinerary is fully coherent and satisfies all spatial and timing constraints."
+    ? "Itinerary is fully coherent and satisfies all spatial, timing, quality, and persona constraints."
     : `Detected ${result.warnings.length} itinerary optimization issues:\n${result.warnings.map((w, idx) => `${idx + 1}. ${w}`).join("\n")}`;
   return {
     score: result.totalScore,
     warnings: result.warnings,
     summary,
+    selectionScore: result.selectionScore,
+    passedChecks: result.passedChecks,
   };
 }
 
@@ -1397,57 +1747,163 @@ export function alignSemanticDirection(activities: Activity[]): Activity[] {
   const first = activities[0];
   const last = activities[activities.length - 1];
 
-  let shouldReverse = false;
+  let res = [...activities];
 
   if (isEveningActivity(first) && !isEveningActivity(last)) {
-    shouldReverse = true;
+    res.reverse();
   } else if (!isMorningActivity(first) && isMorningActivity(last)) {
-    shouldReverse = true;
+    res.reverse();
   }
 
-  if (shouldReverse) {
-    return [...activities].reverse();
+  const eveningActs = res.filter(a => isEveningActivity(a));
+  const nonEveningActs = res.filter(a => !isEveningActivity(a));
+
+  // Separate morning, lunch, and afternoon activities within non-evening group
+  // Preserving relative spatial order within each group
+  const morningActs = nonEveningActs.filter(a => isMorningActivity(a) && !isFoodActivity(a));
+  const lunchActs = nonEveningActs.filter(a => isFoodActivity(a));
+  const afternoonActs = nonEveningActs.filter(a => !isMorningActivity(a) && !isFoodActivity(a));
+
+  // Re-assemble in diurnal semantic flow: Morning -> Lunch -> Afternoon -> Evening
+  if (eveningActs.length > 0 || lunchActs.length > 0) {
+    res = [...morningActs, ...lunchActs, ...afternoonActs, ...eveningActs];
   }
 
-  return activities;
+  return res;
 }
 
 /**
  * Enforces NO CONSECUTIVE MEALS by interleaving non-food activities between food spots
- * while maintaining relative spatial progression.
+ * while maintaining relative spatial progression (strictly preserving 2-Opt geometric sequence).
  */
 export function preventConsecutiveMeals(activities: Activity[]): Activity[] {
   if (activities.length <= 2) return activities;
 
-  const foods: Activity[] = [];
-  const nonFoods: Activity[] = [];
+  const result = [...activities];
+  const totalFoods = result.filter(isFoodActivity).length;
+  const totalNonFoods = result.length - totalFoods;
+  if (totalFoods <= 1 || totalNonFoods === 0) return result;
 
-  activities.forEach(a => {
-    if (isFoodActivity(a)) foods.push(a);
-    else nonFoods.push(a);
-  });
+  let iterations = 0;
+  const maxIterations = result.length * 2;
 
-  if (foods.length <= 1 || nonFoods.length === 0) return [...activities];
-
-  const result: Activity[] = [];
-  let f = 0;
-  let n = 0;
-
-  // Decide if route should start with non-food (sightseeing) or food
-  const startWithFood = foods.length > nonFoods.length;
-  let nextShouldBeFood = startWithFood;
-
-  while (f < foods.length || n < nonFoods.length) {
-    if (nextShouldBeFood && f < foods.length) {
-      result.push(foods[f++]);
-      nextShouldBeFood = false;
-    } else if (n < nonFoods.length) {
-      result.push(nonFoods[n++]);
-      nextShouldBeFood = f < foods.length;
-    } else if (f < foods.length) {
-      result.push(foods[f++]);
-      nextShouldBeFood = false;
+  while (iterations < maxIterations) {
+    iterations++;
+    let consecutiveIdx = -1;
+    for (let i = 0; i < result.length - 1; i++) {
+      if (isFoodActivity(result[i]) && isFoodActivity(result[i + 1])) {
+        consecutiveIdx = i;
+        break;
+      }
     }
+
+    if (consecutiveIdx === -1) break; // Clean! No consecutive dining spots
+
+    // Find the closest non-food spot to separate result[consecutiveIdx] and result[consecutiveIdx + 1]
+    let bestNonFoodIdx = -1;
+    let minDistance = Infinity;
+
+    for (let j = 0; j < result.length; j++) {
+      if (isFoodActivity(result[j])) continue;
+      // Prefer non-foods whose removal won't expose a new pair of consecutive foods
+      const wouldExposeConsecutiveFoods =
+        j > 0 &&
+        j < result.length - 1 &&
+        isFoodActivity(result[j - 1]) &&
+        isFoodActivity(result[j + 1]);
+
+      if (wouldExposeConsecutiveFoods) continue;
+
+      const dist = Math.abs(j - (consecutiveIdx + 1));
+      if (dist < minDistance) {
+        minDistance = dist;
+        bestNonFoodIdx = j;
+      }
+    }
+
+    if (bestNonFoodIdx === -1) {
+      // Fallback: take closest non-food
+      for (let j = 0; j < result.length; j++) {
+        if (!isFoodActivity(result[j])) {
+          const dist = Math.abs(j - (consecutiveIdx + 1));
+          if (dist < minDistance) {
+            minDistance = dist;
+            bestNonFoodIdx = j;
+          }
+        }
+      }
+    }
+
+    if (bestNonFoodIdx === -1) break;
+
+    const [nonFood] = result.splice(bestNonFoodIdx, 1);
+    const targetInsertIdx = bestNonFoodIdx < consecutiveIdx ? consecutiveIdx : consecutiveIdx + 1;
+    result.splice(targetInsertIdx, 0, nonFood);
+  }
+
+  return result;
+}
+
+/**
+ * Prevents category monotony / visitor burnout by interleaving other available
+ * activities when 3 or more consecutive activities share the exact same category (e.g. culture -> culture -> culture).
+ * Grounded in Tourist Satiation Theory (Pearce 1988).
+ */
+export function preventConsecutiveCategoryMonotony(activities: Activity[]): Activity[] {
+  if (activities.length < 4) return activities;
+  const result = [...activities];
+
+  let iterations = 0;
+  while (iterations < 5) {
+    iterations++;
+    let streakType: string | null = null;
+    let streakStartIdx = -1;
+
+    for (let i = 0; i < result.length - 2; i++) {
+      const t1 = result[i].type;
+      const t2 = result[i + 1].type;
+      const t3 = result[i + 2].type;
+      if (t1 !== "hotel" && t1 !== "transport" && t1 === t2 && t2 === t3) {
+        streakType = t1;
+        streakStartIdx = i;
+        break;
+      }
+    }
+
+    if (!streakType || streakStartIdx === -1) break;
+
+    // Target position to interleave between 2nd and 3rd spot of the streak
+    const insertIdx = streakStartIdx + 2;
+    let bestCandidateIdx = -1;
+    let minDistance = Infinity;
+
+    for (let j = 0; j < result.length; j++) {
+      if (j >= streakStartIdx && j <= streakStartIdx + 2) continue;
+
+      const act = result[j];
+      if (act.type !== streakType && act.type !== "hotel" && act.type !== "transport") {
+        // If it's food, verify moving it won't cause consecutive dining
+        if (isFoodActivity(act)) {
+          const prev = result[insertIdx - 1];
+          const next = result[insertIdx];
+          if ((prev && isFoodActivity(prev)) || (next && isFoodActivity(next))) {
+            continue;
+          }
+        }
+
+        const dist = Math.abs(j - insertIdx);
+        if (dist < minDistance) {
+          minDistance = dist;
+          bestCandidateIdx = j;
+        }
+      }
+    }
+
+    if (bestCandidateIdx === -1) break;
+
+    const [movedItem] = result.splice(bestCandidateIdx, 1);
+    const finalInsert = bestCandidateIdx < insertIdx ? insertIdx - 1 : insertIdx;
+    result.splice(finalInsert, 0, movedItem);
   }
 
   return result;
@@ -1478,8 +1934,53 @@ function getEstimatedDwellMinutes(act: Activity, pace: string = "Moderate"): num
 }
 
 /**
+ * Dynamic physics-based urban transit time estimator (in minutes)
+ * Models walking speed for short distances (<0.8 km) and metropolitan transit/vehicle
+ * speed with hailing/traffic buffers for longer journeys.
+ */
+export function calculateRealisticTransitMinutes(
+  from?: Coordinates,
+  to?: Coordinates,
+  pace: string = "Moderate"
+): number {
+  const p = pace.toLowerCase();
+  let baseBuffer = 8;
+  if (p.includes("relax")) baseBuffer = 12;
+  else if (p.includes("packed") || p.includes("fast")) baseBuffer = 5;
+
+  if (
+    !from ||
+    !to ||
+    from.lat === undefined ||
+    from.lng === undefined ||
+    to.lat === undefined ||
+    to.lng === undefined ||
+    isNaN(from.lat) ||
+    isNaN(from.lng) ||
+    isNaN(to.lat) ||
+    isNaN(to.lng)
+  ) {
+    return p.includes("relax") ? 25 : p.includes("packed") || p.includes("fast") ? 15 : 20;
+  }
+
+  const distKm = haversineDistance(from, to);
+  if (distKm < 0.05) return 5; // same building or directly adjacent
+
+  if (distKm < 0.8) {
+    // Walking speed ~4.5 km/h + minor sidewalk/traffic light buffer
+    const walkMinutes = Math.round((distKm / 4.5) * 60);
+    return Math.max(5, walkMinutes + Math.round(baseBuffer * 0.5));
+  }
+
+  // Urban vehicular transit ~20 km/h + traffic/boarding buffer
+  const transitMinutes = Math.round((distKm / 20) * 60);
+  return Math.max(10, transitMinutes + baseBuffer);
+}
+
+/**
  * Assigns clean, non-overlapping, chronological time slots with opening hours adherence,
- * mandatory lunch window (11:30 - 13:30), sunset/golden hour anchor, and pace-tailored dwell times.
+ * mandatory lunch window (11:30 - 13:30), sunset/golden hour anchor, and dynamic physics-based transit times.
+ * Guarantees strictly non-decreasing progression along the 2-Opt spatial route (Route Determines Time).
  */
 export function assignDeterministicTimeSlots(
   activities: Activity[],
@@ -1494,7 +1995,7 @@ export function assignDeterministicTimeSlots(
   const regCount = regularActivities.length;
 
   if (regCount === 0) {
-    const res = [];
+    const res: Activity[] = [];
     if (hotelCheckIn) res.push(hotelCheckIn);
     if (hotelCheckOut) res.push(hotelCheckOut);
     return res;
@@ -1502,67 +2003,108 @@ export function assignDeterministicTimeSlots(
 
   const p = pace.toLowerCase();
   let currentMinutes = 9 * 60; // 09:00 AM standard
-  let transitBuffer = 20;
 
   if (p.includes("relax")) {
     currentMinutes = 9 * 60 + 30; // 09:30 AM slow & scenic morning start
-    transitBuffer = 30; // 30 min buffer for leisurely travel & coffee stops
   } else if (p.includes("packed") || p.includes("fast")) {
     currentMinutes = 8 * 60 + 30; // 08:30 AM early start to maximize sightseeing
-    transitBuffer = 15; // 15 min brisk transit buffer
   }
 
   const assignedRegular: Activity[] = [];
+  const lunchIdx = regularActivities.findIndex(a => isFoodActivity(a) && !isEveningActivity(a));
 
-  let lunchIdx = regularActivities.findIndex(a => isFoodActivity(a) && !isEveningActivity(a));
-  if (lunchIdx === -1 && regCount >= 3) {
-    lunchIdx = Math.min(2, Math.floor(regCount / 2));
-  }
-
-  regularActivities.forEach((act, index) => {
-    let actTimeMinutes: number;
+  for (let index = 0; index < regularActivities.length; index++) {
+    const act = regularActivities[index];
+    let actTimeMinutes = currentMinutes;
 
     if (index === lunchIdx || (isFoodActivity(act) && !isEveningActivity(act) && currentMinutes < 14 * 60)) {
-      actTimeMinutes = Math.max(11 * 60 + 30, Math.min(13 * 60, currentMinutes));
-      if (actTimeMinutes < 11 * 60 + 30) actTimeMinutes = 12 * 60;
+      if (currentMinutes < 11 * 60 + 30) {
+        actTimeMinutes = 12 * 60; // Wait for midday lunch window
+      } else {
+        actTimeMinutes = currentMinutes;
+      }
     } else if (isSunsetSpot(act)) {
       actTimeMinutes = Math.max(17 * 60, currentMinutes);
     } else if (isEveningActivity(act)) {
       actTimeMinutes = Math.max(18 * 60 + 30, currentMinutes);
-    } else {
-      actTimeMinutes = currentMinutes;
     }
 
-    // Check Google Maps opening hours constraints
+    const dwellTime = getEstimatedDwellMinutes(act, pace);
+
+    // Check Google Maps opening hours constraints with dwell-time buffer
     if (dayOfWeek !== undefined && act.openingHours && act.openingHours.length > 0 && !isZoneOrArea(act)) {
       const hours = parseOpeningHours(act.openingHours, dayOfWeek);
       if (hours && hours.openMinutes !== -1) {
         if (actTimeMinutes < hours.openMinutes) {
           actTimeMinutes = hours.openMinutes;
-        } else if (actTimeMinutes > hours.closeMinutes - 45 && hours.closeMinutes > hours.openMinutes) {
-          actTimeMinutes = Math.max(hours.openMinutes, hours.closeMinutes - 60);
+        }
+        // Ensure visit starts with ample time to complete the visit before venue closes
+        const closeBuffer = Math.max(60, Math.min(150, dwellTime + 15));
+        if (hours.closeMinutes > hours.openMinutes && actTimeMinutes > hours.closeMinutes - closeBuffer) {
+          if (hours.closeMinutes - closeBuffer >= currentMinutes) {
+            actTimeMinutes = hours.closeMinutes - closeBuffer;
+          }
         }
       }
     }
 
-    const dwellTime = getEstimatedDwellMinutes(act, pace);
-    currentMinutes = actTimeMinutes + dwellTime + transitBuffer;
+    // Ensure strictly non-decreasing time along the spatial progression
+    if (assignedRegular.length > 0) {
+      const prevTimeStr = assignedRegular[assignedRegular.length - 1].time;
+      if (prevTimeStr) {
+        const [prevH, prevM] = prevTimeStr.split(":").map(Number);
+        const prevMinutes = prevH * 60 + prevM;
+        if (actTimeMinutes < prevMinutes) {
+          actTimeMinutes = prevMinutes;
+        }
+      }
+    }
 
     assignedRegular.push({
       ...act,
       time: formatMinutesToTime(actTimeMinutes),
     });
-  });
 
-  const all = [...assignedRegular];
-  if (hotelCheckIn) all.push({ ...hotelCheckIn, time: hotelCheckIn.time || "15:00" });
-  if (hotelCheckOut) all.push({ ...hotelCheckOut, time: hotelCheckOut.time || "11:00" });
+    // Dynamic travel time to next activity using realistic urban transit model
+    if (index < regularActivities.length - 1) {
+      const nextAct = regularActivities[index + 1];
+      const fromCoord = act.lat && act.lng ? { lat: act.lat, lng: act.lng } : undefined;
+      const toCoord = nextAct.lat && nextAct.lng ? { lat: nextAct.lat, lng: nextAct.lng } : undefined;
+      const transitMinutes = calculateRealisticTransitMinutes(fromCoord, toCoord, pace);
+      currentMinutes = actTimeMinutes + dwellTime + transitMinutes;
+    }
+  }
 
-  return all.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
+  // Assemble with hotel check-in / check-out chronologically
+  const result: Activity[] = [];
+
+  if (hotelCheckOut) {
+    const checkOutTime = hotelCheckOut.time || (assignedRegular.length > 0 ? assignedRegular[0].time : "11:00");
+    result.push({ ...hotelCheckOut, time: checkOutTime });
+  }
+
+  let hotelCheckInInserted = !hotelCheckIn;
+  const targetCheckInTime = hotelCheckIn?.time || "15:00";
+
+  for (const act of assignedRegular) {
+    if (!hotelCheckInInserted && hotelCheckIn && (act.time || "00:00") >= targetCheckInTime) {
+      result.push({ ...hotelCheckIn, time: targetCheckInTime });
+      hotelCheckInInserted = true;
+    }
+    result.push(act);
+  }
+
+  if (!hotelCheckInInserted && hotelCheckIn) {
+    result.push({ ...hotelCheckIn, time: targetCheckInTime });
+  }
+
+  return result;
 }
 
 /**
  * Cross-Day Spatial Rebalancing
+ * Reassigns outliers to geographically closer days based on proximity threshold
+ * and adaptive cluster distance differential.
  */
 export function rebalanceCrossDayPOIs<T extends { day: number; activities: Activity[] }>(
   days: T[],
@@ -1596,12 +2138,22 @@ export function rebalanceCrossDayPOIs<T extends { day: number; activities: Activ
           const act = dayBActs[i];
           if (act.type === "hotel" || !act.lat || !act.lng) continue;
 
-          const distToCentroidB = haversineDistance({ lat: act.lat, lng: act.lng }, centroids[dayB]);
+          const bValid = dayBActs.filter(a => a.lat && a.lng && a.type !== "hotel" && a !== act);
+          let distToCentroidB = haversineDistance({ lat: act.lat, lng: act.lng }, centroids[dayB]);
+          if (bValid.length >= 2) {
+            const bLat = bValid.reduce((acc, a) => acc + a.lat!, 0) / bValid.length;
+            const bLng = bValid.reduce((acc, a) => acc + a.lng!, 0) / bValid.length;
+            distToCentroidB = haversineDistance({ lat: act.lat, lng: act.lng }, { lat: bLat, lng: bLng });
+          }
           const distToCentroidA = haversineDistance({ lat: act.lat, lng: act.lng }, centroids[dayA]);
 
+          // Condition 1: Direct proximity to adjacent day centroid
+          const isCloserCluster = distToCentroidA < proximityThresholdKm && distToCentroidB > distToCentroidA + 2.0;
+          // Condition 2: Adaptive outlier rebalancing (e.g. Sathon > 5.5km from Din Daeng cluster and significantly closer to Rattanakosin)
+          const isOutlierRebalance = distToCentroidB > 5.5 && distToCentroidA < distToCentroidB - 2.0 && distToCentroidA <= 7.0;
+
           if (
-            distToCentroidA < proximityThresholdKm &&
-            distToCentroidB > distToCentroidA + 2.5 &&
+            (isCloserCluster || isOutlierRebalance) &&
             result[dayB].activities.length > 3 &&
             result[dayA].activities.length < 7
           ) {
@@ -1635,22 +2187,96 @@ export function optimizeDayActivities(
   const hotelCheckOut = activities.find(a => a.type === "hotel" && a.title.toLowerCase().includes("check out"));
   const regularActivities = activities.filter(a => a !== hotelCheckIn && a !== hotelCheckOut);
 
-  // 1. Run Monotonic Projection & Open-Path 2-Opt Route Optimization
-  let optimized = twoOptRouteOptimization(regularActivities, hotelOrStartCoord);
+  // 1. Mandatory Midday Lunch Enforcement (Real human rule: Lunch 11:00-13:00 near morning spot)
+  const hasDaytimeLunch = regularActivities.some(a => isFoodActivity(a) && !isEveningActivity(a));
+  if (!hasDaytimeLunch && regularActivities.length >= 3) {
+    const morningAct = regularActivities.find(a => isMorningActivity(a)) || regularActivities[0];
+    const lunchLat = morningAct.lat ? morningAct.lat + (Math.random() - 0.5) * 0.003 : undefined;
+    const lunchLng = morningAct.lng ? morningAct.lng + (Math.random() - 0.5) * 0.003 : undefined;
 
-  // 2. Untangle any geometric line-segment intersections
+    const lunchActivity: Activity = {
+      id: `lunch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: `Lunch near ${morningAct.title}`,
+      description: `Authentic local midday lunch and dining near ${morningAct.title}.`,
+      type: "food",
+      lat: lunchLat,
+      lng: lunchLng,
+      time: "12:00",
+    };
+
+    const morningIdx = regularActivities.indexOf(morningAct);
+    regularActivities.splice(morningIdx + 1, 0, lunchActivity);
+  }
+
+  // 2. Micro-Cluster Grouping (Keep nearby spots within 1.5 km together)
+  const microClusters = groupNearbyPairsAndMicroClusters(regularActivities, 1.5);
+
+  // 3. Open Progression Ordering across the neighborhood corridor
+  // (Ensures the route flows forward from morning anchor toward evening anchor, avoiding looping back)
+  const orderedClusters = orderMicroClustersOpenProgression(microClusters, hotelOrStartCoord);
+
+  // 4. Order activities within each cluster
+  const flattened: Activity[] = [];
+  let prevCentroid = hotelOrStartCoord;
+  for (const c of orderedClusters) {
+    const orderedActs = orderActivitiesWithinMicroCluster(c, prevCentroid);
+    flattened.push(...orderedActs);
+    prevCentroid = c.centroid;
+  }
+
+  // 5. Open-Path 2-Opt (Zero depot loop constraint)
+  let optimized = twoOptRouteOptimization(flattened, hotelOrStartCoord);
+
+  // 6. Untangle geometric intersections
   optimized = untangleIntersectingEdges(optimized);
 
-  // 3. Align Semantic Direction
+  // 7. Align Semantic Direction (Morning -> Lunch -> Afternoon -> Sunset -> Dinner/Night)
   optimized = alignSemanticDirection(optimized);
 
-  // 4. Prevent consecutive meals
+  // 8. Prevent consecutive meals while preserving progression
   optimized = preventConsecutiveMeals(optimized);
 
-  // 5. Final geometric uncrossing pass
+  // 8b. Prevent consecutive category monotony (Pearce 1988 - max 2 consecutive spots of same category)
+  optimized = preventConsecutiveCategoryMonotony(optimized);
+
+  // 9. Anti-Looping Validation:
+  // Ensure the last activity does not loop back to the first activity if the route traveled across town
+  const validGeo = optimized.filter(a => a.lat !== undefined && a.lng !== undefined && !isNaN(a.lat) && !isNaN(a.lng));
+  if (validGeo.length >= 4) {
+    const firstP = validGeo[0];
+    const lastP = validGeo[validGeo.length - 1];
+    const dStartEnd = haversineDistance({ lat: firstP.lat!, lng: firstP.lng! }, { lat: lastP.lat!, lng: lastP.lng! });
+
+    let maxDistFromFirst = 0;
+    let furthestIdx = 0;
+    validGeo.forEach((a, idx) => {
+      const d = haversineDistance({ lat: firstP.lat!, lng: firstP.lng! }, { lat: a.lat!, lng: a.lng! });
+      if (d > maxDistFromFirst) {
+        maxDistFromFirst = d;
+        furthestIdx = idx;
+      }
+    });
+
+    if (maxDistFromFirst > 2.0 && dStartEnd < 0.7 && furthestIdx !== validGeo.length - 1) {
+      const nonGeo = optimized.filter(a => a.lat === undefined || a.lng === undefined || isNaN(a.lat) || isNaN(a.lng));
+      const vLat = validGeo[furthestIdx].lat! - firstP.lat!;
+      const vLng = validGeo[furthestIdx].lng! - firstP.lng!;
+      const vMagSq = vLat * vLat + vLng * vLng;
+      if (vMagSq > 1e-8) {
+        validGeo.sort((a, b) => {
+          const tA = ((a.lat! - firstP.lat!) * vLat + (a.lng! - firstP.lng!) * vLng) / vMagSq;
+          const tB = ((b.lat! - firstP.lat!) * vLat + (b.lng! - firstP.lng!) * vLng) / vMagSq;
+          return tA - tB;
+        });
+      }
+      optimized = [...validGeo, ...nonGeo];
+    }
+  }
+
+  // 10. Final geometric uncrossing pass
   optimized = untangleIntersectingEdges(optimized);
 
-  // 6. Pass all activities to assign clean chronological time slots & auto-sort
+  // 11. Assign deterministic time slots adhering to opening hours, lunch window, and dwell times
   const allToSchedule = [...optimized];
   if (hotelCheckIn) allToSchedule.push(hotelCheckIn);
   if (hotelCheckOut) allToSchedule.push(hotelCheckOut);

@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { useAI, AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { analyzeImage, type VisionResult } from "@/services/aiService";
 import {
   ResponsiveContainer,
@@ -62,6 +63,7 @@ import {
   CartesianGrid,
   Legend,
   ReferenceLine,
+  ReferenceArea,
 } from "recharts";
 import {
   evaluatePredictionWithAliases,
@@ -74,6 +76,7 @@ import { StatisticalComparisonModal } from "@/components/experiment/StatisticalC
 import { LatexExportModal } from "@/components/experiment/LatexExportModal";
 import { ECEReliabilityModal } from "@/components/experiment/ECEReliabilityModal";
 import { BatchEvaluationCard, BatchItemResult } from "@/components/experiment/BatchEvaluationCard";
+import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
 
 interface TrialResult {
   model: AIModelType;
@@ -103,6 +106,7 @@ interface HistoricalRecord {
 
 export default function ExperimentConsole() {
   const navigate = useNavigate();
+  const { isThai, t } = useLanguage();
 
   // Mode switcher: "single" or "batch"
   const [activeMode, setActiveMode] = useState<"single" | "batch">("single");
@@ -589,16 +593,19 @@ export default function ExperimentConsole() {
 
   return (
     <ExperimentLayout>
-      <div className="space-y-8">
+      <div className="space-y-6">
         {/* Header Title & Academic Toolbar */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="text-left">
             <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-indigo-600" />
-              Experiment 1: Visual Place Recognition (VPR) Baseline Benchmarks
+              {t("Experiment 1: การประเมินความแม่นยำ VPR Baseline", "Experiment 1: Visual Place Recognition (VPR) Baseline Benchmarks")}
             </h2>
-            <p className="text-xs text-slate-500">
-              Multi-model accuracy evaluation across Recall@1, Recall@3, Recall@5, MRR, Latency, and Statistical Tests.
+            <p className="text-xs text-slate-500 mt-0.5">
+              {t(
+                "การเปรียบเทียบโมเดล VLM ครอบคลุม Recall@1, Recall@3, Recall@5, MRR, Latency, ECE และการทดสอบนัยสำคัญทางสถิติ",
+                "Multi-model accuracy evaluation across Recall@1, Recall@3, Recall@5, MRR, Latency, and Statistical Tests."
+              )}
             </p>
           </div>
 
@@ -610,7 +617,7 @@ export default function ExperimentConsole() {
               className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-xs flex items-center gap-1.5"
             >
               <Target className="w-3.5 h-3.5 text-emerald-600" />
-              ECE Reliability Diagram
+              {t("ไดอะแกรม ECE Reliability", "ECE Reliability Diagram")}
             </Button>
 
             <Button
@@ -620,7 +627,7 @@ export default function ExperimentConsole() {
               className="text-xs bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50 shadow-xs flex items-center gap-1.5"
             >
               <Scale className="w-3.5 h-3.5 text-indigo-600" />
-              Statistical Hypothesis Test
+              {t("ทดสอบสมมติฐานทางสถิติ", "Statistical Hypothesis Test")}
             </Button>
 
             <Button
@@ -630,14 +637,17 @@ export default function ExperimentConsole() {
               className="text-xs bg-white text-blue-700 border-blue-200 hover:bg-blue-50 shadow-xs flex items-center gap-1.5"
             >
               <FileCode2 className="w-3.5 h-3.5 text-blue-600" />
-              Export LaTeX Table
+              {t("ส่งออกตาราง LaTeX", "Export LaTeX Table")}
             </Button>
 
             <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700 px-2.5 py-1 font-medium text-xs">
-              Thesis Chap. 4 Suite
+              {t("วิทยานิพนธ์ บทที่ 4", "Thesis Chap. 4 Suite")}
             </Badge>
           </div>
         </div>
+
+        {/* Executive Summary Takeaways Card */}
+        <KeyTakeawaysCard expId="exp1" />
 
         {/* Mode Switcher Tabs */}
         <Tabs value={activeMode} onValueChange={(v) => setActiveMode(v as any)} className="w-full">
@@ -647,14 +657,14 @@ export default function ExperimentConsole() {
               className="text-xs font-semibold flex items-center gap-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm"
             >
               <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-              Single Query Benchmark
+              {t("ทดสอบภาพเดี่ยว (Single Query)", "Single Query Benchmark")}
             </TabsTrigger>
             <TabsTrigger
               value="batch"
               className="text-xs font-semibold flex items-center gap-2 rounded-lg data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm"
             >
               <FolderArchive className="w-3.5 h-3.5 text-indigo-600" />
-              Automated Batch Dataset (ZIP/CSV)
+              {t("ทดสอบชุดข้อมูลอัตโนมัติ (Batch Dataset)", "Automated Batch Dataset (ZIP/CSV)")}
             </TabsTrigger>
           </TabsList>
 
@@ -1199,23 +1209,61 @@ export default function ExperimentConsole() {
 
                 {/* Dynamic Academic Recharts Visualization */}
                 {chartMetric === "pareto" ? (
-                  <div className="h-72 w-full bg-slate-50/60 p-4 rounded-xl border border-slate-200/80">
-                    <div className="flex items-center justify-between mb-2">
+                  <div className="h-80 w-full bg-slate-50/60 p-4 rounded-xl border border-slate-200/80">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2 gap-1">
                       <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
-                        <span>Accuracy vs. Latency Pareto Frontier</span>
-                        <span className="text-[10px] text-slate-500 font-normal">(Optimal models: High Accuracy + Low Latency)</span>
+                        <span>{t("กราฟเปรียบเทียบความแม่นยำ vs. เวลาประมวลผล (Pareto Frontier)", "Accuracy vs. Latency Pareto Frontier")}</span>
+                        <span className="text-[10px] text-slate-500 font-normal">
+                          {t("(โซนสีเขียว = Sweet Spot ความแม่นยำสูงและประมวลผลเร็ว)", "(Green zone = Optimal Sweet Spot: High Accuracy + Low Latency)")}
+                        </span>
                       </span>
-                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
-                        ★ Green Dots = Pareto Optimal Frontier
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                          {t("★ จุดสีเขียว = โมเดล Pareto Optimal", "★ Green Dots = Pareto Optimal Frontier")}
+                        </Badge>
+                      </div>
                     </div>
-                    <ResponsiveContainer width="100%" height="90%">
-                      <ScatterChart margin={{ top: 10, right: 25, left: -10, bottom: 10 }}>
+                    <ResponsiveContainer width="100%" height="88%">
+                      <ScatterChart margin={{ top: 15, right: 30, left: -10, bottom: 10 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        {/* Sweet Spot Zone Area (Latency < 1000ms & Recall >= 80%) */}
+                        <ReferenceArea
+                          x1={0}
+                          x2={1000}
+                          y1={80}
+                          y2={100}
+                          fill="#10b981"
+                          fillOpacity={0.07}
+                        />
+                        {/* Baseline Target Reference Lines */}
+                        <ReferenceLine
+                          y={80}
+                          stroke="#059669"
+                          strokeDasharray="4 4"
+                          strokeWidth={1.5}
+                          label={{
+                            value: isThai ? "เกณฑ์เป้าหมาย Recall 80%" : "Target Recall 80%",
+                            position: "insideBottomRight",
+                            fill: "#059669",
+                            fontSize: 10,
+                          }}
+                        />
+                        <ReferenceLine
+                          x={1000}
+                          stroke="#d97706"
+                          strokeDasharray="4 4"
+                          strokeWidth={1.5}
+                          label={{
+                            value: isThai ? "เกณฑ์เวลา 1,000 ms" : "1,000 ms Limit",
+                            position: "insideTopRight",
+                            fill: "#d97706",
+                            fontSize: 10,
+                          }}
+                        />
                         <XAxis
                           type="number"
                           dataKey="latency"
-                          name="Mean Latency"
+                          name={isThai ? "เวลาเฉลี่ย (Latency)" : "Mean Latency"}
                           unit=" ms"
                           stroke="#94a3b8"
                           fontSize={10}
@@ -1230,21 +1278,42 @@ export default function ExperimentConsole() {
                           stroke="#94a3b8"
                           fontSize={10}
                         />
-                        <ZAxis type="number" dataKey="fps" range={[80, 260]} name="Throughput (FPS)" />
+                        <ZAxis type="number" dataKey="fps" range={[80, 260]} name={isThai ? "ปริมาณงาน (FPS)" : "Throughput (FPS)"} />
                         <RechartsTooltip
                           cursor={{ strokeDasharray: "3 3" }}
                           content={({ active, payload }) => {
                             if (active && payload && payload.length) {
                               const data = payload[0].payload;
                               return (
-                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-md text-xs space-y-1">
-                                  <p className="font-bold text-slate-900">{data.modelLabel}</p>
-                                  <p className="text-indigo-600 font-semibold">Recall@1: {data.recall}%</p>
-                                  <p className="text-slate-600 font-mono">Mean Latency: {data.latency} ms ({data.fps} FPS)</p>
-                                  {data.isPareto && (
-                                    <Badge className="bg-emerald-100 text-emerald-800 text-[9px] mt-1">
-                                      ★ Pareto Optimal
-                                    </Badge>
+                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-lg text-xs space-y-1.5 text-left">
+                                  <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1">
+                                    <p className="font-bold text-slate-900">{data.modelLabel}</p>
+                                    {data.isPareto ? (
+                                      <Badge className="bg-emerald-100 text-emerald-800 text-[9px]">
+                                        {isThai ? "★ คุ้มค่าสูงสุด (Pareto)" : "★ Pareto Optimal"}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-slate-500 text-[9px]">
+                                        {isThai ? "มาตรฐาน" : "Standard"}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-indigo-600 font-semibold flex items-center justify-between">
+                                    <span>Recall@1:</span>
+                                    <span className="font-bold">{data.recall}%</span>
+                                  </p>
+                                  <p className="text-slate-600 font-mono flex items-center justify-between gap-4">
+                                    <span>{isThai ? "เวลาประมวลผล:" : "Latency:"}</span>
+                                    <span>{data.latency} ms</span>
+                                  </p>
+                                  <p className="text-slate-500 font-mono flex items-center justify-between gap-4 text-[11px]">
+                                    <span>{isThai ? "ปริมาณงาน:" : "Throughput:"}</span>
+                                    <span>{data.fps} req/s</span>
+                                  </p>
+                                  {data.latency <= 1000 && data.recall >= 80 && (
+                                    <div className="pt-1 text-[10px] text-emerald-700 font-medium">
+                                      ✨ {isThai ? "อยู่ในโซน Sweet Spot (เร็วและแม่นยำสูง)" : "In Sweet Spot Zone (Fast & High Recall)"}
+                                    </div>
                                   )}
                                 </div>
                               );
@@ -1258,7 +1327,7 @@ export default function ExperimentConsole() {
                               key={`cell-${idx}`}
                               fill={entry.isPareto ? "#10b981" : "#6366f1"}
                               stroke={entry.isPareto ? "#047857" : "#4338ca"}
-                              strokeWidth={entry.isPareto ? 2 : 1}
+                              strokeWidth={entry.isPareto ? 2.5 : 1}
                             />
                           ))}
                         </Scatter>
@@ -1269,18 +1338,44 @@ export default function ExperimentConsole() {
                   <div className="h-72 w-full bg-slate-50/60 p-4 rounded-xl border border-slate-200/80">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-bold text-slate-800">
-                        Recall@K Retrieval Growth Curve (Recall@1 vs. Recall@3 vs. Recall@5)
+                        {t(
+                          "กราฟแสดงการเติบโตของการค้นหา (Recall@1 vs. Recall@3 vs. Recall@5)",
+                          "Recall@K Retrieval Growth Curve (Recall@1 vs. Recall@3 vs. Recall@5)"
+                        )}
                       </span>
                       <span className="text-[10px] text-slate-400 font-mono">
-                        Benefit of multi-candidate recommendation
+                        {t("ประโยชน์จากการแนะนำแบบหลายตัวเลือก (Multi-candidate)", "Benefit of multi-candidate recommendation")}
                       </span>
                     </div>
                     <ResponsiveContainer width="100%" height="90%">
                       <BarChart data={recallGrowthData} margin={{ top: 10, right: 20, left: -15, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <ReferenceLine
+                          y={80}
+                          stroke="#059669"
+                          strokeDasharray="3 3"
+                          label={{ value: "80% Baseline", position: "right", fill: "#059669", fontSize: 9 }}
+                        />
                         <XAxis dataKey="modelLabel" stroke="#94a3b8" fontSize={10} />
                         <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={10} unit="%" />
-                        <RechartsTooltip contentStyle={{ fontSize: "11px", borderRadius: "8px" }} />
+                        <RechartsTooltip
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-md text-xs space-y-1 text-left">
+                                  <p className="font-bold text-slate-900 border-b border-slate-100 pb-1">{label}</p>
+                                  {payload.map((entry: any, index: number) => (
+                                    <div key={`item-${index}`} className="flex items-center justify-between gap-3" style={{ color: entry.color }}>
+                                      <span className="font-medium">{entry.name}:</span>
+                                      <span className="font-bold font-mono">{entry.value}%</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
                         <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "5px" }} />
                         <Bar dataKey="Recall@1" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                         <Bar dataKey="Recall@3" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
@@ -1291,7 +1386,16 @@ export default function ExperimentConsole() {
                 ) : (
                   <div className="h-64 w-full bg-slate-50/60 p-3 rounded-xl border border-slate-200/80">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={modelStats} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                      <BarChart data={modelStats} margin={{ top: 15, right: 10, left: -20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        {chartMetric === "recall1" && (
+                          <ReferenceLine
+                            y={80}
+                            stroke="#059669"
+                            strokeDasharray="3 3"
+                            label={{ value: isThai ? "เกณฑ์ 80%" : "80% Target", position: "right", fill: "#059669", fontSize: 9 }}
+                          />
+                        )}
                         <XAxis dataKey="modelLabel" stroke="#94a3b8" fontSize={10} tickLine={false} />
                         <YAxis
                           stroke="#94a3b8"
@@ -1317,32 +1421,39 @@ export default function ExperimentConsole() {
                           }
                         />
                         <RechartsTooltip
-                          contentStyle={{
-                            backgroundColor: "#ffffff",
-                            borderColor: "#e2e8f0",
-                            borderRadius: "8px",
-                            boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)",
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              const val = payload[0].value;
+                              return (
+                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-md text-xs space-y-1 text-left">
+                                  <p className="font-bold text-slate-900 border-b border-slate-100 pb-1">{label}</p>
+                                  <div className="flex items-center justify-between gap-4 text-indigo-600 font-semibold">
+                                    <span>
+                                      {chartMetric === "recall1"
+                                        ? "Recall@1"
+                                        : chartMetric === "recall3"
+                                        ? "Recall@3"
+                                        : chartMetric === "mrr"
+                                        ? "MRR"
+                                        : chartMetric === "latency"
+                                        ? (isThai ? "เวลาเฉลี่ย" : "Latency")
+                                        : (isThai ? "ปริมาณงาน" : "Throughput")}:
+                                    </span>
+                                    <span className="font-bold font-mono">
+                                      {chartMetric === "latency"
+                                        ? `${val} ms`
+                                        : chartMetric === "throughput"
+                                        ? `${val} FPS`
+                                        : chartMetric === "mrr"
+                                        ? val
+                                        : `${val}%`}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
                           }}
-                          labelStyle={{ color: "#1e293b", fontWeight: "bold", fontSize: "11px" }}
-                          itemStyle={{ color: "#2563eb", fontSize: "11px" }}
-                          formatter={(val: any) => [
-                            chartMetric === "latency"
-                              ? `${val} ms`
-                              : chartMetric === "throughput"
-                              ? `${val} FPS`
-                              : chartMetric === "mrr"
-                              ? val
-                              : `${val}%`,
-                            chartMetric === "recall1"
-                              ? "Recall@1"
-                              : chartMetric === "recall3"
-                              ? "Recall@3"
-                              : chartMetric === "mrr"
-                              ? "MRR"
-                              : chartMetric === "latency"
-                              ? "Mean Latency"
-                              : "Throughput",
-                          ]}
                         />
                         <Bar
                           dataKey={
@@ -1360,15 +1471,14 @@ export default function ExperimentConsole() {
                         >
                           {modelStats.map((entry, index) => (
                             <Cell
-                              key={`cell-${index}`}
-                              fill={getBarColor(
-                                chartMetric === "latency"
-                                  ? entry.meanLatency
-                                  : chartMetric === "mrr"
-                                  ? entry.mrr || 0
-                                  : entry.recall1,
-                                chartMetric
-                              )}
+                              key={`bar-${index}`}
+                              fill={
+                                index === 0 && (chartMetric === "recall1" || chartMetric === "recall3" || chartMetric === "mrr")
+                                  ? "#10b981"
+                                  : index === 0 && chartMetric === "latency"
+                                  ? "#3b82f6"
+                                  : "#6366f1"
+                              }
                             />
                           ))}
                         </Bar>

@@ -1,35 +1,20 @@
 /**
- * HotelSelectCombobox — Hotel search with Google Places Service
- *
- * Uses PlacesService.textSearch (and AutocompleteService fallback)
- * which works reliably on all Google Maps API keys without requiring
- * Places API (New) to be explicitly enabled in Google Cloud Console.
+ * HotelSelectCombobox — Hotel search powered by Mapbox Search Box, Geoapify & Foursquare
  */
 import { useState, useEffect, useRef } from "react";
 import {
   Loader2, BedDouble, Search, MapPin, Star,
   Globe, Phone, ExternalLink, Sparkles,
 } from "lucide-react";
-import { importMapsLibrary } from "@/lib/mapsLoader";
+import { searchHotels, type HotelDetails } from "@/services/hotelService";
 
-// ── Types ──────────────────────────────────────────────────────────────────────
-export interface HotelDetails {
-  name: string;
-  lat?: number;
-  lng?: number;
-  photoUrl?: string;
-  rating?: number;
-  userRatingsTotal?: number;
-  address?: string;
-  website?: string;
-  phone?: string;
-  placeId?: string;
-}
+export type { HotelDetails };
 
 interface HotelSelectComboboxProps {
   value: string;
   onChange: (name: string, lat?: number, lng?: number, details?: HotelDetails) => void;
   destinationName?: string;
+  destinationCoords?: { lat: number; lng: number };
   placeholder?: string;
   id?: string;
 }
@@ -70,41 +55,19 @@ export const HotelSelectCombobox = ({
   value,
   onChange,
   destinationName = "",
+  destinationCoords,
   placeholder = "พิมพ์ชื่อโรงแรมเพื่อค้นหา...",
   id,
 }: HotelSelectComboboxProps) => {
-  const [query, setQuery]                 = useState("");
-  const [isOpen, setIsOpen]               = useState(false);
-  const [isLoading, setIsLoading]         = useState(false);
-  const [topCandidates, setTopCandidates]   = useState<HotelDetails[]>([]);
+  const [query, setQuery] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [topCandidates, setTopCandidates] = useState<HotelDetails[]>([]);
   const [selectedDetails, setSelectedDetails] = useState<HotelDetails | null>(null);
-  const [searched, setSearched]           = useState(false);
-  const [initError, setInitError]         = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
 
-  const containerRef    = useRef<HTMLDivElement>(null);
-  const debounceRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const placesService   = useRef<google.maps.places.PlacesService | null>(null);
-  const autocompleteSvc = useRef<google.maps.places.AutocompleteService | null>(null);
-
-  // ── Preload Places library on mount ─────────────────────────────────────────
-  useEffect(() => {
-    importMapsLibrary("places")
-      .then(() => {
-        if (typeof google !== "undefined" && google.maps?.places) {
-          if (!placesService.current) {
-            const dummyDiv = document.createElement("div");
-            placesService.current = new google.maps.places.PlacesService(dummyDiv);
-          }
-          if (!autocompleteSvc.current) {
-            autocompleteSvc.current = new google.maps.places.AutocompleteService();
-          }
-        }
-      })
-      .catch((err) => {
-        setInitError("Failed to load Google Places.");
-        console.error("[HotelSearch] importLibrary error:", err);
-      });
-  }, []);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Close on outside click ───────────────────────────────────────────────────
   useEffect(() => {
@@ -117,7 +80,7 @@ export const HotelSelectCombobox = ({
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
-  // ── Debounced search using PlacesService.textSearch ──────────────────────────
+  // ── Debounced search using Multi-Tier Hotel Service (Mapbox + Geoapify + FSQ) ──
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -132,88 +95,27 @@ export const HotelSelectCombobox = ({
 
     debounceRef.current = setTimeout(async () => {
       try {
-        // Lazy-ensure places library
-        if (!placesService.current) {
-          await importMapsLibrary("places");
-          if (typeof google !== "undefined" && google.maps?.places && !placesService.current) {
-            const dummyDiv = document.createElement("div");
-            placesService.current = new google.maps.places.PlacesService(dummyDiv);
-          }
-        }
+        const candidates = await searchHotels(query, {
+          proximity: destinationCoords,
+          destinationName,
+          limit: 6,
+        });
 
-        if (!placesService.current) {
-          throw new Error("Google Places Service is not available.");
-        }
-
-        // Build clean search query
-        const qLower = query.toLowerCase();
-        const hasHotelWord = qLower.includes("hotel") || qLower.includes("โรงแรม") || qLower.includes("resort") || qLower.includes("รีสอร์ท");
-        const term = hasHotelWord ? query : `${query} hotel`;
-        const searchInput = destinationName && !qLower.includes(destinationName.toLowerCase())
-          ? `${term} ${destinationName}`
-          : term;
-
-        // Call textSearch
-        placesService.current.textSearch(
-          { query: searchInput, type: "lodging" },
-          (results, status) => {
-            setSearched(true);
-            setIsLoading(false);
-
-            if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
-              const candidates: HotelDetails[] = results.slice(0, 3).map((place) => {
-                const lat = place.geometry?.location?.lat();
-                const lng = place.geometry?.location?.lng();
-                const photoUrl = place.photos?.[0]?.getUrl({ maxWidth: 400, maxHeight: 300 });
-
-                return {
-                  name: place.name || query,
-                  lat,
-                  lng,
-                  photoUrl,
-                  rating: place.rating,
-                  userRatingsTotal: place.user_ratings_total,
-                  address: place.formatted_address,
-                  placeId: place.place_id,
-                };
-              });
-
-              setTopCandidates(candidates);
-            } else {
-              // Fallback to textSearch without type filter if lodging type filter returned 0
-              placesService.current?.textSearch(
-                { query: searchInput },
-                (fallbackResults, fallbackStatus) => {
-                  if (fallbackStatus === google.maps.places.PlacesServiceStatus.OK && fallbackResults && fallbackResults.length > 0) {
-                    const fallbackCandidates: HotelDetails[] = fallbackResults.slice(0, 3).map((place) => ({
-                      name: place.name || query,
-                      lat: place.geometry?.location?.lat(),
-                      lng: place.geometry?.location?.lng(),
-                      photoUrl: place.photos?.[0]?.getUrl({ maxWidth: 400, maxHeight: 300 }),
-                      rating: place.rating,
-                      userRatingsTotal: place.user_ratings_total,
-                      address: place.formatted_address,
-                      placeId: place.place_id,
-                    }));
-                    setTopCandidates(fallbackCandidates);
-                  } else {
-                    setTopCandidates([]);
-                  }
-                }
-              );
-            }
-          }
-        );
+        setTopCandidates(candidates);
+        setSearched(true);
+        setIsLoading(false);
       } catch (err: any) {
         console.error("[HotelSearch] Search error:", err?.message ?? err);
         setTopCandidates([]);
         setIsLoading(false);
         setSearched(true);
       }
-    }, 350);
+    }, 300);
 
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query, destinationName]);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, destinationName, destinationCoords]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   const handleSelect = (candidate: HotelDetails) => {
@@ -223,27 +125,6 @@ export const HotelSelectCombobox = ({
     setQuery("");
     setTopCandidates([]);
     setSearched(false);
-
-    // Fetch extra details (website, phone) in background for selected hotel card
-    if (candidate.placeId && placesService.current) {
-      placesService.current.getDetails(
-        {
-          placeId: candidate.placeId,
-          fields: ["website", "formatted_phone_number"],
-        },
-        (place, status) => {
-          if (status === google.maps.places.PlacesServiceStatus.OK && place) {
-            const enriched: HotelDetails = {
-              ...candidate,
-              website: place.website || candidate.website,
-              phone: place.formatted_phone_number || candidate.phone,
-            };
-            setSelectedDetails(enriched);
-            onChange(enriched.name, enriched.lat, enriched.lng, enriched);
-          }
-        }
-      );
-    }
   };
 
   const handleClear = () => {
@@ -261,14 +142,6 @@ export const HotelSelectCombobox = ({
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div ref={containerRef} className="relative w-full space-y-3">
-
-      {/* Init error banner */}
-      {initError && (
-        <div className="text-[11px] text-red-500 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
-          ⚠️ {initError}
-        </div>
-      )}
-
       {/* Search Input */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -278,188 +151,144 @@ export const HotelSelectCombobox = ({
           autoComplete="off"
           value={query}
           placeholder={value ? `🔄 เปลี่ยนที่พัก (${value})...` : placeholder}
-          className="w-full h-11 pl-9 pr-32 rounded-xl border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/50 transition-all font-medium"
-          onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
           onFocus={() => setIsOpen(true)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setIsOpen(true);
+          }}
+          className="w-full pl-9 pr-8 py-2.5 text-sm bg-background border border-border/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all placeholder:text-muted-foreground/60 shadow-sm"
         />
         {isLoading && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 bg-background pl-1">
-            <span className="text-[10px] text-muted-foreground">กำลังค้นหา...</span>
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-          </div>
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />
         )}
       </div>
 
-      {/* Dropdown */}
+      {/* Dropdown Results */}
       {showDropdown && (
-        <div className="absolute z-50 top-[48px] left-0 right-0 bg-popover border border-border rounded-2xl shadow-2xl overflow-hidden p-2.5 space-y-2">
-
-          {/* Header */}
-          <div className="flex items-center gap-1.5 px-1 pb-1 border-b border-border/60">
-            <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              ผลการค้นหาที่พัก — Top 3
-            </span>
-          </div>
-
-          {/* Skeletons while loading */}
-          {isLoading && topCandidates.length === 0 && (
-            <> <SkeletonCard /> <SkeletonCard /> <SkeletonCard /> </>
+        <div className="absolute z-50 left-0 right-0 top-full mt-1.5 bg-popover/95 backdrop-blur-md border border-border rounded-2xl shadow-xl overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150 max-h-96 overflow-y-auto">
+          {isLoading && (
+            <div className="p-3 space-y-2">
+              <SkeletonCard />
+              <SkeletonCard />
+            </div>
           )}
 
-          {/* Rich candidate cards */}
-          {topCandidates.map((c) => (
-            <div
-              key={c.placeId ?? c.name}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => handleSelect(c)}
-              className="p-2.5 border border-border/70 hover:border-primary/50 rounded-xl bg-card hover:bg-primary/5 transition-all cursor-pointer hover:shadow-md flex gap-3 group"
-            >
-              {/* Photo */}
-              <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted shrink-0 border border-border/50">
-                {c.photoUrl ? (
-                  <img
-                    src={c.photoUrl}
-                    alt={c.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center bg-primary/10 text-primary">
-                    <BedDouble className="w-6 h-6" />
-                    <span className="text-[8px] font-semibold mt-1">ที่พัก</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Info */}
-              <div className="flex-1 min-w-0 space-y-1 pt-0.5">
-                <h5 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors line-clamp-1 leading-tight">
-                  {c.name}
-                </h5>
-
-                {/* Rating */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {c.rating != null && (
-                    <>
-                      <span className="font-extrabold text-amber-500 text-[12px]">
-                        {c.rating.toFixed(1)}
-                      </span>
-                      <StarRow rating={c.rating} />
-                      {c.userRatingsTotal != null && (
-                        <span className="text-muted-foreground text-[11px]">
-                          ({c.userRatingsTotal.toLocaleString()})
-                        </span>
-                      )}
-                    </>
-                  )}
-                  <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-md font-semibold">
-                    🏨 โรงแรม / ที่พัก
-                  </span>
-                </div>
-
-                {/* Address */}
-                {c.address && (
-                  <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed flex items-start gap-1">
-                    <MapPin className="w-3 h-3 text-primary shrink-0 mt-0.5" />
-                    <span>{c.address}</span>
-                  </p>
-                )}
-              </div>
+          {!isLoading && topCandidates.length === 0 && searched && (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              <BedDouble className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+              <p className="font-medium">ไม่พบโรงแรมชื่อนี้</p>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">
+                ลองพิมพ์ชื่อโรงแรมภาษาอังกฤษ หรือระบุเมืองเพิ่มเติม
+              </p>
             </div>
-          ))}
+          )}
 
-          {/* No results */}
-          {!isLoading && searched && topCandidates.length === 0 && (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              <BedDouble className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p>ไม่พบที่พักที่ตรงกับ &quot;{query}&quot;</p>
-              <p className="text-[11px] mt-1 opacity-70">ลองค้นหาด้วยชื่อภาษาอังกฤษ หรือชื่อย่อ</p>
+          {!isLoading && topCandidates.length > 0 && (
+            <div className="p-2 space-y-1">
+              <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3 text-primary" />
+                ผลการค้นหาแนะนำ ({topCandidates.length})
+              </div>
+              {topCandidates.map((hotel, idx) => (
+                <button
+                  key={hotel.placeId || idx}
+                  type="button"
+                  onClick={() => handleSelect(hotel)}
+                  className="w-full text-left p-2.5 rounded-xl hover:bg-accent/60 transition-colors flex gap-3 items-center group cursor-pointer"
+                >
+                  {hotel.photoUrl ? (
+                    <img
+                      src={hotel.photoUrl}
+                      alt={hotel.name}
+                      className="w-14 h-14 rounded-lg object-cover bg-muted shrink-0 border border-border/50 group-hover:scale-105 transition-transform"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20">
+                      <BedDouble className="w-6 h-6 text-primary" />
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="font-semibold text-sm text-foreground truncate group-hover:text-primary transition-colors">
+                        {hotel.name}
+                      </p>
+                    </div>
+
+                    {hotel.rating && (
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <StarRow rating={hotel.rating} />
+                        <span className="text-xs font-semibold text-amber-500">
+                          {hotel.rating.toFixed(1)}
+                        </span>
+                        {hotel.userRatingsTotal && (
+                          <span className="text-[11px] text-muted-foreground">
+                            ({hotel.userRatingsTotal.toLocaleString()})
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {hotel.address && (
+                      <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
+                        <MapPin className="w-3 h-3 shrink-0 text-muted-foreground/60" />
+                        {hotel.address}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))}
             </div>
           )}
         </div>
       )}
 
       {/* Selected Hotel Card */}
-      {value && (
-        <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/5 dark:bg-emerald-500/10 p-3.5 flex gap-3.5 items-center shadow-sm">
-          {/* Photo */}
-          <div className="relative w-24 h-24 rounded-xl overflow-hidden bg-muted shrink-0 border border-border/50">
-            {selectedDetails?.photoUrl ? (
-              <img src={selectedDetails.photoUrl} alt={value} className="w-full h-full object-cover" />
+      {selectedDetails && (
+        <div className="p-3.5 border border-primary/30 rounded-2xl bg-primary/5 flex gap-3.5 items-center justify-between shadow-sm relative overflow-hidden">
+          <div className="flex gap-3 items-center min-w-0">
+            {selectedDetails.photoUrl ? (
+              <img
+                src={selectedDetails.photoUrl}
+                alt={selectedDetails.name}
+                className="w-14 h-14 rounded-xl object-cover bg-muted shrink-0 border border-border"
+              />
             ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-primary/10 text-primary">
-                <BedDouble className="w-7 h-7" />
-                <span className="text-[9px] font-semibold mt-1">ที่พัก</span>
+              <div className="w-14 h-14 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
+                <BedDouble className="w-7 h-7 text-primary" />
               </div>
             )}
-            {selectedDetails?.rating != null && (
-              <div className="absolute bottom-1 left-1 bg-black/75 backdrop-blur-md px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] text-white font-bold">
-                <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
-                {selectedDetails.rating.toFixed(1)}
-              </div>
-            )}
-          </div>
-
-          {/* Details */}
-          <div className="flex-1 min-w-0 space-y-1">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
-                  ✓ เลือกที่พักแล้ว
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/15 text-primary">
+                  <BedDouble className="w-3 h-3" /> ที่พักที่เลือก
                 </span>
-                <h4 className="text-sm font-bold text-foreground line-clamp-1 leading-tight mt-0.5">
-                  {value}
-                </h4>
+                {selectedDetails.rating && (
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-500">
+                    <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                    {selectedDetails.rating.toFixed(1)}
+                  </span>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={handleClear}
-                className="text-xs text-muted-foreground hover:text-red-500 hover:bg-red-500/10 px-2.5 py-1 rounded-lg transition-colors shrink-0 border border-border/60 whitespace-nowrap"
-              >
-                เปลี่ยนที่พัก
-              </button>
-            </div>
-
-            {selectedDetails?.address && (
-              <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed flex items-start gap-1">
-                <MapPin className="w-3 h-3 text-primary shrink-0 mt-0.5" />
-                <span>{selectedDetails.address}</span>
+              <p className="font-bold text-sm text-foreground truncate mt-0.5">
+                {selectedDetails.name}
               </p>
-            )}
-
-            <div className="flex items-center gap-2 pt-1 flex-wrap">
-              {selectedDetails?.lat && selectedDetails?.lng && (
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${selectedDetails.lat},${selectedDetails.lng}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-md hover:bg-primary/20 transition-colors"
-                >
-                  <MapPin className="w-2.5 h-2.5" />
-                  <span>Google Maps</span>
-                  <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
-                </a>
-              )}
-              {selectedDetails?.website && (
-                <a
-                  href={selectedDetails.website}
-                  target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground bg-muted px-2 py-0.5 rounded-md transition-colors"
-                >
-                  <Globe className="w-2.5 h-2.5" />
-                  <span>เว็บไซต์</span>
-                </a>
-              )}
-              {selectedDetails?.phone && (
-                <a
-                  href={`tel:${selectedDetails.phone}`}
-                  className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground bg-muted px-2 py-0.5 rounded-md transition-colors"
-                >
-                  <Phone className="w-2.5 h-2.5" />
-                  <span className="truncate max-w-[90px]">{selectedDetails.phone}</span>
-                </a>
+              {selectedDetails.address && (
+                <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
+                  <MapPin className="w-3 h-3 shrink-0" />
+                  {selectedDetails.address}
+                </p>
               )}
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={handleClear}
+            className="text-xs font-medium text-muted-foreground hover:text-destructive shrink-0 px-2.5 py-1.5 rounded-lg hover:bg-destructive/10 transition-colors"
+          >
+            เปลี่ยน
+          </button>
         </div>
       )}
     </div>

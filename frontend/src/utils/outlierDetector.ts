@@ -157,6 +157,7 @@ export function detectVisionOutliers(
       lowerPlace.includes("unidentified") ||
       lowerPlace === "n/a" ||
       lowerPlace === "none" ||
+      Boolean(res.non_travel_category) ||
       (res.type &&
         [
           "document",
@@ -169,21 +170,45 @@ export function detectVisionOutliers(
           "portrait_selfie",
           "food_drink",
           "food",
+          "food_dish",
+          "pet",
+          "pet_animal",
+          "vehicle",
+          "item_product",
+          "graphic_meme",
+          "blurry_dark",
           "non_travel",
           "other",
         ].includes(res.type.toLowerCase()));
 
     if (isExplicitNonTravel) {
+      const detectedLabel =
+        res.detected_content ||
+        (res.type === "portrait_selfie" || res.type === "selfie" ? "รูปถ่ายบุคคล / เซลฟี่ (Selfie)" :
+         res.type === "food" || res.type === "food_drink" || res.type === "food_dish" ? "รูปถ่ายอาหาร / เครื่องดื่ม" :
+         res.type === "document" || res.type === "receipt" || res.type === "document_screenshot" ? "สลิปโอนเงิน / เอกสาร / ใบเสร็จ" :
+         res.type === "screenshot" ? "ภาพแคปหน้าจอสมาร์ตโฟน" :
+         res.type === "pet" || res.type === "pet_animal" ? "สัตว์เลี้ยง / สัตว์" :
+         res.type === "vehicle" ? "ยานพาหนะ / รถยนต์" :
+         res.type === "object" || res.type === "item_product" ? "สิ่งของเครื่องใช้ / สินค้า" :
+         res.type === "meme" || res.type === "graphic_meme" ? "ภาพกราฟิก / มีม / การ์ตูน" :
+         res.type === "blurry_dark" ? "ภาพเบลอ / มืดสนิท" :
+         "ภาพที่ไม่ใช่สถานที่ท่องเที่ยว");
+
+      const title = `ตรวจพบ: ${detectedLabel}`;
+      const description =
+        res.detailed_description ||
+        res.rejection_reason ||
+        (res.ai_reasoning && res.ai_reasoning[0]) ||
+        "ระบบประเมินว่าภาพนี้อาจเป็นภาพบุคคล อาหาร เอกสาร วัตถุสิ่งของ หรือภาพที่ไม่ใช่วิว/แลนด์มาร์กสำหรับการท่องเที่ยว";
+
       outliers.push({
         id,
-        place: res.place || "ภาพที่ไม่ระบุสถานที่",
+        place: res.place || `ภาพไม่ระบุสถานที่ (${detectedLabel})`,
         country: res.country || "-",
         category: "NON_TRAVEL",
-        reasonTitle: "ภาพไม่ตรงกับสถานที่ท่องเที่ยว",
-        reasonDescription:
-          res.rejection_reason ||
-          (res.ai_reasoning && res.ai_reasoning[0]) ||
-          "ระบบประเมินว่าภาพนี้อาจเป็นภาพบุคคล เอกสาร วัตถุสิ่งของ หรือภาพที่ไม่ใช่วิว/แลนด์มาร์กสำหรับการท่องเที่ยว",
+        reasonTitle: title,
+        reasonDescription: description,
         confidence: res.confidence,
         distanceKm: distanceToCentroid !== undefined ? Math.round(distanceToCentroid) : undefined,
         photoUrl,
@@ -191,6 +216,10 @@ export function detectVisionOutliers(
         top_candidates: res.top_candidates,
         initial_candidates: res.initial_candidates,
         canRestore: true,
+        detected_content: detectedLabel,
+        detailed_description: res.detailed_description || description,
+        suggested_action: res.suggested_action,
+        non_travel_category: res.non_travel_category || res.type,
       });
       return;
     }

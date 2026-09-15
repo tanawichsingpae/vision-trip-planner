@@ -24,8 +24,7 @@ export async function safeFetch<T>(url: string, options?: RequestInit): Promise<
  * Validates that an API key is present, otherwise throws 
  */
 export function validateApiKey(key?: string, providerName?: string) {
-  // Only validate Google Maps key
-  if (providerName === "Google Maps" && (!key || key.trim() === "")) {
-    throw new Error("Google Maps API key is missing or empty.");
+  if (providerName === "Geoapify" && (!key || key.trim() === "")) {
+    console.warn("Geoapify API key is missing or empty. Geocoding will use OpenStreetMap fallback.");
   }
 }
