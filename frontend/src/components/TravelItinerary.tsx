@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { Calendar, Clock, Trash2, Plus, Edit2, Check, MapPin, GripVertical, RefreshCw, Phone, Globe, Car, Sparkles, Search, Loader2, Camera, ChevronDown, Navigation } from "lucide-react";
-import QRCode from "qrcode";
 import { getPlaceImage } from "@/utils/getPlaceImage";
 import { fetchWikimediaPhoto } from "@/api/geocode";
 import { getCuratedFallbackPhoto } from "@/services/photoService";
@@ -225,8 +224,6 @@ const TravelConnector = ({
   originLng,
   destLat,
   destLng,
-  originName,
-  destName
 }: TravelConnectorProps) => {
   if (status === "error") return null;
 
@@ -234,22 +231,12 @@ const TravelConnector = ({
     ? `https://www.google.com/maps/dir/?api=1&origin=${originLat},${originLng}&destination=${destLat},${destLng}`
     : "#";
 
-  const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
-
-  useEffect(() => {
-    if (mapsUrl && mapsUrl !== "#") {
-      QRCode.toDataURL(mapsUrl, { width: 360, margin: 1 })
-        .then((url) => setQrCodeUrl(url))
-        .catch((err) => console.error("Error generating QR code:", err));
-    }
-  }, [mapsUrl]);
-
   return (
-    <div className="flex items-center justify-between gap-2 py-1 px-2 my-1 flex-wrap">
+    <div className="flex items-center justify-between gap-2 py-1 px-2 my-1">
       <div className="flex items-center gap-2 flex-1 min-w-[100px]">
         <div className="h-px flex-1 border-t-2 border-dashed border-border/60" />
         {mapsUrl !== "#" ? (
-          <a 
+          <a
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
@@ -283,20 +270,6 @@ const TravelConnector = ({
         )}
         <div className="h-px flex-1 border-t-2 border-dashed border-border/60" />
       </div>
-
-      {mapsUrl !== "#" && qrCodeUrl && (
-        <div className="pdf-only pdf-flex items-center justify-between bg-slate-50/80 border border-slate-200/80 rounded-lg px-2.5 py-1 text-[9px] w-full my-0.5">
-          <div className="flex items-center gap-1.5 text-slate-700 font-medium truncate">
-            <MapPin className="w-3 h-3 text-primary shrink-0" />
-            <span className="truncate">{originName} → {destName}</span>
-            {durationText && <span className="font-bold text-slate-900 shrink-0">({durationText} · {distanceText})</span>}
-          </div>
-          <div className="flex items-center gap-1 shrink-0 ml-2 border-l border-slate-200 pl-2">
-            <span className="text-[8px] text-slate-400 font-semibold uppercase tracking-wider">Map QR</span>
-            <img src={qrCodeUrl} alt="QR" className="w-8 h-8 object-contain rounded" />
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -469,10 +442,10 @@ const SortableCard = ({
                   `${i.toString().padStart(2, '0')}:30`,
                   `${i.toString().padStart(2, '0')}:45`
                 ]).includes(activity.time) && (
-                  <SelectItem key={activity.time} value={activity.time} className="text-xs font-bold">
-                    {activity.time}
-                  </SelectItem>
-                )}
+                    <SelectItem key={activity.time} value={activity.time} className="text-xs font-bold">
+                      {activity.time}
+                    </SelectItem>
+                  )}
               </SelectContent>
             </Select>
           </div>
@@ -608,8 +581,8 @@ const SortableCard = ({
           const currentDayName = dayNames[dateToUse.getDay()];
           const dayIndexGoogle = (dateToUse.getDay() + 6) % 7;
 
-          const todayEntry = hoursList.find(line => line.toLowerCase().startsWith(currentDayName.toLowerCase())) 
-            || hoursList[dayIndexGoogle] 
+          const todayEntry = hoursList.find(line => line.toLowerCase().startsWith(currentDayName.toLowerCase()))
+            || hoursList[dayIndexGoogle]
             || hoursList[0];
 
           const colonIndex = todayEntry.indexOf(":");
@@ -640,13 +613,12 @@ const SortableCard = ({
                   <summary className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/40 transition-colors list-none outline-none select-none">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          isClosedToday
+                        className={`w-2 h-2 rounded-full shrink-0 ${isClosedToday
                             ? "bg-rose-500"
                             : isOpen24Today
-                            ? "bg-blue-500"
-                            : "bg-emerald-500 animate-pulse"
-                        }`}
+                              ? "bg-blue-500"
+                              : "bg-emerald-500 animate-pulse"
+                          }`}
                       />
                       <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                       <span className="font-medium text-foreground truncate">
@@ -682,11 +654,10 @@ const SortableCard = ({
                         return (
                           <div
                             key={idx}
-                            className={`flex items-center justify-between px-2 py-0.5 rounded transition-colors ${
-                              isThisToday
+                            className={`flex items-center justify-between px-2 py-0.5 rounded transition-colors ${isThisToday
                                 ? "bg-primary/10 text-primary font-semibold border border-primary/20"
                                 : "text-muted-foreground hover:bg-muted/30"
-                            }`}
+                              }`}
                           >
                             <span className="flex items-center gap-1.5">
                               {isThisToday && (
@@ -1332,23 +1303,32 @@ const DayColumn = ({
 
   return (
     <div className="bg-slate-50/50 dark:bg-slate-900/20 rounded-3xl p-4 sm:p-5 border border-border/50 h-full flex flex-col pdf-card-shadow">
-      <div className="flex items-center justify-between gap-3 mb-5 pdf-day-header">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-2.5 mb-4 pb-3 border-b border-border/40 pdf-day-header">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div
-            className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center text-primary-foreground font-bold text-base shadow-md shrink-0"
+            className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-primary-foreground font-bold text-sm sm:text-base shadow-xs shrink-0"
             style={{ backgroundColor: DAY_COLORS[dayIndex % DAY_COLORS.length] }}
           >
             {day.day}
           </div>
-          <div>
-            <h3 className="font-semibold text-foreground text-base sm:text-lg leading-tight">
-              {currentDayDate
-                ? `${language === "th" ? `วันที่ ${day.day}` : `Day ${day.day}`} – ${currentDayDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}`
-                : `${language === "th" ? `วันที่ ${day.day}` : `Day ${day.day}`}`}
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-foreground text-sm sm:text-base leading-snug truncate">
+              {language === "th" ? `วันที่ ${day.day}` : `Day ${day.day}`}
             </h3>
-            {!tripStartDate && <p className="text-xs sm:text-sm text-muted-foreground">{day.date}</p>}
+            {currentDayDate ? (
+              <p className="text-xs text-muted-foreground font-medium truncate">
+                {currentDayDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </p>
+            ) : (
+              day.date && <p className="text-xs text-muted-foreground truncate">{day.date}</p>
+            )}
             {isDraggingAttraction && (
-              <p className="text-xs text-primary font-medium mt-0.5 animate-pulse">
+              <p className="text-xs text-primary font-medium mt-0.5 animate-pulse truncate">
                 {language === "th" ? "↓ วางลงที่นี่เพื่อเพิ่มกิจกรรม" : "↓ Drop here to add"}
               </p>
             )}
@@ -1361,18 +1341,18 @@ const DayColumn = ({
             type="button"
             onClick={() => onOptimizeDay(dayIndex)}
             disabled={isOptimizingDay === dayIndex || day.activities.length <= 1}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background/90 hover:bg-muted text-foreground border border-border/80 shadow-2xs hover:shadow-xs active:scale-95 text-xs font-semibold transition-all disabled:opacity-40 cursor-pointer shrink-0 pdf-hidden"
-            title={`จัดลำดับเส้นทางและเวลาของ Day ${day.day} ให้ราบรื่น (2-Opt & Meal Flow)`}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-background/90 hover:bg-muted text-foreground border border-border/70 shadow-2xs hover:shadow-xs active:scale-95 text-xs font-medium transition-all disabled:opacity-40 cursor-pointer shrink-0 pdf-hidden group"
+            title={language === "th" ? `จัดลำดับเส้นทางและเวลาของ Day ${day.day} ให้ราบรื่น (2-Opt & Meal Flow)` : `Optimize Day ${day.day} route & timing`}
           >
             {isOptimizingDay === dayIndex ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                <span className="hidden sm:inline text-[11px]">กำลังจัด...</span>
+                <span className="text-[11px] text-primary">{language === "th" ? "กำลังจัด..." : "Optimizing..."}</span>
               </>
             ) : (
               <>
-                <Sparkles className="w-3.5 h-3.5 text-primary" />
-                <span className="text-[11px] sm:text-xs">Optimize Day</span>
+                <Sparkles className="w-3.5 h-3.5 text-primary group-hover:scale-110 transition-transform" />
+                <span className="hidden sm:inline text-[11px]">{language === "th" ? "จัดลำดับวัน" : "Optimize"}</span>
               </>
             )}
           </button>
@@ -1395,7 +1375,7 @@ const DayColumn = ({
                 onUpdateTime={updateTime}
                 onRemove={removeActivity}
                 onEditValueChange={setEditValue}
-                onHover={onHoverActivity || (() => {})}
+                onHover={onHoverActivity || (() => { })}
                 dayColor={DAY_COLORS[dayIndex % DAY_COLORS.length]}
                 index={index}
                 dayDate={currentDayDate}
@@ -1412,8 +1392,6 @@ const DayColumn = ({
                   originLng={activity.lng}
                   destLat={day.activities[index + 1].lat}
                   destLng={day.activities[index + 1].lng}
-                  originName={activity.title}
-                  destName={day.activities[index + 1].title}
                 />
               )}
             </div>
@@ -1541,12 +1519,12 @@ const TravelItinerary = ({
         const newActivities = day.activities.map((a) =>
           a.id === activity.id
             ? {
-                ...a,
-                photo_url: newPhotoUrl,
-                image_url: newPhotoUrl,
-                image: newPhotoUrl,
-                isUserPhoto,
-              }
+              ...a,
+              photo_url: newPhotoUrl,
+              image_url: newPhotoUrl,
+              image: newPhotoUrl,
+              isUserPhoto,
+            }
             : a
         );
         return { ...day, activities: newActivities };
@@ -1568,91 +1546,78 @@ const TravelItinerary = ({
 
   return (
     <div className="animate-slide-up w-full mx-auto" id="itinerary-pdf-content">
-      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
-        <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
-          <Calendar className="w-6 h-6 text-primary" />
-          {t("itineraryTitle")}
-        </h2>
-        <div className="flex items-center gap-2.5 sm:gap-4 flex-wrap">
-          {tripStartDate ? (() => {
-            const endDate = new Date(tripStartDate);
-            endDate.setDate(endDate.getDate() + itinerary.length - 1);
-            return (
-              <span className="text-xs sm:text-sm text-muted-foreground">
-                {tripStartDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short" })} – {endDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short", year: "numeric" })} · {itinerary.length} {t("daysCount")}
-              </span>
-            );
-          })() : (
-            <span className="text-xs sm:text-sm text-muted-foreground">{itinerary.length} {t("daysCount")}</span>
-          )}
-
-          {/* AI Self-Review & Auto-Optimize Button with Confirmation Dialog */}
-          {onAIRefine && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <button
-                  disabled={isAIRefining}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-primary-foreground text-xs sm:text-sm font-semibold rounded-full shadow-2xs hover:bg-primary/90 active:scale-95 transition-all pdf-hidden disabled:opacity-50 cursor-pointer"
-                  title={language === "th" ? "ให้ AI ตรวจสอบกฎการเดินทาง เส้นทาง และจัดระเบียบตารางใหม่อัตโนมัติ" : "Let AI verify travel rules, routes, and auto-optimize schedule"}
-                >
-                  {isAIRefining ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>{language === "th" ? "กำลังตรวจ & จัดระเบียบ..." : "Reviewing & Optimizing..."}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>{language === "th" ? "AI Review & จัดระเบียบ" : "AI Review & Auto-Optimize"}</span>
-                    </>
-                  )}
-                </button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="max-w-md rounded-2xl p-6 bg-card border-border shadow-lg">
-                <AlertDialogHeader className="text-left space-y-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
-                      <Sparkles className="size-5" />
-                    </div>
-                    <AlertDialogTitle className="text-base sm:text-lg font-bold text-foreground">
-                      {language === "th" ? "ยืนยันให้ AI จัดระเบียบตารางเที่ยวทั้งทริป?" : "Optimize entire trip with AI?"}
-                    </AlertDialogTitle>
-                  </div>
-                  <AlertDialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed pt-1">
-                    {language === "th"
-                      ? "AI จะตรวจสอบและจัดระเบียบตามเกณฑ์งานวิจัยสากล (TTDP & OPTW): จัดกลุ่มสถานที่ใกล้เคียง, เรียงเส้นทางเป็นระเบียงราบรื่น (2-Opt Anti-Zigzag), ปรับเวลาอาหารเที่ยงและเย็น, ตรวจสอบงบประมาณ, ความเหมาะสมของกลุ่มผู้เดินทาง, และหลีกเลี่ยงความซ้ำซากจำเจของหมวดสถานที่"
-                      : "AI will review and optimize your itinerary based on TTDP & OPTW standards: clustering nearby POIs, 2-Opt anti-zigzag smooth routing, meal timings, budget pacing, and variety balance."}
-                    <span className="block mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] sm:text-xs font-medium text-amber-700 dark:text-amber-300">
-                      💡 <strong>{language === "th" ? "ข้อแนะนำ:" : "Tip:"}</strong> {language === "th" ? "ลำดับเวลาและสถานที่อาจถูกปรับแต่งให้สอดคล้องกับเส้นทางและเวลาเปิด-ปิดจริงอย่างมีประสิทธิภาพสูงสุด" : "Times and POI order may be refined to match actual opening hours and travel distances efficiently."}
-                    </span>
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter className="flex-row items-center justify-end gap-2 pt-3">
-                  <AlertDialogCancel className="rounded-xl text-xs h-9 px-4 mt-0">
-                    {t("cancel")}
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={onAIRefine}
-                    className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-xs h-9 px-4 font-semibold"
-                  >
-                    {language === "th" ? "เริ่มจัดระเบียบแผน ✨" : "Start Optimizing ✨"}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-
-
-          {onReloadMap && (
-            <button
-              onClick={onReloadMap}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-secondary text-secondary-foreground border border-border text-xs sm:text-sm font-medium rounded-full shadow-2xs hover:bg-secondary/80 transition-colors pdf-hidden"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>{t("reloadMap")}</span>
-            </button>
-          )}
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-foreground flex items-center gap-2">
+            <Calendar className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
+            {t("itineraryTitle")}
+          </h2>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1 font-medium">
+            {tripStartDate ? (() => {
+              const endDate = new Date(tripStartDate);
+              endDate.setDate(endDate.getDate() + itinerary.length - 1);
+              return `${tripStartDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short" })} – ${endDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short", year: "numeric" })} · ${itinerary.length} ${t("daysCount")}`;
+            })() : (
+              `${itinerary.length} ${t("daysCount")}`
+            )}
+          </p>
         </div>
+
+        {/* AI Self-Review & Auto-Optimize Button with Confirmation Dialog */}
+        {onAIRefine && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                disabled={isAIRefining}
+                className="flex items-center gap-2 px-3.5 sm:px-4 py-2 bg-primary text-primary-foreground text-xs sm:text-sm font-semibold rounded-2xl shadow-xs hover:bg-primary/90 active:scale-95 transition-all pdf-hidden disabled:opacity-50 cursor-pointer"
+                title={language === "th" ? "ให้ AI ตรวจสอบกฎการเดินทาง เส้นทาง และจัดระเบียบตารางใหม่อัตโนมัติ" : "Let AI verify travel rules, routes, and auto-optimize schedule"}
+              >
+                {isAIRefining ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>{language === "th" ? "กำลังตรวจ & จัดระเบียบ..." : "Reviewing & Optimizing..."}</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>{language === "th" ? "AI Review & จัดระเบียบ" : "AI Review & Auto-Optimize"}</span>
+                  </>
+                )}
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="max-w-md rounded-2xl p-6 bg-card border-border shadow-lg">
+              <AlertDialogHeader className="text-left space-y-2.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+                    <Sparkles className="size-5" />
+                  </div>
+                  <AlertDialogTitle className="text-base sm:text-lg font-bold text-foreground">
+                    {language === "th" ? "ยืนยันให้ AI จัดระเบียบตารางเที่ยวทั้งทริป?" : "Optimize entire trip with AI?"}
+                  </AlertDialogTitle>
+                </div>
+                <AlertDialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed pt-1">
+                  {language === "th"
+                    ? "AI จะตรวจสอบและจัดระเบียบตามเกณฑ์งานวิจัยสากล (TTDP & OPTW): จัดกลุ่มสถานที่ใกล้เคียง, เรียงเส้นทางเป็นระเบียงราบรื่น (2-Opt Anti-Zigzag), ปรับเวลาอาหารเที่ยงและเย็น, ตรวจสอบงบประมาณ, ความเหมาะสมของกลุ่มผู้เดินทาง, และหลีกเลี่ยงความซ้ำซากจำเจของหมวดสถานที่"
+                    : "AI will review and optimize your itinerary based on TTDP & OPTW standards: clustering nearby POIs, 2-Opt anti-zigzag smooth routing, meal timings, budget pacing, and variety balance."}
+                  <span className="block mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] sm:text-xs font-medium text-amber-700 dark:text-amber-300">
+                    💡 <strong>{language === "th" ? "ข้อแนะนำ:" : "Tip:"}</strong> {language === "th" ? "ลำดับเวลาและสถานที่อาจถูกปรับแต่งให้สอดคล้องกับเส้นทางและเวลาเปิด-ปิดจริงอย่างมีประสิทธิภาพสูงสุด" : "Times and POI order may be refined to match actual opening hours and travel distances efficiently."}
+                  </span>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="flex-row items-center justify-end gap-2 pt-3">
+                <AlertDialogCancel className="rounded-xl text-xs h-9 px-4 mt-0">
+                  {t("cancel")}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={onAIRefine}
+                  className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-xs h-9 px-4 font-semibold"
+                >
+                  {language === "th" ? "เริ่มจัดระเบียบแผน ✨" : "Start Optimizing ✨"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 min-[1800px]:grid-cols-3 gap-5 items-start pdf-grid-cols-2">

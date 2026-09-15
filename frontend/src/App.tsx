@@ -15,6 +15,7 @@ import Exp3RobustnessTest from "./pages/Exp3RobustnessTest.tsx";
 import Exp4PromptSensitivity from "./pages/Exp4PromptSensitivity.tsx";
 import Exp5ConsistencyTest from "./pages/Exp5ConsistencyTest.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import TripExportPage from "./pages/TripExportPage.tsx";
 import { useEffect } from "react";
 import { testGeminiConnection, testOpenAIConnection } from "@/services/aiService";
 
@@ -43,6 +44,7 @@ const App = () => {
                   <Route path="/experiment/exp3" element={<ProtectedRoute><Exp3RobustnessTest /></ProtectedRoute>} />
                   <Route path="/experiment/exp4" element={<ProtectedRoute><Exp4PromptSensitivity /></ProtectedRoute>} />
                   <Route path="/experiment/exp5" element={<ProtectedRoute><Exp5ConsistencyTest /></ProtectedRoute>} />
+                  <Route path="/export/trip" element={<TripExportPage />} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>

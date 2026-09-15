@@ -2095,38 +2095,9 @@ const Index = () => {
     return null;
   };
 
-  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [isExportingHTML, setIsExportingHTML] = useState(false);
 
-  // ─── PDF Export ────────────────────────────────────────────────────────────
-
-  /** Convert every <img> inside a container to blob ObjectURLs so html2canvas
-   *  can draw cross-origin images. Returns a cleanup fn that restores originals. */
-  const blobifyImages = async (root: HTMLElement): Promise<() => void> => {
-    const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
-    const restores: Array<() => void> = [];
-
-    await Promise.all(
-      imgs.map(async (img) => {
-        const original = img.src;
-        if (!original || original.startsWith("data:") || original.startsWith("blob:")) return;
-        try {
-          const resp = await fetch(original, { mode: "cors", cache: "force-cache" });
-          if (!resp.ok) return;
-          const blob = await resp.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          img.src = blobUrl;
-          restores.push(() => {
-            URL.revokeObjectURL(blobUrl);
-            img.src = original;
-          });
-        } catch {
-          // Non-critical – image may stay broken in PDF but we won't crash
-        }
-      })
-    );
-
-    return () => restores.forEach((r) => r());
-  };
+  // ─── HTML / Print Export (Dedicated A4 Document) ───────────────────────────
 
   /** Build Static Maps URL showing all day routes as coloured pins (Mapbox with Geoapify fallback) */
   const buildStaticMapUrl = (plans: DayPlan[], apiKey?: string): string => {
@@ -2171,159 +2142,92 @@ const Index = () => {
       }
     }
 
-    return "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&auto=format&fit=crop";
+    return "";
   };
 
-  /** Populate the hidden #pdf-cover-section with fresh content before export */
-  const buildCoverSection = (plans: DayPlan[], locationName: string, apiKey: string, startDate: Date | null) => {
-    const cover = document.getElementById("pdf-cover-section");
-    if (!cover) return;
-
-    const dayColors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#f43f5e"];
-
-    // Date range text
-    let dateRange = "";
-    if (startDate) {
-      const end = new Date(startDate);
-      end.setDate(end.getDate() + plans.length - 1);
-      const fmt = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-      dateRange = `${fmt(startDate)} – ${fmt(end)}`;
-    }
-
-    // Static map img
-    const staticMapUrl = buildStaticMapUrl(plans, apiKey);
-
-    // Legend HTML
-    const legendHtml = plans.map((day, i) =>
-      `<div style="display:flex;align-items:center;gap:8px;margin:4px 0">
-        <span style="width:14px;height:14px;border-radius:50%;background:${dayColors[i % dayColors.length]};display:inline-block;border:2px solid white;box-shadow:0 0 0 1px #ccc"></span>
-        <span style="font-size:13px;font-weight:600;color:#374151">${language === "th" ? `วันที่ ${day.day}` : `Day ${day.day}`}${dateRange && startDate ? ` – ${new Date(startDate.getTime() + i * 86400000).toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { weekday: "short", day: "numeric", month: "short" })}` : ""}</span>
-      </div>`
-    ).join("");
-
-    // Overview HTML (day cards)
-    const overviewHtml = plans.map((day, di) => {
-      const color = dayColors[di % dayColors.length];
-      const actHtml = day.activities.map((act, ai) =>
-        `<li style="display:flex;gap:8px;font-size:12px;color:#374151;padding:3px 0">
-          <span style="color:${color};font-weight:700;min-width:18px">${ai + 1}.</span>
-          <span><strong>${act.time || ""}</strong> ${locPlace(act)}</span>
-        </li>`
-      ).join("");
-      const dayDate = startDate ? new Date(startDate.getTime() + di * 86400000) : null;
-      const dayLabel = dayDate
-        ? dayDate.toLocaleDateString(language === "th" ? "th-TH" : "en-GB", { weekday: "long", day: "numeric", month: "long" })
-        : day.date;
-      return `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;break-inside:avoid">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <div style="width:32px;height:32px;border-radius:8px;background:${color};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px">${day.day}</div>
-          <div>
-            <div style="font-weight:700;font-size:14px;color:#111827">${language === "th" ? `วันที่ ${day.day}` : `Day ${day.day}`}</div>
-            <div style="font-size:11px;color:#6b7280">${dayLabel}</div>
-          </div>
-        </div>
-        <ul style="list-style:none;margin:0;padding:0">${actHtml}</ul>
-      </div>`;
-    }).join("");
-
-    cover.innerHTML = `
-      <div style="font-family:'Inter',sans-serif;padding:32px 40px;background:#f8fafc;border-bottom:3px solid #e2e8f0;margin-bottom:24px;page-break-after:always">
-        <!-- Title block -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
-          <div>
-            <h1 style="font-size:32px;font-weight:800;color:#0f172a;margin:0 0 4px 0">🌍 ${locationName}</h1>
-            <p style="font-size:15px;color:#64748b;margin:0">${dateRange ? dateRange + " · " : ""}${language === "th" ? `${plans.length} วัน · ${plans.reduce((s, d) => s + d.activities.length, 0)} กิจกรรม` : `${plans.length} day${plans.length !== 1 ? "s" : ""} · ${plans.reduce((s, d) => s + d.activities.length, 0)} activities`}</p>
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:22px;font-weight:800;color:#3b82f6">Pixinerary</div>
-            <div style="font-size:11px;color:#94a3b8">AI Travel Planning</div>
-          </div>
-        </div>
-
-        <!-- Static Map -->
-        <div style="border-radius:16px;overflow:hidden;border:1px solid #e2e8f0;margin-bottom:24px">
-          <img src="${staticMapUrl}" alt="Trip Map" style="width:100%;display:block;height:320px;object-fit:cover" crossOrigin="anonymous" />
-        </div>
-
-        <!-- Day Legend -->
-        <div style="background:#fff;border-radius:12px;padding:16px;border:1px solid #e5e7eb;margin-bottom:24px">
-          <h3 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin:0 0 12px 0">${language === "th" ? "สัญลักษณ์สีแต่ละวัน" : "Day Legend"}</h3>
-          <div style="display:flex;flex-wrap:wrap;gap:12px 24px">${legendHtml}</div>
-        </div>
-
-        <!-- Itinerary Overview -->
-        <h3 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin:0 0 16px 0">${language === "th" ? "ภาพรวมแผนการเดินทาง" : "Itinerary Overview"}</h3>
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">${overviewHtml}</div>
-      </div>
-    `;
-  };
-
-  const exportToPDF = async () => {
-    if (isExportingPDF) return;
-    setIsExportingPDF(true);
-    toast.info("Generating PDF, please wait...");
-
-    const apiKey = import.meta.env.VITE_GEOAPIFY_API_KEY ?? "";
-    let restoreImages: (() => void) | null = null;
+  const exportToHTML = async () => {
+    if (isExportingHTML) return;
+    setIsExportingHTML(true);
+    toast.info(language === "th" ? "กำลังสร้างไฟล์ HTML..." : "Generating HTML itinerary...");
 
     try {
-      const contentEl = document.getElementById("pdf-export-wrapper");
-      if (!contentEl) {
-        toast.error("Itinerary content not found.");
-        setIsExportingPDF(false);
-        return;
-      }
+      const [{ normalizeExportTrip }, { generateItineraryHtml }] = await Promise.all([
+        import("@/lib/export/normalizeExportTrip"),
+        import("@/lib/export/generateItineraryHtml"),
+      ]);
 
-      // Build the cover section content
-      buildCoverSection(
+      const apiKey = import.meta.env.VITE_GEOAPIFY_API_KEY ?? "";
+      const staticMapUrl = buildStaticMapUrl(itinerary, apiKey);
+
+      const cityFromVision =
+        (language === "th" ? detectedLocations[0]?.city_th : detectedLocations[0]?.city_en) ||
+        detectedLocations[0]?.city;
+
+      const destinationName =
+        preferences?.destination ||
+        cityFromVision ||
+        locPlace(detectedLocations[0]) ||
+        "Trip";
+
+      const landmarkName = locPlace(detectedLocations[0]);
+      const subtitle =
+        landmarkName && landmarkName !== destinationName
+          ? landmarkName
+          : (language === "th" ? "แผนการท่องเที่ยวอันน่าประทับใจ" : "Heritage & soul");
+
+      const exportTrip = normalizeExportTrip({
         itinerary,
-        detectedLocations[0]?.place || "Trip",
-        apiKey,
-        tripStartDate
-      );
+        destination: destinationName,
+        subtitle,
+        tripStartDate,
+        language,
+        cityName: destinationName,
+        staticMapUrl,
+      });
 
-      // Enable export mode (reveals cover section + applies pdf-* classes)
-      contentEl.classList.add("is-exporting");
+      const htmlContent = generateItineraryHtml(exportTrip, { language });
 
-      // Blobify all cross-origin images so html2canvas can draw them
-      restoreImages = await blobifyImages(contentEl);
-
-      // Let layout settle
-      await new Promise((resolve) => setTimeout(resolve, 250));
-
-      const opt = {
-        margin: [10, 10, 10, 10],
-        filename: `${detectedLocations[0]?.place || "travel"}_itinerary.pdf`,
-        image: { type: "jpeg", quality: 0.95 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          allowTaint: false,
-          logging: false,
-          imageTimeout: 15000,
-        },
-        jsPDF: {
-          unit: "mm",
-          format: "a4",
-          orientation: "portrait",
-        },
-        pagebreak: { mode: ["avoid-all", "css"] },
+      // Save data for browser preview route too
+      window.__EXPORT_TRIP_DATA__ = {
+        itinerary,
+        destination: destinationName,
+        tripStartDate: tripStartDate ? tripStartDate.toISOString() : undefined,
+        language,
+        cityName: detectedLocations[0]?.place || preferences?.destination,
+        staticMapUrl,
       };
 
-      await html2pdf().from(contentEl).set(opt).save();
+      // Trigger download of standalone HTML file
+      const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safeFilename = destinationName
+        .toLowerCase()
+        .replace(/[^a-z0-9_\u0E00-\u0E7F]/gi, "_");
+      a.href = url;
+      a.download = `${safeFilename || "travel"}_itinerary.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
-      toast.success("PDF exported successfully!");
+      toast.success(
+        language === "th"
+          ? "ส่งออก HTML สำเร็จ! เปิดไฟล์เพื่อดูหรือสั่งพิมพ์ PDF ได้ทันที"
+          : "HTML exported successfully! Open file to view or print as PDF."
+      );
     } catch (err) {
-      console.error("PDF generation failed:", err);
-      toast.error("Failed to export PDF. Please try again.");
+      console.error("HTML export failed:", err);
+      toast.error(
+        language === "th"
+          ? "ส่งออก HTML ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+          : "Failed to export HTML. Please try again."
+      );
     } finally {
-      // Restore images first, then remove export class
-      if (restoreImages) restoreImages();
-      const contentEl = document.getElementById("pdf-export-wrapper");
-      if (contentEl) contentEl.classList.remove("is-exporting");
-      setIsExportingPDF(false);
+      setIsExportingHTML(false);
     }
   };
+
 
   return (
     <div className="dot-grid-bg min-h-screen pb-24 text-foreground selection:bg-sky-500/20">
@@ -2679,16 +2583,17 @@ const Index = () => {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={exportToPDF}
-                    disabled={isExportingPDF}
-                    className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1 shadow-2xs"
+                    onClick={exportToHTML}
+                    disabled={isExportingHTML}
+                    className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1 shadow-2xs cursor-pointer"
+                    title={language === "th" ? "ส่งออกแผนการเดินทางเป็นไฟล์ HTML (สามารถสั่งพิมพ์ PDF ได้)" : "Export itinerary as HTML file (Print-ready PDF)"}
                   >
-                    {isExportingPDF ? (
+                    {isExportingHTML ? (
                       <span className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
                     ) : (
                       <FileDown className="size-3.5" />
                     )}
-                    <span>{language === "th" ? "ส่งออก PDF" : "Export PDF"}</span>
+                    <span>{language === "th" ? "ส่งออก HTML" : "Export HTML"}</span>
                   </Button>
 
                   {/* Auto-Save Live Status Badge */}
@@ -2735,8 +2640,7 @@ const Index = () => {
               {/* 2-Column Responsive Dashboard (7:5 ratio for expansive map and timeline) */}
               <div className="grid gap-6 lg:grid-cols-12 items-start">
                 {/* Left Column (7/12 on lg & xl): Itinerary Timeline */}
-                <div className="lg:col-span-7 xl:col-span-7 2xl:col-span-7" id="pdf-export-wrapper">
-                  <div id="pdf-cover-section" aria-hidden="true" />
+                <div className="lg:col-span-7 xl:col-span-7 2xl:col-span-7">
                   <TravelItinerary
                     itinerary={itinerary}
                     onUpdate={(newItinerary) => {
