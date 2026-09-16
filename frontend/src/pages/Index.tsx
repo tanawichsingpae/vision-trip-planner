@@ -20,10 +20,22 @@ import {
   Loader2,
   Check,
   Languages,
+  ShieldCheck,
 } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { saveBlindTrip } from "@/api/blindEvalApi";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { hasThaiScript, translateTextSync } from "@/services/translatorService";
 import html2pdf from "html2pdf.js";
 import { getPlaceImage } from "@/utils/getPlaceImage";
@@ -329,6 +341,52 @@ const Index = () => {
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
 
   // ── Saved Trips & Chat Persistence ──
+
+  const { role } = useAuth();
+  const [blindSaveModalOpen, setBlindSaveModalOpen] = useState(false);
+  const [blindScenarioId, setBlindScenarioId] = useState("SC-01");
+  const [blindScenarioTitle, setBlindScenarioTitle] = useState("");
+  const [blindScenarioNotes, setBlindScenarioNotes] = useState("");
+  const [isSavingBlindTrip, setIsSavingBlindTrip] = useState(false);
+
+  const handleSaveToBlindEval = async () => {
+    if (!itinerary || itinerary.length === 0) return;
+    setIsSavingBlindTrip(true);
+    try {
+      const defaultTitle = currentTripTitle || (detectedLocations[0]?.place ? `${detectedLocations[0].place} (${itinerary.length} Days)` : "Curated Trip");
+      await saveBlindTrip({
+        scenario_id: blindScenarioId.trim() || "SC-01",
+        scenario_title: blindScenarioTitle.trim() || defaultTitle,
+        scenario_notes: blindScenarioNotes.trim(),
+        actual_model: model,
+        itinerary,
+        preferences: preferences || ({} as any),
+        typicalWeather: typicalWeather || undefined,
+        suggestions,
+        accommodations,
+        uploaded_locations: detectedLocations.length > 0
+          ? detectedLocations.map((loc) => ({
+              place: loc.place,
+              place_th: loc.place_th,
+              city: loc.city,
+              country: loc.country,
+              confidence: loc.confidence,
+              uploadedImageUrl: loc.uploadedImageUrl,
+            }))
+          : undefined,
+      });
+      toast.success(
+        language === "th"
+          ? `บันทึกทริปเข้าสู่ Blind Evaluation (${blindScenarioId}) สำเร็จ!`
+          : `Saved trip to Blind Evaluation (${blindScenarioId}) successfully!`
+      );
+      setBlindSaveModalOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save to Blind Evaluation");
+    } finally {
+      setIsSavingBlindTrip(false);
+    }
+  };
 
   const [currentTripId, setCurrentTripId] = useState<string | null>(null);
   const [currentTripTitle, setCurrentTripTitle] = useState<string | null>(null);
@@ -2246,13 +2304,27 @@ const Index = () => {
               <span className="hidden text-base font-bold tracking-tight sm:inline text-foreground">pixinerary</span>
             </Link>
 
-            <Link
-              to="/experiment"
-              className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-            >
-              <Beaker className="size-3 text-sky-500" />
-              <span>Console</span>
-            </Link>
+            {/* Blind Evaluation Link: dev and expert */}
+            {(role === "dev" || role === "expert") && (
+              <Link
+                to="/blind-eval"
+                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 transition-colors"
+              >
+                <ShieldCheck className="size-3 text-purple-600" />
+                <span>Blind Evaluation</span>
+              </Link>
+            )}
+
+            {/* Console Link: dev only */}
+            {role === "dev" && (
+              <Link
+                to="/experiment"
+                className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              >
+                <Beaker className="size-3 text-sky-500" />
+                <span>Console</span>
+              </Link>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
@@ -2596,6 +2668,23 @@ const Index = () => {
                     <span>{language === "th" ? "ส่งออก HTML" : "Export HTML"}</span>
                   </Button>
 
+                  {/* Save to Blind Eval Button (Visible only to dev when itinerary exists) */}
+                  {role === "dev" && itinerary && itinerary.length > 0 && itinerary[0].activities?.length > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        setBlindScenarioTitle(currentTripTitle || "");
+                        setBlindSaveModalOpen(true);
+                      }}
+                      className="rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs h-7 px-2.5 gap-1 shadow-2xs cursor-pointer"
+                      title="บันทึกแผนนี้เข้าสู่คลัง Blind Evaluation สำหรับผู้เชี่ยวชาญประเมิน"
+                    >
+                      <ShieldCheck className="size-3.5" />
+                      <span>Save to Blind Eval</span>
+                    </Button>
+                  )}
+
                   {/* Auto-Save Live Status Badge */}
                   {lastAutoSavedAt && (
                     <span
@@ -2843,6 +2932,99 @@ const Index = () => {
           }
         }}
       />
+
+      {/* Dialog for Saving Trip to Blind Evaluation */}
+      <Dialog open={blindSaveModalOpen} onOpenChange={setBlindSaveModalOpen}>
+        <DialogContent className="sm:max-w-md rounded-3xl p-6 bg-background border border-border shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-purple-700 dark:text-purple-300">
+              <ShieldCheck className="size-5 text-purple-600" />
+              บันทึกแผนเข้าสู่ Blind Evaluation
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              แผนนี้จะถูกนำไปเก็บไว้ในคลังประเมิน โดยระบบจะทำการซ่อนชื่อโมเดล (
+              <strong className="text-foreground">{model}</strong>) และแปลงเป็นรหัสสุ่ม (เช่น แผน A, แผน B) เพื่อให้ผู้เชี่ยวชาญประเมินโดยปราศจากอคติ
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="scenarioId" className="text-xs font-semibold">
+                รหัสโจทย์ (Scenario ID) <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="scenarioId"
+                value={blindScenarioId}
+                onChange={(e) => setBlindScenarioId(e.target.value)}
+                placeholder="e.g. SC-01"
+                className="h-9 text-xs rounded-xl"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                ระบุ ID เดียวกันสำหรับแผนที่สร้างด้วยโจทย์เดียวกัน เพื่อให้ผู้เชี่ยวชาญเปรียบเทียบใน Scenario เดียวกันได้
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="scenarioTitle" className="text-xs font-semibold">
+                ชื่อโจทย์การเดินทาง (Scenario Title)
+              </Label>
+              <Input
+                id="scenarioTitle"
+                value={blindScenarioTitle}
+                onChange={(e) => setBlindScenarioTitle(e.target.value)}
+                placeholder="e.g. กรุงเทพมหานคร 3 วัน (Solo / Budget / Culture)"
+                className="h-9 text-xs rounded-xl"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="scenarioNotes" className="text-xs font-semibold">
+                เงื่อนไขหรือหมายเหตุโจทย์ (Optional Notes)
+              </Label>
+              <Input
+                id="scenarioNotes"
+                value={blindScenarioNotes}
+                onChange={(e) => setBlindScenarioNotes(e.target.value)}
+                placeholder="e.g. เดินทางช่วงเช้า เน้นของกินเยาวราชและวัดพระแก้ว"
+                className="h-9 text-xs rounded-xl"
+              />
+            </div>
+
+            <div className="p-3 rounded-2xl bg-secondary/40 border border-border/60 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">โมเดลที่ใช้สร้างจริง (Actual Model):</span>
+                <span className="font-semibold font-mono text-purple-600">{model}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">จำนวนวันในแผน:</span>
+                <span className="font-semibold">{itinerary?.length || 0} วัน</span>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setBlindSaveModalOpen(false)}
+              className="rounded-xl text-xs h-9"
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isSavingBlindTrip || !blindScenarioId.trim()}
+              onClick={handleSaveToBlindEval}
+              className="rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs h-9 gap-1.5"
+            >
+              <Check className="size-3.5" />
+              <span>{isSavingBlindTrip ? "กำลังบันทึก..." : "ยืนยันบันทึก"}</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <footer className="border-t border-border/70 py-6 text-center text-xs text-muted-foreground mt-12">
         <p>Pixinerary — AI-Powered Image-Based Travel Planner • Research Project</p>

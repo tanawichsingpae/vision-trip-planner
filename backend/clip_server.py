@@ -1406,6 +1406,405 @@ def get_exp5_results():
 
 
 # --------------------
+# Blind Evaluation & Role Management Endpoints
+# --------------------
+import json
+import uuid
+import datetime
+
+EXPERIMENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "experiment"))
+BLIND_TRIPS_FILE = os.path.join(EXPERIMENT_DIR, "blind_trips.json")
+BLIND_EVALS_FILE = os.path.join(EXPERIMENT_DIR, "blind_evaluations.json")
+BLIND_COMPARISONS_FILE = os.path.join(EXPERIMENT_DIR, "blind_comparisons.json")
+USER_ROLES_FILE = os.path.join(EXPERIMENT_DIR, "user_roles.json")
+
+def _load_json_file(filepath, default_val):
+    if not os.path.exists(filepath):
+        return default_val
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading {filepath}: {e}")
+        return default_val
+
+def _save_json_file(filepath, data):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+@app.route("/blind_eval/save_trip", methods=["POST"])
+def save_blind_trip():
+    try:
+        data = request.get_json() or {}
+        scenario_id = (data.get("scenario_id") or "SC-DEFAULT").strip()
+        scenario_title = data.get("scenario_title") or scenario_id
+        scenario_notes = data.get("scenario_notes", "")
+        actual_model = data.get("actual_model", "gpt-4o")
+        itinerary = data.get("itinerary", [])
+        preferences = data.get("preferences", {})
+        typical_weather = data.get("typicalWeather")
+        suggestions = data.get("suggestions", [])
+        accommodations = data.get("accommodations", [])
+        uploaded_locations = data.get("uploaded_locations", [])
+
+        trips = _load_json_file(BLIND_TRIPS_FILE, [])
+        trip_id = f"trip_{uuid.uuid4().hex[:8]}"
+
+        new_trip = {
+            "id": trip_id,
+            "scenario_id": scenario_id,
+            "scenario_title": scenario_title,
+            "scenario_notes": scenario_notes,
+            "actual_model": actual_model,
+            "itinerary": itinerary,
+            "preferences": preferences,
+            "typicalWeather": typical_weather,
+            "suggestions": suggestions,
+            "accommodations": accommodations,
+            "uploaded_locations": uploaded_locations,
+            "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        trips.append(new_trip)
+        _save_json_file(BLIND_TRIPS_FILE, trips)
+
+        return jsonify({"status": "success", "trip_id": trip_id, "scenario_id": scenario_id})
+    except Exception as e:
+        print("[Error /blind_eval/save_trip]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/blind_eval/trips", methods=["GET"])
+def get_blind_trips():
+    try:
+        user_role = request.args.get("role", "user")
+        raw_trips = _load_json_file(BLIND_TRIPS_FILE, [])
+
+        # Group by scenario to assign deterministic blind labels (แผน A, แผน B, etc.)
+        scenario_map = {}
+        for t in raw_trips:
+            sc_id = t.get("scenario_id", "SC-DEFAULT")
+            scenario_map.setdefault(sc_id, []).append(t)
+
+        labeled_trips = []
+        for sc_id, group in scenario_map.items():
+            # Sort group by created_at or id for deterministic labeling
+            sorted_group = sorted(group, key=lambda x: x.get("created_at", x.get("id")))
+            for idx, item in enumerate(sorted_group):
+                trip_copy = dict(item)
+                blind_label = f"แผน {chr(65 + idx)}"  # แผน A, แผน B, แผน C
+                trip_copy["blind_label"] = blind_label
+
+                # Hide actual model unless user is dev
+                if user_role != "dev":
+                    trip_copy.pop("actual_model", None)
+
+                labeled_trips.append(trip_copy)
+
+        return jsonify({"trips": labeled_trips})
+    except Exception as e:
+        print("[Error /blind_eval/trips]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/blind_eval/trip/<trip_id>", methods=["DELETE"])
+def delete_blind_trip(trip_id):
+    try:
+        trips = _load_json_file(BLIND_TRIPS_FILE, [])
+        trips = [t for t in trips if t.get("id") != trip_id]
+        _save_json_file(BLIND_TRIPS_FILE, trips)
+        return jsonify({"status": "deleted", "trip_id": trip_id})
+    except Exception as e:
+        print("[Error /blind_eval/trip delete]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/blind_eval/submit_score", methods=["POST"])
+def submit_blind_score():
+    try:
+        data = request.get_json() or {}
+        scenario_id = data.get("scenario_id")
+        trip_id = data.get("trip_id")
+        blind_label = data.get("blind_label")
+        expert_id = data.get("expert_id", "anonymous_expert")
+        expert_name = data.get("expert_name", "Anonymous Expert")
+        expert_profile = data.get("expert_profile", {})
+        detailed_scores = data.get("detailed_scores") or {}
+        scores = data.get("scores") or {}
+        overall_pick = data.get("overall_pick", False)
+        feedback = data.get("feedback", "")
+
+        if not scenario_id or not trip_id:
+            return jsonify({"error": "Missing scenario_id or trip_id"}), 400
+
+        # Retrieve actual model for background audit (hidden from response)
+        trips = _load_json_file(BLIND_TRIPS_FILE, [])
+        matched_trip = next((t for t in trips if t.get("id") == trip_id), None)
+        actual_model = matched_trip.get("actual_model", "unknown") if matched_trip else "unknown"
+
+        # Calculate dimension averages from detailed_scores if present
+        fa_avg = float(detailed_scores.get("fa_avg", 0)) or (
+            sum([int(detailed_scores.get(f"fa{i}", 3)) for i in range(1, 6)]) / 5.0
+            if "fa1" in detailed_scores else float(scores.get("information_accuracy", 3))
+        )
+        cc_avg = float(detailed_scores.get("cc_avg", 0)) or (
+            sum([int(detailed_scores.get(f"cc{i}", 3)) for i in range(1, 6)]) / 5.0
+            if "cc1" in detailed_scores else float(scores.get("persona_alignment", 3))
+        )
+        pf_avg = float(detailed_scores.get("pf_avg", 0)) or (
+            sum([int(detailed_scores.get(f"pf{i}", 3)) for i in range(1, 6)]) / 5.0
+            if "pf1" in detailed_scores else float(scores.get("temporal_pacing", 3))
+        )
+        sr_avg = float(detailed_scores.get("sr_avg", 0)) or (
+            sum([int(detailed_scores.get(f"sr{i}", 3)) for i in range(1, 5)]) / 4.0
+            if "sr1" in detailed_scores else float(scores.get("spatial_feasibility", 3))
+        )
+        de_avg = float(detailed_scores.get("de_avg", 0)) or (
+            sum([int(detailed_scores.get(f"de{i}", 3)) for i in range(1, 6)]) / 5.0
+            if "de1" in detailed_scores else float(scores.get("attraction_quality", 3))
+        )
+        ru_avg = float(detailed_scores.get("ru_avg", 0)) or (
+            sum([int(detailed_scores.get(f"ru{i}", 3)) for i in range(1, 5)]) / 4.0
+            if "ru1" in detailed_scores else 3.0
+        )
+
+        overall_percentage = detailed_scores.get("overall_percentage", 75)
+        strengths = detailed_scores.get("strengths", "")
+        weaknesses = detailed_scores.get("weaknesses", "")
+        priority_improvement = detailed_scores.get("priority_improvement", "")
+        priority_improvement_other = detailed_scores.get("priority_improvement_other", "")
+
+        evals = _load_json_file(BLIND_EVALS_FILE, [])
+        eval_id = f"eval_{uuid.uuid4().hex[:8]}"
+
+        new_eval = {
+            "id": eval_id,
+            "scenario_id": scenario_id,
+            "trip_id": trip_id,
+            "blind_label": blind_label,
+            "actual_model": actual_model,
+            "expert_id": expert_id,
+            "expert_name": expert_name,
+            "expert_profile": expert_profile,
+            "scores": {
+                "spatial_feasibility": round(sr_avg),
+                "temporal_pacing": round(pf_avg),
+                "persona_alignment": round(cc_avg),
+                "attraction_quality": round(de_avg),
+                "information_accuracy": round(fa_avg),
+            },
+            "detailed_scores": {
+                **detailed_scores,
+                "fa_avg": round(fa_avg, 2),
+                "cc_avg": round(cc_avg, 2),
+                "pf_avg": round(pf_avg, 2),
+                "sr_avg": round(sr_avg, 2),
+                "de_avg": round(de_avg, 2),
+                "ru_avg": round(ru_avg, 2),
+                "overall_percentage": overall_percentage,
+                "strengths": strengths,
+                "weaknesses": weaknesses,
+                "priority_improvement": priority_improvement,
+                "priority_improvement_other": priority_improvement_other,
+            },
+            "overall_pick": bool(overall_pick),
+            "feedback": feedback or strengths or weaknesses,
+            "submitted_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        evals.append(new_eval)
+        _save_json_file(BLIND_EVALS_FILE, evals)
+
+        return jsonify({"status": "success", "eval_id": eval_id})
+    except Exception as e:
+        print("[Error /blind_eval/submit_score]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/blind_eval/submit_comparison", methods=["POST"])
+def submit_blind_comparison():
+    try:
+        data = request.get_json() or {}
+        scenario_id = data.get("scenario_id")
+        if not scenario_id:
+            return jsonify({"error": "Missing scenario_id"}), 400
+
+        comparisons = _load_json_file(BLIND_COMPARISONS_FILE, [])
+        comp_id = f"comp_{uuid.uuid4().hex[:8]}"
+
+        new_comp = {
+            "id": comp_id,
+            "scenario_id": scenario_id,
+            "expert_id": data.get("expert_id", "anonymous_expert"),
+            "expert_name": data.get("expert_name", "Anonymous Expert"),
+            "expert_profile": data.get("expert_profile", {}),
+            "rankings": data.get("rankings", []),
+            "best_for_practical_use": data.get("best_for_practical_use", {}),
+            "qualitative_feedback": data.get("qualitative_feedback", {}),
+            "submitted_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        comparisons.append(new_comp)
+        _save_json_file(BLIND_COMPARISONS_FILE, comparisons)
+
+        return jsonify({"status": "success", "comparison_id": comp_id})
+    except Exception as e:
+        print("[Error /blind_eval/submit_comparison]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/blind_eval/results", methods=["GET"])
+def get_blind_results():
+    try:
+        evals = _load_json_file(BLIND_EVALS_FILE, [])
+        trips = _load_json_file(BLIND_TRIPS_FILE, [])
+        comparisons = _load_json_file(BLIND_COMPARISONS_FILE, [])
+
+        # Compute summary stats per model
+        model_stats = {}
+        for ev in evals:
+            m = ev.get("actual_model", "unknown")
+            if m not in model_stats:
+                model_stats[m] = {
+                    "model": m,
+                    "count": 0,
+                    "total_spatial": 0,
+                    "total_temporal": 0,
+                    "total_persona": 0,
+                    "total_attraction": 0,
+                    "total_accuracy": 0,
+                    "total_fa": 0,
+                    "total_cc": 0,
+                    "total_pf": 0,
+                    "total_sr": 0,
+                    "total_de": 0,
+                    "total_ru": 0,
+                    "total_percentage": 0,
+                    "total_overall": 0,
+                    "wins": 0,
+                }
+            sc = ev.get("scores", {})
+            det = ev.get("detailed_scores", {})
+            st = model_stats[m]
+            st["count"] += 1
+            st["total_spatial"] += sc.get("spatial_feasibility", 0)
+            st["total_temporal"] += sc.get("temporal_pacing", 0)
+            st["total_persona"] += sc.get("persona_alignment", 0)
+            st["total_attraction"] += sc.get("attraction_quality", 0)
+            st["total_accuracy"] += sc.get("information_accuracy", 0)
+
+            # Detailed 6 dimensions
+            fa_val = float(det.get("fa_avg", sc.get("information_accuracy", 3)))
+            cc_val = float(det.get("cc_avg", sc.get("persona_alignment", 3)))
+            pf_val = float(det.get("pf_avg", sc.get("temporal_pacing", 3)))
+            sr_val = float(det.get("sr_avg", sc.get("spatial_feasibility", 3)))
+            de_val = float(det.get("de_avg", sc.get("attraction_quality", 3)))
+            ru_val = float(det.get("ru_avg", 3.5))
+            pct_val = float(det.get("overall_percentage", 70))
+
+            st["total_fa"] += fa_val
+            st["total_cc"] += cc_val
+            st["total_pf"] += pf_val
+            st["total_sr"] += sr_val
+            st["total_de"] += de_val
+            st["total_ru"] += ru_val
+            st["total_percentage"] += pct_val
+
+            avg_6 = (fa_val + cc_val + pf_val + sr_val + de_val + ru_val) / 6.0
+            st["total_overall"] += avg_6
+            if ev.get("overall_pick"):
+                st["wins"] += 1
+
+        summary = []
+        for m, st in model_stats.items():
+            c = st["count"] or 1
+            summary.append({
+                "model": m,
+                "evaluations_count": st["count"],
+                "avg_spatial": round(st["total_spatial"] / c, 2),
+                "avg_temporal": round(st["total_temporal"] / c, 2),
+                "avg_persona": round(st["total_persona"] / c, 2),
+                "avg_attraction": round(st["total_attraction"] / c, 2),
+                "avg_accuracy": round(st["total_accuracy"] / c, 2),
+                "avg_fa": round(st["total_fa"] / c, 2),
+                "avg_cc": round(st["total_cc"] / c, 2),
+                "avg_pf": round(st["total_pf"] / c, 2),
+                "avg_sr": round(st["total_sr"] / c, 2),
+                "avg_de": round(st["total_de"] / c, 2),
+                "avg_ru": round(st["total_ru"] / c, 2),
+                "avg_overall_percentage": round(st["total_percentage"] / c, 1),
+                "overall_score": round(st["total_overall"] / c, 2),
+                "total_wins": st["wins"],
+                "win_rate_percent": round((st["wins"] / c) * 100, 1)
+            })
+
+        return jsonify({
+            "evaluations": evals,
+            "comparisons": comparisons,
+            "summary": summary,
+            "total_trips": len(trips)
+        })
+    except Exception as e:
+        print("[Error /blind_eval/results]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/users/roles", methods=["GET", "POST"])
+def manage_user_roles():
+    try:
+        # Default initial roles if file is missing
+        default_roles = {
+            "dev@pixinerary.com": {
+                "email": "dev@pixinerary.com",
+                "role": "dev",
+                "name": "Developer Admin",
+                "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            },
+            "expert@pixinerary.com": {
+                "email": "expert@pixinerary.com",
+                "role": "expert",
+                "name": "Tourism Expert",
+                "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            },
+            "user@pixinerary.com": {
+                "email": "user@pixinerary.com",
+                "role": "user",
+                "name": "General Traveler",
+                "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        }
+        roles = _load_json_file(USER_ROLES_FILE, default_roles)
+
+        if request.method == "POST":
+            data = request.get_json() or {}
+            email = (data.get("email") or "").strip().lower()
+            role = (data.get("role") or "user").strip().lower()
+            name = (data.get("name") or email.split("@")[0]).strip()
+
+            if not email:
+                return jsonify({"error": "Email is required"}), 400
+            if role not in ["dev", "expert", "user"]:
+                return jsonify({"error": "Invalid role. Must be 'dev', 'expert', or 'user'"}), 400
+
+            roles[email] = {
+                "email": email,
+                "role": role,
+                "name": name,
+                "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            _save_json_file(USER_ROLES_FILE, roles)
+            return jsonify({"status": "success", "user": roles[email]})
+
+        # GET request returns list of users
+        return jsonify({"users": list(roles.values())})
+    except Exception as e:
+        print("[Error /users/roles]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# --------------------
 # Railway entrypoint
 # --------------------
 

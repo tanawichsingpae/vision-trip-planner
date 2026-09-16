@@ -1,0 +1,21 @@
+[
+  {
+    "id": "eval_a17a6fbe",
+    "scenario_id": "SC-01",
+    "trip_id": "trip_acc054d5",
+    "blind_label": "แผน A",
+    "actual_model": "openai-gpt-54",
+    "expert_id": "expert@tourism.ac.th",
+    "expert_name": "ดร. สมชาย (ผู้เชี่ยวชาญการท่องเที่ยว)",
+    "scores": {
+      "spatial_feasibility": 5,
+      "temporal_pacing": 4,
+      "persona_alignment": 5,
+      "attraction_quality": 4,
+      "information_accuracy": 5
+    },
+    "overall_pick": true,
+    "feedback": "แผนกระจายจุดท่องเที่ยวในพระนครได้ดีมาก ไม่เดินทางวนไปมา มีมื้อกลางวันที่ร้านผัดไทยชื่อดังตรงเวลา",
+    "submitted_at": "2026-09-16 19:27:52"
+  }
+]

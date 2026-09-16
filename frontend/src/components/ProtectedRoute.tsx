@@ -1,10 +1,20 @@
 import { Navigate } from 'react-router-dom'
-import { useAuth } from '@/context/AuthContext'
+import { useAuth, type UserRole } from '@/context/AuthContext'
 
-export const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, loading } = useAuth()
-  if (loading) return <div className="flex h-screen items-center justify-center">Loading...</div>
+interface ProtectedRouteProps {
+  children: React.ReactNode
+  allowedRoles?: UserRole[]
+}
+
+export const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
+  const { user, loading, role } = useAuth()
+  if (loading) return <div className="flex h-screen items-center justify-center text-muted-foreground text-sm">Loading...</div>
   
   if (!user) return <Navigate to="/login" replace />
+
+  if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+    return <Navigate to="/" replace />
+  }
+
   return <>{children}</>
 }

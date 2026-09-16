@@ -9,6 +9,7 @@ import { LanguageProvider } from "@/context/LanguageContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index.tsx";
 import Login from "./pages/Login.tsx";
+import BlindEvaluation from "./pages/BlindEvaluation.tsx";
 import ExperimentConsole from "./pages/ExperimentConsole.tsx";
 import Exp2PipelineComparison from "./pages/Exp2PipelineComparison.tsx";
 import Exp3RobustnessTest from "./pages/Exp3RobustnessTest.tsx";
@@ -39,11 +40,12 @@ const App = () => {
                 <Routes>
                   <Route path="/login" element={<Login />} />
                   <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-                  <Route path="/experiment" element={<ProtectedRoute><ExperimentConsole /></ProtectedRoute>} />
-                  <Route path="/experiment/exp2" element={<ProtectedRoute><Exp2PipelineComparison /></ProtectedRoute>} />
-                  <Route path="/experiment/exp3" element={<ProtectedRoute><Exp3RobustnessTest /></ProtectedRoute>} />
-                  <Route path="/experiment/exp4" element={<ProtectedRoute><Exp4PromptSensitivity /></ProtectedRoute>} />
-                  <Route path="/experiment/exp5" element={<ProtectedRoute><Exp5ConsistencyTest /></ProtectedRoute>} />
+                  <Route path="/blind-eval" element={<ProtectedRoute allowedRoles={["dev", "expert"]}><BlindEvaluation /></ProtectedRoute>} />
+                  <Route path="/experiment" element={<ProtectedRoute allowedRoles={["dev"]}><ExperimentConsole /></ProtectedRoute>} />
+                  <Route path="/experiment/exp2" element={<ProtectedRoute allowedRoles={["dev"]}><Exp2PipelineComparison /></ProtectedRoute>} />
+                  <Route path="/experiment/exp3" element={<ProtectedRoute allowedRoles={["dev"]}><Exp3RobustnessTest /></ProtectedRoute>} />
+                  <Route path="/experiment/exp4" element={<ProtectedRoute allowedRoles={["dev"]}><Exp4PromptSensitivity /></ProtectedRoute>} />
+                  <Route path="/experiment/exp5" element={<ProtectedRoute allowedRoles={["dev"]}><Exp5ConsistencyTest /></ProtectedRoute>} />
                   <Route path="/export/trip" element={<TripExportPage />} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                   <Route path="*" element={<NotFound />} />
