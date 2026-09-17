@@ -1,5 +1,12 @@
-import React, { createContext, useContext, useState } from "react";
-import { hasThaiScript, DICTIONARY_EN_TO_TH, DICTIONARY_TH_TO_EN } from "@/services/translatorService";
+import React, { createContext, useContext, useState, useEffect } from "react";
+import {
+  hasThaiScript,
+  DICTIONARY_EN_TO_TH,
+  DICTIONARY_TH_TO_EN,
+  translateTextSync,
+  queueAsyncTranslation,
+  subscribeTranslationUpdates,
+} from "@/services/translatorService";
 
 export type Language = "th" | "en";
 
@@ -178,67 +185,67 @@ export function getLocalizedPlace(
   if (language === "th") {
     // 1. Explicit Thai fields
     const explicitTh = item.title_th || item.name_th || item.place_th;
-    if (explicitTh && explicitTh.trim()) return explicitTh.trim();
+    if (explicitTh && explicitTh.trim()) {
+      if (hasThaiScript(explicitTh)) return explicitTh.trim();
+      const translated = translateTextSync(explicitTh.trim(), "th");
+      if (hasThaiScript(translated)) return translated;
+    }
 
     // 2. Check if general title/name/place is already Thai
-    const rawCandidate = item.title || item.name || item.place || "";
+    const rawCandidate = (item.title || item.name || item.place || "").trim();
     if (rawCandidate && hasThaiScript(rawCandidate)) {
-      return rawCandidate.trim();
+      return rawCandidate;
     }
 
-    // 3. Direct full dictionary match
-    const lowerKey = rawCandidate.trim().toLowerCase();
-    if (DICTIONARY_EN_TO_TH[lowerKey]) {
-      return DICTIONARY_EN_TO_TH[lowerKey];
+    // 3. Synchronous dictionary & rule translation
+    if (rawCandidate) {
+      const translated = translateTextSync(rawCandidate, "th");
+      if (hasThaiScript(translated)) return translated;
+      queueAsyncTranslation(rawCandidate, "th");
+      if (translated !== rawCandidate) return translated;
     }
 
-    // 4. Hotel Check-in / Check-out patterns
-    if (/^check\s*in:?\s*(.*)$/i.test(rawCandidate)) {
-      const match = rawCandidate.match(/^check\s*in:?\s*(.*)$/i);
-      const place = match?.[1]?.trim() || "";
-      return place ? `เช็คอิน: ${place}` : "เช็คอินเข้าที่พัก";
-    }
-    if (/^check\s*out:?\s*(.*)$/i.test(rawCandidate)) {
-      const match = rawCandidate.match(/^check\s*out:?\s*(.*)$/i);
-      const place = match?.[1]?.trim() || "";
-      return place ? `เช็คเอาต์: ${place}` : "เช็คเอาต์จากที่พัก";
+    // 4. Try English fields through translator
+    const secondary = (item.english_name || item.title_en || item.name_en || item.place_en || "").trim();
+    if (secondary) {
+      const transSecondary = translateTextSync(secondary, "th");
+      if (hasThaiScript(transSecondary)) return transSecondary;
+      queueAsyncTranslation(secondary, "th");
     }
 
-    // 5. Fallback cleanly to raw or English fields
-    return rawCandidate.trim() || item.english_name || item.title_en || item.name_en || item.place_en || "";
+    return rawCandidate || secondary || "";
   }
 
   // English
-  // 1. Explicit English fields
+  // 1. Explicit English fields (ensure no Thai characters)
   const explicitEn = item.title_en || item.name_en || item.place_en || item.english_name;
-  if (explicitEn && explicitEn.trim()) return explicitEn.trim();
+  if (explicitEn && explicitEn.trim() && !hasThaiScript(explicitEn)) {
+    return explicitEn.trim();
+  }
 
   // 2. Check if general title/name/place is already Latin/English
-  const rawCandidate = item.title || item.name || item.place || "";
+  const rawCandidate = (item.title || item.name || item.place || "").trim();
   if (rawCandidate && !hasThaiScript(rawCandidate)) {
-    return rawCandidate.trim();
+    return rawCandidate;
   }
 
-  // 3. Direct full dictionary match
-  const lowerKey = rawCandidate.trim().toLowerCase();
-  if (DICTIONARY_TH_TO_EN[lowerKey]) {
-    return DICTIONARY_TH_TO_EN[lowerKey];
+  // 3. Synchronous dictionary & rule translation
+  if (rawCandidate) {
+    const translated = translateTextSync(rawCandidate, "en");
+    if (!hasThaiScript(translated)) return translated;
+    queueAsyncTranslation(rawCandidate, "en");
+    if (translated !== rawCandidate) return translated;
   }
 
-  // 4. Thai Check-in / Check-out patterns
-  if (/^(เช็คอิน|เช็คอินเข้าที่พัก):?\s*(.*)$/i.test(rawCandidate)) {
-    const match = rawCandidate.match(/^(เช็คอิน|เช็คอินเข้าที่พัก):?\s*(.*)$/i);
-    const place = match?.[2]?.trim() || "";
-    return place ? `Check in: ${place}` : "Check in to hotel";
-  }
-  if (/^(เช็คเอาท์|เช็คเอาต์|เช็คเอาต์จากที่พัก):?\s*(.*)$/i.test(rawCandidate)) {
-    const match = rawCandidate.match(/^(เช็คเอาท์|เช็คเอาต์|เช็คเอาต์จากที่พัก):?\s*(.*)$/i);
-    const place = match?.[2]?.trim() || "";
-    return place ? `Check out: ${place}` : "Check out from hotel";
+  // 4. Try Thai fields through translator
+  const secondary = (item.title_th || item.name_th || item.place_th || "").trim();
+  if (secondary) {
+    const transSecondary = translateTextSync(secondary, "en");
+    if (!hasThaiScript(transSecondary)) return transSecondary;
+    queueAsyncTranslation(secondary, "en");
   }
 
-  // 5. Fallback cleanly
-  return rawCandidate.trim() || item.title_th || item.name_th || item.place_th || "";
+  return rawCandidate || explicitEn || secondary || "";
 }
 
 export function getLocalizedDescription(
@@ -248,33 +255,61 @@ export function getLocalizedDescription(
   if (!item) return "";
 
   if (language === "th") {
+    // 1. Explicit Thai description
     if (item.description_th && item.description_th.trim()) {
-      return item.description_th.trim();
+      if (hasThaiScript(item.description_th)) return item.description_th.trim();
+      const translated = translateTextSync(item.description_th.trim(), "th");
+      if (hasThaiScript(translated)) return translated;
     }
-    const raw = item.description || "";
+
+    const raw = (item.description || "").trim();
     if (raw && hasThaiScript(raw)) {
-      return raw.trim();
+      return raw;
     }
-    const lowerKey = raw.trim().toLowerCase();
-    if (DICTIONARY_EN_TO_TH[lowerKey]) {
-      return DICTIONARY_EN_TO_TH[lowerKey];
+
+    if (raw) {
+      const translated = translateTextSync(raw, "th");
+      if (hasThaiScript(translated)) return translated;
+      queueAsyncTranslation(raw, "th");
+      if (translated !== raw) return translated;
     }
-    return raw.trim() || item.description_en || "";
+
+    const enDesc = (item.description_en || "").trim();
+    if (enDesc) {
+      const translated = translateTextSync(enDesc, "th");
+      if (hasThaiScript(translated)) return translated;
+      queueAsyncTranslation(enDesc, "th");
+    }
+
+    return raw || enDesc || "";
   }
 
   // English
-  if (item.description_en && item.description_en.trim()) {
+  // 1. Explicit English description
+  if (item.description_en && item.description_en.trim() && !hasThaiScript(item.description_en)) {
     return item.description_en.trim();
   }
-  const raw = item.description || "";
+
+  const raw = (item.description || "").trim();
   if (raw && !hasThaiScript(raw)) {
-    return raw.trim();
+    return raw;
   }
-  const lowerKey = raw.trim().toLowerCase();
-  if (DICTIONARY_TH_TO_EN[lowerKey]) {
-    return DICTIONARY_TH_TO_EN[lowerKey];
+
+  if (raw) {
+    const translated = translateTextSync(raw, "en");
+    if (!hasThaiScript(translated)) return translated;
+    queueAsyncTranslation(raw, "en");
+    if (translated !== raw) return translated;
   }
-  return raw.trim() || item.description_th || "";
+
+  const thDesc = (item.description_th || "").trim();
+  if (thDesc) {
+    const translated = translateTextSync(thDesc, "en");
+    if (!hasThaiScript(translated)) return translated;
+    queueAsyncTranslation(thDesc, "en");
+  }
+
+  return raw || item.description_en || thDesc || "";
 }
 
 interface LanguageContextType {
@@ -294,6 +329,15 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const saved = localStorage.getItem("pixinerary_language");
     return saved === "en" || saved === "th" ? saved : "th";
   });
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    // Re-render when background translations resolve
+    const unsubscribe = subscribeTranslationUpdates(() => {
+      setTick((prev) => prev + 1);
+    });
+    return unsubscribe;
+  }, []);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);

@@ -71,13 +71,20 @@ describe("LanguageContext & Localization Helpers", () => {
       expect(getLocalizedPlace({ title: "night market" }, "th")).toBe("ตลาดนัดกลางคืน");
     });
 
-    it("falls back to english_name or title when localized field is absent", () => {
-      const legacyItem: LocalizablePlace = {
+    it("translates known attractions or falls back gracefully when absent", () => {
+      const sensojiItem: LocalizablePlace = {
         title: "Senso-ji Temple",
         english_name: "Senso-ji Temple",
       };
-      expect(getLocalizedPlace(legacyItem, "th")).toBe("Senso-ji Temple");
-      expect(getLocalizedPlace(legacyItem, "en")).toBe("Senso-ji Temple");
+      expect(getLocalizedPlace(sensojiItem, "th")).toBe("วัดเซ็นโซจิ (อาซากุสะ)");
+      expect(getLocalizedPlace(sensojiItem, "en")).toBe("Senso-ji Temple");
+
+      const unknownItem: LocalizablePlace = {
+        title: "Unknown Hidden Spot 99",
+        english_name: "Unknown Hidden Spot 99",
+      };
+      expect(getLocalizedPlace(unknownItem, "th")).toBe("Unknown Hidden Spot 99");
+      expect(getLocalizedPlace(unknownItem, "en")).toBe("Unknown Hidden Spot 99");
     });
 
     it("handles null and undefined gracefully", () => {
@@ -109,15 +116,22 @@ describe("LanguageContext & Localization Helpers", () => {
       );
     });
 
-    it("falls back to default description when localized version is missing", () => {
-      const item: LocalizableDescription = {
-        description: "Explore the bustling street food night market",
+    it("translates phrase patterns or falls back to default description", () => {
+      const patternedItem: LocalizableDescription = {
+        description: "Enjoy lunch at Siam Paragon",
       };
-      expect(getLocalizedDescription(item, "th")).toBe(
-        "Explore the bustling street food night market"
+      expect(getLocalizedDescription(patternedItem, "th")).toBe(
+        "รับประทานอาหารกลางวันแสนอร่อยที่ สยามพารากอน"
       );
-      expect(getLocalizedDescription(item, "en")).toBe(
-        "Explore the bustling street food night market"
+
+      const customItem: LocalizableDescription = {
+        description: "A very unique custom activity note 123",
+      };
+      expect(getLocalizedDescription(customItem, "th")).toBe(
+        "A very unique custom activity note 123"
+      );
+      expect(getLocalizedDescription(customItem, "en")).toBe(
+        "A very unique custom activity note 123"
       );
     });
 

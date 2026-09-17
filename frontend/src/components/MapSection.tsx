@@ -833,21 +833,28 @@ const MapSection = ({
                     <li
                       key={activity.id || `activity-${dayIndex}-${i}`}
                       onClick={() => onSelectActivity?.(activity)}
-                      className="flex items-start gap-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors p-1 -mx-1 rounded-lg hover:bg-background/60"
+                      className="flex items-start gap-2.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors p-2 -mx-1 rounded-xl hover:bg-background/80 group border border-transparent hover:border-border/60"
                       title={language === "th" ? "คลิกเพื่อดูหมุดบนแผนที่" : "Click to focus pin on map"}
                     >
-                      <span className="font-bold text-primary/70 shrink-0 mt-0.5 w-4">
+                      <span className="font-bold text-primary/80 shrink-0 mt-0.5 w-4 text-center">
                         {i + 1}.
                       </span>
-                      <div className="flex-1 leading-snug">
-                        <span className="font-medium text-foreground">
-                          {activity.type === "hotel" && "🏨 "}
-                          {locPlace(activity) || activity.title}
-                        </span>
-                        {activity.time && (
-                          <span className="text-[10px] text-muted-foreground font-mono ml-1.5 px-1.5 py-0.5 rounded-md bg-secondary/80">
-                            {activity.time}
+                      <div className="flex-1 min-w-0 leading-snug">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-foreground text-xs sm:text-sm group-hover:text-primary transition-colors">
+                            {activity.type === "hotel" && "🏨 "}
+                            {locPlace(activity) || activity.title}
                           </span>
+                          {activity.time && (
+                            <span className="text-[10px] text-muted-foreground font-mono px-1.5 py-0.5 rounded-md bg-secondary/80">
+                              {activity.time}
+                            </span>
+                          )}
+                        </div>
+                        {locDesc(activity) && (
+                          <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">
+                            {locDesc(activity)}
+                          </p>
                         )}
                       </div>
                     </li>

@@ -9,6 +9,7 @@ import { DAY_ACCENTS } from "./types";
 import { type DayPlan, type Activity, getActivityImage } from "@/components/TravelItinerary";
 import { generateMapUrl } from "./generateMapUrl";
 import { formatExportDate, formatExportDateWithDay, formatDateRange } from "./formatExportDate";
+import { getLocalizedPlace, getLocalizedDescription } from "@/context/LanguageContext";
 
 /** Category labels used in the export */
 const CATEGORY_LABELS: Record<string, string> = {
@@ -111,17 +112,11 @@ function getLocalizedName(
   activity: Activity,
   language: "th" | "en" = "en"
 ): { name: string; localName?: string } {
-  if (language === "th") {
-    const name = activity.title_th || activity.title || "";
-    const localName =
-      activity.title_en || activity.english_name || undefined;
-    return { name, localName };
-  }
-  // English mode
-  const name =
-    activity.title_en || activity.english_name || activity.title || "";
-  const localName = activity.title_th || undefined;
-  return { name, localName };
+  const primaryName = getLocalizedPlace(activity, language);
+  const secondaryLang = language === "th" ? "en" : "th";
+  const secondaryName = getLocalizedPlace(activity, secondaryLang);
+  const localName = secondaryName !== primaryName ? secondaryName : undefined;
+  return { name: primaryName || activity.title || "", localName };
 }
 
 /**
@@ -215,10 +210,7 @@ export function normalizeExportTrip(options: NormalizeOptions): ExportTrip {
         }
 
         // Description
-        const description =
-          language === "th"
-            ? act.description_th || act.description || undefined
-            : act.description_en || act.description || undefined;
+        const description = getLocalizedDescription(act, language) || undefined;
 
         return {
           index: actIndex + 1,
