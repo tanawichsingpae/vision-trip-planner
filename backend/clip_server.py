@@ -53,15 +53,34 @@ if GEMINI_API_KEY:
 # --------------------
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        res = app.make_default_options_response()
+        res.headers["Access-Control-Allow-Origin"] = "*"
+        res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        return res
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+    return response
 
 # --------------------
 # Device
 # --------------------
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+if device == "cpu":
+    try:
+        torch.set_num_threads(2)
+    except Exception:
+        pass
 
 # --------------------
 # Eager-load model
@@ -1412,7 +1431,13 @@ import json
 import uuid
 import datetime
 
-EXPERIMENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "experiment"))
+parent_exp = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "experiment"))
+if os.path.isdir(parent_exp):
+    EXPERIMENT_DIR = parent_exp
+else:
+    EXPERIMENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "experiment"))
+os.makedirs(EXPERIMENT_DIR, exist_ok=True)
+
 BLIND_TRIPS_FILE = os.path.join(EXPERIMENT_DIR, "blind_trips.json")
 BLIND_EVALS_FILE = os.path.join(EXPERIMENT_DIR, "blind_evaluations.json")
 BLIND_COMPARISONS_FILE = os.path.join(EXPERIMENT_DIR, "blind_comparisons.json")

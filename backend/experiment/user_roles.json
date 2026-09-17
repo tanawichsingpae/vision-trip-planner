@@ -1,0 +1,44 @@
+{
+  "dev@pixinerary.com": {
+    "email": "dev@pixinerary.com",
+    "role": "dev",
+    "name": "Developer Admin",
+    "updated_at": "2026-09-16 21:02:32"
+  },
+  "expert@pixinerary.com": {
+    "email": "expert@pixinerary.com",
+    "role": "expert",
+    "name": "Tourism Expert",
+    "updated_at": "2026-09-17 22:38:04"
+  },
+  "user@pixinerary.com": {
+    "email": "user@pixinerary.com",
+    "role": "user",
+    "name": "General Traveler",
+    "updated_at": "2026-09-16 21:02:32"
+  },
+  "thanawich999@gmail.com": {
+    "email": "thanawich999@gmail.com",
+    "role": "expert",
+    "name": "thanawich999",
+    "updated_at": "2026-09-16 21:32:02"
+  },
+  "thanawich99911@gmail.com": {
+    "email": "thanawich99911@gmail.com",
+    "role": "expert",
+    "name": "thanawich99911",
+    "updated_at": "2026-09-17 21:48:59"
+  },
+  "supannika1212548@gmail.com": {
+    "email": "supannika1212548@gmail.com",
+    "role": "dev",
+    "name": "supannika1212548",
+    "updated_at": "2026-09-17 21:49:28"
+  },
+  "tanawichsingpae@gmail.com": {
+    "email": "tanawichsingpae@gmail.com",
+    "role": "dev",
+    "name": "ธนวิชญ์ สิงห์เปีย",
+    "updated_at": "2026-09-17 22:46:55"
+  }
+}
