@@ -1,0 +1,2164 @@
+diff --git a/frontend/src/pages/BlindEvaluation.tsx b/frontend/src/pages/BlindEvaluation.tsx
+index 0204f46..e7fc92a 100644
+--- a/frontend/src/pages/BlindEvaluation.tsx
++++ b/frontend/src/pages/BlindEvaluation.tsx
+@@ -7,6 +7,9 @@ import {
+   submitScenarioComparison,
+   fetchBlindResults,
+   deleteBlindTrip,
++  checkDatabaseConnection,
++  syncLocalToSupabase,
++  type DatabaseStatus,
+   type BlindTrip,
+   type EvaluationRecord,
+   type ModelSummaryStat,
+@@ -31,6 +34,7 @@ import MapSection from "@/components/MapSection";
+ import type { LocationData } from "@/components/LocationDisplay";
+ import { DAY_COLORS, type Activity, typeConfig } from "@/components/TravelItinerary";
+ import { getPlaceImage } from "@/utils/getPlaceImage";
++import EvaluationAnalytics from "@/components/EvaluationAnalytics";
+ import {
+   Plane,
+   Eye,
+@@ -74,6 +78,13 @@ import {
+   Send,
+   Save,
+   Sliders,
++  Cloud,
++  Database,
++  RefreshCw,
++  AlertCircle,
++  ChevronUp,
++  ChevronDown,
++  BookOpen,
+ } from "lucide-react";
+ 
+ // ==========================================
+@@ -196,7 +207,7 @@ const DEFAULT_SCORES: DetailedDimensionScores = {
+ };
+ 
+ export default function BlindEvaluation() {
+-  const { role, setRole, userEmail, userRolesList, updateUserRole, refreshUserRoles } = useAuth();
++  const { role, setRole, userEmail, userRolesList, updateUserRole, refreshUserRoles, isDev } = useAuth();
+ 
+   // Active Main Tab (Dev only can switch tabs; Expert stays in 'eval')
+   const [activeTab, setActiveTab] = useState<"eval" | "results" | "users">("eval");
+@@ -215,6 +226,8 @@ export default function BlindEvaluation() {
+   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
+   const [hoveredActivityId, setHoveredActivityId] = useState<string | null>(null);
+   const [isMapVisible, setIsMapVisible] = useState(true);
++  const [isInstructionsOpen, setIsInstructionsOpen] = useState(false);
++  const [isPhotosOpen, setIsPhotosOpen] = useState(false);
+ 
+   // Active Dimension Tab inside the Rubric
+   const [activeDimTab, setActiveDimTab] = useState<string>("fa");
+@@ -227,11 +240,22 @@ export default function BlindEvaluation() {
+   const [expertProfile, setExpertProfile] = useState<ExpertProfile>(() => {
+     try {
+       const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
+-      if (cached) return JSON.parse(cached);
++      if (cached) {
++        const parsed = JSON.parse(cached);
++        return {
++          name: parsed.name || "",
++          role: parsed.role || "อาจารย์/นักวิชาการด้านการท่องเที่ยว",
++          role_other: parsed.role_other || "",
++          experience: parsed.experience || "3–5 ปี",
++          ai_familiarity: parsed.ai_familiarity || "เคยใช้บ้าง (เช่น Google Trips, TripAdvisor, Klook)",
++          saved_at: parsed.saved_at,
++        };
++      }
+     } catch (e) {
+       console.warn("Failed to load expert profile from localStorage:", e);
+     }
+     return {
++      name: "",
+       role: "อาจารย์/นักวิชาการด้านการท่องเที่ยว",
+       role_other: "",
+       experience: "3–5 ปี",
+@@ -240,14 +264,40 @@ export default function BlindEvaluation() {
+   });
+ 
+   const [isProfileSaved, setIsProfileSaved] = useState<boolean>(() => {
+-    return !!(localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile"));
++    try {
++      const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
++      if (cached) {
++        const parsed = JSON.parse(cached);
++        return !!(parsed && parsed.name && parsed.name.trim());
++      }
++    } catch {
++      // ignore
++    }
++    return false;
+   });
+   const [isEditingProfile, setIsEditingProfile] = useState<boolean>(() => {
+-    return !(localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile"));
++    try {
++      const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
++      if (cached) {
++        const parsed = JSON.parse(cached);
++        return !(parsed && parsed.name && parsed.name.trim());
++      }
++    } catch {
++      // ignore
++    }
++    return true;
+   });
+ 
+   const handleSaveProfile = () => {
+-    const updated = { ...expertProfile, saved_at: new Date().toISOString() };
++    if (!expertProfile.name || !expertProfile.name.trim()) {
++      toast.error("กรุณากรอกชื่อ-นามสกุล หรือชื่อของผู้ประเมิน");
++      return;
++    }
++    const updated = {
++      ...expertProfile,
++      name: expertProfile.name.trim(),
++      saved_at: new Date().toISOString(),
++    };
+     setExpertProfile(updated);
+     try {
+       localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updated));
+@@ -257,7 +307,7 @@ export default function BlindEvaluation() {
+     }
+     setIsProfileSaved(true);
+     setIsEditingProfile(false);
+-    toast.success("บันทึกข้อมูลผู้เชี่ยวชาญเรียบร้อยแล้ว (ระบบจะจดจำไว้ ไม่ต้องกรอกซ้ำ)");
++    toast.success("บันทึกข้อมูลเรียบร้อยแล้ว (ระบบจะจดจำไว้ ไม่ต้องกรอกซ้ำ)");
+   };
+ 
+   // -------------------------------------------------------------
+@@ -299,6 +349,36 @@ export default function BlindEvaluation() {
+   const [newUserRole, setNewUserRole] = useState<UserRole>("expert");
+   const [newUserName, setNewUserName] = useState("");
+ 
++  // Database Connection Status & Cloud Sync
++  const [dbStatus, setDbStatus] = useState<DatabaseStatus | null>(null);
++  const [syncingCloud, setSyncingCloud] = useState(false);
++
++  const checkDb = async () => {
++    try {
++      const st = await checkDatabaseConnection();
++      setDbStatus(st);
++    } catch {
++      // ignore
++    }
++  };
++
++  const handleSyncToCloud = async () => {
++    setSyncingCloud(true);
++    try {
++      const res = await syncLocalToSupabase();
++      toast.success(
++        `ซิงก์ข้อมูลขึ้น Supabase Cloud สำเร็จ! (${res.tripsCount} แผนทริป, ${res.evalsCount} ผลคะแนน, ${res.compsCount} การจัดอันดับ)`
++      );
++      await checkDb();
++      await loadTrips();
++      await loadResults();
++    } catch (err: any) {
++      toast.error(`การซิงก์ล้มเหลว: ${err.message || err}`);
++    } finally {
++      setSyncingCloud(false);
++    }
++  };
++
+   // Load Trips
+   const loadTrips = async () => {
+     setLoading(true);
+@@ -345,6 +425,7 @@ export default function BlindEvaluation() {
+   };
+ 
+   useEffect(() => {
++    checkDb();
+     loadTrips();
+     loadResults();
+     if (role === "dev") {
+@@ -489,7 +570,7 @@ export default function BlindEvaluation() {
+   const handleSubmitModelScore = async () => {
+     if (!activeTrip) return;
+     if (!isProfileSaved) {
+-      toast.error("กรุณากดบันทึกข้อมูลผู้เชี่ยวชาญในส่วนที่ 1 ก่อนทำการประเมิน");
++      toast.error("กรุณากดบันทึกข้อมูลในส่วนที่ 1 ก่อนทำการประเมิน");
+       setIsEditingProfile(true);
+       return;
+     }
+@@ -501,7 +582,7 @@ export default function BlindEvaluation() {
+         trip_id: activeTrip.id,
+         blind_label: activeTrip.blind_label,
+         expert_id: userEmail || "expert",
+-        expert_name: userEmail.split("@")[0] || "Tourism Expert",
++        expert_name: expertProfile.name?.trim() || userEmail.split("@")[0] || "Tourism Expert",
+         expert_profile: expertProfile,
+         scores: {
+           spatial_feasibility: Math.round(currentTripScores.sr_avg),
+@@ -551,7 +632,7 @@ export default function BlindEvaluation() {
+       await submitScenarioComparison({
+         scenario_id: selectedScenarioId,
+         expert_id: userEmail || "expert",
+-        expert_name: userEmail.split("@")[0] || "Tourism Expert",
++        expert_name: expertProfile.name?.trim() || userEmail.split("@")[0] || "Tourism Expert",
+         expert_profile: expertProfile,
+         rankings: formattedRankings,
+         best_for_practical_use: {
+@@ -619,33 +700,69 @@ export default function BlindEvaluation() {
+             </div>
+           </div>
+ 
+-          <div className="flex items-center gap-2 sm:gap-4">
++          <div className="flex items-center gap-2 sm:gap-3">
++            {/* Database Status Indicator */}
++            {dbStatus && (
++              <Badge
++                variant="outline"
++                className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs ${
++                  dbStatus.provider === "supabase"
++                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
++                    : dbStatus.provider === "backend_local"
++                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
++                      : "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30"
++                }`}
++                title={dbStatus.message}
++              >
++                {dbStatus.provider === "supabase" ? (
++                  <Cloud className="size-3 text-emerald-500" />
++                ) : (
++                  <Database className="size-3 text-amber-500" />
++                )}
++                <span className="hidden md:inline">
++                  {dbStatus.provider === "supabase"
++                    ? "Cloud DB (Supabase)"
++                    : dbStatus.provider === "backend_local"
++                      ? "Local Storage"
++                      : "Offline"}
++                </span>
++              </Badge>
++            )}
++
+             {/* Active Role Badge & Quick Role Switcher */}
+             <div className="flex items-center gap-2">
+               <span className="hidden sm:inline text-xs text-muted-foreground">บทบาทปัจจุบัน:</span>
+               <Badge
+                 variant="outline"
+-                className={`text-xs capitalize font-semibold px-2.5 py-0.5 rounded-full ${
+-                  role === "dev"
++                className={`text-xs capitalize font-semibold px-2.5 py-0.5 rounded-full ${role === "dev"
+                     ? "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-950 dark:text-purple-300"
+                     : role === "expert"
+-                    ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-950 dark:text-sky-300"
+-                    : "bg-slate-100 text-slate-700 border-slate-300"
+-                }`}
++                      ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-950 dark:text-sky-300"
++                      : "bg-slate-100 text-slate-700 border-slate-300"
++                  }`}
+               >
+                 {role}
+               </Badge>
+ 
+-              <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>
+-                <SelectTrigger className="h-7 text-[11px] rounded-lg px-2 border-border/80 bg-secondary/50 gap-1">
+-                  <SelectValue placeholder="สลับบทบาท" />
+-                </SelectTrigger>
+-                <SelectContent>
+-                  <SelectItem value="dev">Dev (สิทธิ์เต็ม / จัดการ Role)</SelectItem>
+-                  <SelectItem value="expert">Expert (มุมมองผู้เชี่ยวชาญ)</SelectItem>
+-                  <SelectItem value="user">User (มุมมองผู้ใช้ทั่วไป)</SelectItem>
+-                </SelectContent>
+-              </Select>
++              {/* Only show role switcher dropdown to Dev accounts to prevent experts from changing roles */}
++              {isDev && (
++                <Select
++                  value={role}
++                  onValueChange={(v) => {
++                    setRole(v as UserRole);
++                    toast.success(`สลับโหมดมุมมองเป็น: ${v.toUpperCase()}`);
++                  }}
++                >
++                  <SelectTrigger className="h-7 text-[11px] rounded-lg px-2 border-border/80 bg-secondary/50 gap-1">
++                    <SelectValue placeholder="สลับบทบาท" />
++                  </SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="dev">Dev (สิทธิ์เต็ม / จัดการ Role)</SelectItem>
++                    <SelectItem value="expert">Expert (มุมมองผู้เชี่ยวชาญ)</SelectItem>
++                    <SelectItem value="user">User (มุมมองผู้ใช้ทั่วไป)</SelectItem>
++                  </SelectContent>
++                </Select>
++              )}
+             </div>
+ 
+             <Link to="/">
+@@ -661,7 +778,7 @@ export default function BlindEvaluation() {
+       {/* Main Container */}
+       <main className="mx-auto max-w-7xl px-4 pt-6 sm:px-8 space-y-6">
+         {/* Role Tabs for Dev (Expert only sees Evaluation Arena) */}
+-        {role === "dev" ? (
++        {isDev && role === "dev" ? (
+           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full space-y-6">
+             <TabsList className="grid w-full grid-cols-3 max-w-md mx-auto p-1 bg-secondary/80 rounded-2xl">
+               <TabsTrigger value="eval" className="rounded-xl text-xs gap-1.5">
+@@ -739,47 +856,68 @@ export default function BlindEvaluation() {
+ 
+     return (
+       <div className="space-y-6">
+-        {/* OFFICIAL THESIS HEADER BANNER */}
+-        <Card className="rounded-3xl border-2 border-purple-300 dark:border-purple-800 bg-gradient-to-br from-purple-50/90 via-indigo-50/40 to-background dark:from-purple-950/40 dark:via-indigo-950/20 dark:to-background shadow-sm overflow-hidden">
+-          <CardHeader className="p-5 sm:p-6 pb-4">
+-            <div className="flex items-start justify-between gap-4 flex-wrap">
++        {/* OFFICIAL THESIS HEADER BANNER (Collapsible Instructions) */}
++        <Card className="rounded-3xl border border-purple-300/80 dark:border-purple-850 bg-gradient-to-br from-purple-50/90 via-indigo-50/30 to-background dark:from-purple-950/40 dark:via-indigo-950/20 dark:to-background shadow-2xs overflow-hidden">
++          <CardHeader className="p-4 sm:p-5">
++            <div className="flex items-center justify-between gap-3 flex-wrap">
+               <div className="space-y-1 max-w-3xl">
+-                <Badge className="bg-purple-600 text-white rounded-full text-xs font-semibold px-3 py-0.5">
+-                  Comparative Model Evaluation
+-                </Badge>
+-                <h1 className="text-lg sm:text-2xl font-black tracking-tight text-foreground pt-1">
++                <div className="flex items-center gap-2 flex-wrap">
++                  <Badge className="bg-purple-600 text-white rounded-full text-xs font-semibold px-3 py-0.5">
++                    Comparative Model Evaluation
++                  </Badge>
++                  <span className="text-xs font-medium text-purple-700 dark:text-purple-300">
++                    Double-Blind Benchmark สำหรับงานวิทยานิพนธ์
++                  </span>
++                </div>
++                <h1 className="text-lg sm:text-2xl font-black tracking-tight text-foreground pt-0.5">
+                   แบบประเมินคุณภาพโมเดลโดยผู้เชี่ยวชาญด้านการท่องเที่ยว
+                 </h1>
+-                <p className="text-xs sm:text-sm font-medium text-purple-800 dark:text-purple-300">
+-                  Model Quality Assessment by Tourism Experts - Comparative Evaluation
++                <p className="text-xs sm:text-sm font-medium text-muted-foreground">
++                  Model Quality Assessment by Tourism Experts — Comparative Evaluation
+                 </p>
+               </div>
+ 
+-              <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-background/80 border border-border/60 text-xs text-muted-foreground shrink-0 shadow-2xs">
+-                <Clock className="size-4 text-purple-600 shrink-0" />
+-                <div>
+-                  <span className="font-semibold text-foreground block">เวลาโดยประมาณ: 45–60 นาที</span>
+-                  <span className="text-[10px] text-muted-foreground">รวมการอ่านและเปรียบเทียบทุกแผน</span>
++              <div className="flex items-center gap-2.5">
++                <div className="hidden sm:flex items-center gap-2 p-2 px-3 rounded-2xl bg-background/90 border border-border/70 text-xs text-muted-foreground shadow-2xs">
++                  <Clock className="size-4 text-purple-600 shrink-0" />
++                  <div>
++                    <span className="font-bold text-foreground block">45–60 นาที</span>
++                    <span className="text-[10px] text-muted-foreground">รวมทุกแผน</span>
++                  </div>
+                 </div>
++
++                <Button
++                  size="sm"
++                  variant="outline"
++                  onClick={() => setIsInstructionsOpen((prev) => !prev)}
++                  className="rounded-full text-xs font-semibold h-8 gap-1.5 border-purple-300 dark:border-purple-700 bg-background/90 hover:bg-purple-100/60 dark:hover:bg-purple-900/40"
++                >
++                  <BookOpen className="size-3.5 text-purple-600" />
++                  <span>{isInstructionsOpen ? "ซ่อนคำชี้แจง" : "อ่านคำชี้แจง & เกณฑ์"}</span>
++                  {isInstructionsOpen ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
++                </Button>
+               </div>
+             </div>
+ 
+-            <div className="mt-3.5 pt-3.5 border-t border-purple-200/60 dark:border-purple-900/40 text-xs text-muted-foreground space-y-2 leading-relaxed">
+-              <p>
+-                <strong className="text-foreground">คำชี้แจง:</strong> แบบประเมินนี้จัดทำขึ้นเพื่อเปรียบเทียบคุณภาพของแผนการเดินทางที่สร้างโดยโมเดล AI ต่างกัน (จำนวน {candidateTrips.length} โมเดล) โดยใช้โจทย์การวางแผนการท่องเที่ยวชุดเดียวกัน โปรดประเมินแต่ละแผนตามหลักวิชาการและประสบการณ์ของท่าน ข้อมูลทั้งหมดจะนำไปวิเคราะห์เพื่อสรุปผลในงานวิทยานิพนธ์
+-              </p>
+-              <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-foreground/90 bg-background/60 p-2.5 rounded-xl border border-border/40">
+-                <span className="flex items-center gap-1.5">
+-                  <Check className="size-3.5 text-emerald-600" /> ได้รับแผนจาก {candidateTrips.length} โมเดลจากโจทย์เดียวกัน
+-                </span>
+-                <span className="flex items-center gap-1.5">
+-                  <Check className="size-3.5 text-emerald-600" /> ประเมินเกณฑ์เดียวกันทุกแผน
+-                </span>
+-                <span className="flex items-center gap-1.5">
+-                  <Check className="size-3.5 text-emerald-600" /> จัดอันดับจากดีที่สุดไปหาดีน้อยที่สุด
+-                </span>
++            {/* Collapsible Details */}
++            {isInstructionsOpen && (
++              <div className="mt-3.5 pt-3.5 border-t border-purple-200/60 dark:border-purple-900/40 text-xs sm:text-sm text-muted-foreground space-y-3 leading-relaxed animate-in fade-in duration-200">
++                <p>
++                  <strong className="text-foreground font-semibold">คำชี้แจง:</strong> แบบประเมินนี้จัดทำขึ้นเพื่อเปรียบเทียบคุณภาพของแผนการเดินทางที่สร้างโดยโมเดล AI ต่างกัน (จำนวน {candidateTrips.length} โมเดล) โดยใช้โจทย์การวางแผนการท่องเที่ยวชุดเดียวกัน โปรดประเมินแต่ละแผนตามหลักวิชาการและประสบการณ์ของท่าน ข้อมูลทั้งหมดจะนำไปวิเคราะห์เพื่อสรุปผลในงานวิทยานิพนธ์
++                </p>
++                <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-xs sm:text-sm text-foreground/90 bg-background/80 p-3 rounded-2xl border border-purple-200/50 dark:border-purple-900/30">
++                  <span className="flex items-center gap-1.5 font-medium">
++                    <Check className="size-4 text-emerald-600 shrink-0" /> ได้รับแผนจาก {candidateTrips.length} โมเดลจากโจทย์เดียวกัน
++                  </span>
++                  <span className="flex items-center gap-1.5 font-medium">
++                    <Check className="size-3.5 text-emerald-600 shrink-0" /> ประเมินเกณฑ์เดียวกันทุกแผน (6 มิติ)
++                  </span>
++                  <span className="flex items-center gap-1.5 font-medium">
++                    <Check className="size-3.5 text-emerald-600 shrink-0" /> จัดอันดับจากดีที่สุดไปหาดีน้อยที่สุด
++                  </span>
++                </div>
+               </div>
+-            </div>
++            )}
+           </CardHeader>
+         </Card>
+ 
+@@ -789,10 +927,14 @@ export default function BlindEvaluation() {
+             <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-foreground">
+               <UserCheck className="size-4 text-purple-600" />
+               <span>ส่วนที่ 1: ข้อมูลผู้เชี่ยวชาญ (Expert Profile)</span>
+-              {isProfileSaved && !isEditingProfile && (
++              {isProfileSaved ? (
+                 <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 text-[10px] rounded-full gap-1">
+                   <CheckCircle2 className="size-3" /> บันทึกแล้ว (ไม่ต้องกรอกซ้ำ)
+                 </Badge>
++              ) : (
++                <Badge variant="outline" className="text-amber-700 bg-amber-50 dark:bg-amber-950/40 border-amber-300 text-[10px] rounded-full gap-1">
++                  <Info className="size-3 text-amber-600" /> ยังไม่ได้บันทึก
++                </Badge>
+               )}
+             </div>
+ 
+@@ -800,37 +942,67 @@ export default function BlindEvaluation() {
+               size="sm"
+               variant="outline"
+               onClick={() => setIsEditingProfile((prev) => !prev)}
+-              className="h-7 text-xs rounded-full gap-1 px-3"
++              className="h-7 text-xs rounded-full gap-1.5 px-3 border-border/80 hover:bg-secondary/60 transition-all"
+             >
+-              <Edit3 className="size-3" />
+-              <span>{isEditingProfile ? "ยุบฟอร์ม" : "แก้ไขข้อมูล"}</span>
++              {isEditingProfile ? (
++                <>
++                  <ChevronUp className="size-3 text-muted-foreground" />
++                  <span>ยุบฟอร์ม</span>
++                </>
++              ) : (
++                <>
++                  <Edit3 className="size-3 text-purple-600" />
++                  <span>แก้ไขข้อมูล</span>
++                </>
++              )}
+             </Button>
+           </CardHeader>
+ 
+           <CardContent className="p-4 sm:p-5">
+-            {isProfileSaved && !isEditingProfile ? (
++            {!isEditingProfile ? (
+               /* Verified Compact View */
+               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-900/60">
+-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs flex-1">
++                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs sm:text-sm flex-1">
++                  <div>
++                    <span className="text-xs text-muted-foreground block font-medium">ชื่อ-นามสกุล / ผู้ประเมิน</span>
++                    <span className="font-bold text-foreground flex items-center gap-1.5 mt-0.5">
++                      <User className="size-4 text-purple-600 shrink-0" />
++                      <span className="truncate">{expertProfile.name || "(ยังไม่ระบุชื่อ - กรุณาแก้ไขข้อมูล)"}</span>
++                    </span>
++                  </div>
+                   <div>
+-                    <span className="text-[10px] text-muted-foreground block">ตำแหน่ง/บทบาทหลัก</span>
+-                    <span className="font-semibold text-foreground">
++                    <span className="text-xs text-muted-foreground block font-medium">ตำแหน่ง/บทบาทหลัก</span>
++                    <span className="font-semibold text-foreground block mt-0.5">
+                       {expertProfile.role === "อื่นๆ" ? expertProfile.role_other || "อื่นๆ" : expertProfile.role}
+                     </span>
+                   </div>
+                   <div>
+-                    <span className="text-[10px] text-muted-foreground block">ประสบการณ์ในวงการท่องเที่ยว</span>
+-                    <span className="font-semibold text-foreground">{expertProfile.experience}</span>
++                    <span className="text-xs text-muted-foreground block font-medium">ประสบการณ์ในวงการท่องเที่ยว</span>
++                    <span className="font-semibold text-foreground block mt-0.5">{expertProfile.experience}</span>
+                   </div>
+                   <div>
+-                    <span className="text-[10px] text-muted-foreground block">ความคุ้นเคยกับเทคโนโลยี AI</span>
+-                    <span className="font-semibold text-foreground">{expertProfile.ai_familiarity}</span>
++                    <span className="text-xs text-muted-foreground block font-medium">ความคุ้นเคยกับเทคโนโลยี AI</span>
++                    <span className="font-semibold text-foreground block mt-0.5">{expertProfile.ai_familiarity}</span>
+                   </div>
+                 </div>
+ 
+-                <div className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1 font-medium shrink-0">
+-                  <CheckCircle2 className="size-3.5" />
+-                  <span>ใช้ข้อมูลนี้กับทุกการประเมิน</span>
++                <div className="flex items-center gap-2 shrink-0">
++                  {isProfileSaved ? (
++                    <div className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1 font-medium">
++                      <CheckCircle2 className="size-3.5" />
++                      <span>ใช้ข้อมูลนี้กับทุกการประเมิน</span>
++                    </div>
++                  ) : (
++                    <Button
++                      size="sm"
++                      variant="ghost"
++                      onClick={() => setIsEditingProfile(true)}
++                      className="h-7 text-xs text-purple-600 hover:text-purple-700 gap-1 px-2"
++                    >
++                      <Edit3 className="size-3" />
++                      <span>กรอกข้อมูล</span>
++                    </Button>
++                  )}
+                 </div>
+               </div>
+             ) : (
+@@ -843,6 +1015,27 @@ export default function BlindEvaluation() {
+                   </span>
+                 </div>
+ 
++                {/* 0. Expert Full Name */}
++                <div className="p-3.5 rounded-2xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/70 dark:border-purple-900/50 space-y-1.5">
++                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
++                    <Label htmlFor="expert-name-input" className="text-xs font-bold text-foreground flex items-center gap-1.5">
++                      <User className="size-3.5 text-purple-600" />
++                      <span>ชื่อ-นามสกุล / ชื่อผู้ประเมิน:</span>
++                      <span className="text-red-500 font-bold">*</span>
++                    </Label>
++                    <span className="text-[11px] text-muted-foreground">
++                      (ใช้แสดงผลในรายงานและการบันทึกผลการประเมิน)
++                    </span>
++                  </div>
++                  <Input
++                    id="expert-name-input"
++                    placeholder="เช่น ดร. สมชาย ใจดี, อ. วิภาวี เก่งการท่องเที่ยว, คุณกานต์ ทราเวลเลอร์"
++                    value={expertProfile.name || ""}
++                    onChange={(e) => setExpertProfile((p) => ({ ...p, name: e.target.value }))}
++                    className="text-xs h-9 rounded-xl bg-background border-border/80"
++                  />
++                </div>
++
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                   {/* 1. Role */}
+                   <div className="space-y-2">
+@@ -861,11 +1054,10 @@ export default function BlindEvaluation() {
+                           key={opt}
+                           type="button"
+                           onClick={() => setExpertProfile((p) => ({ ...p, role: opt }))}
+-                          className={`w-full text-left text-xs p-2 rounded-xl border transition-all flex items-center justify-between ${
+-                            expertProfile.role === opt
++                          className={`w-full text-left text-xs p-2 rounded-xl border transition-all flex items-center justify-between ${expertProfile.role === opt
+                               ? "bg-purple-50 border-purple-500 text-purple-900 dark:bg-purple-950/60 dark:text-purple-200 font-semibold"
+                               : "bg-secondary/30 hover:bg-secondary/60 border-border/60 text-muted-foreground hover:text-foreground"
+-                          }`}
++                            }`}
+                         >
+                           <span className="truncate">{opt}</span>
+                           {expertProfile.role === opt && <Check className="size-3 text-purple-600 shrink-0 ml-1" />}
+@@ -894,11 +1086,10 @@ export default function BlindEvaluation() {
+                           key={opt}
+                           type="button"
+                           onClick={() => setExpertProfile((p) => ({ ...p, experience: opt }))}
+-                          className={`w-full text-left text-xs p-2 rounded-xl border transition-all flex items-center justify-between ${
+-                            expertProfile.experience === opt
++                          className={`w-full text-left text-xs p-2 rounded-xl border transition-all flex items-center justify-between ${expertProfile.experience === opt
+                               ? "bg-purple-50 border-purple-500 text-purple-900 dark:bg-purple-950/60 dark:text-purple-200 font-semibold"
+                               : "bg-secondary/30 hover:bg-secondary/60 border-border/60 text-muted-foreground hover:text-foreground"
+-                          }`}
++                            }`}
+                         >
+                           <span>{opt}</span>
+                           {expertProfile.experience === opt && <Check className="size-3 text-purple-600 shrink-0" />}
+@@ -922,11 +1113,10 @@ export default function BlindEvaluation() {
+                           key={opt}
+                           type="button"
+                           onClick={() => setExpertProfile((p) => ({ ...p, ai_familiarity: opt }))}
+-                          className={`w-full text-left text-xs p-2 rounded-xl border transition-all flex items-center justify-between ${
+-                            expertProfile.ai_familiarity === opt
++                          className={`w-full text-left text-xs p-2 rounded-xl border transition-all flex items-center justify-between ${expertProfile.ai_familiarity === opt
+                               ? "bg-purple-50 border-purple-500 text-purple-900 dark:bg-purple-950/60 dark:text-purple-200 font-semibold"
+                               : "bg-secondary/30 hover:bg-secondary/60 border-border/60 text-muted-foreground hover:text-foreground"
+-                          }`}
++                            }`}
+                         >
+                           <span className="leading-tight">{opt}</span>
+                           {expertProfile.ai_familiarity === opt && <Check className="size-3 text-purple-600 shrink-0 ml-1" />}
+@@ -936,13 +1126,22 @@ export default function BlindEvaluation() {
+                   </div>
+                 </div>
+ 
+-                <div className="flex justify-end pt-2">
++                <div className="flex justify-end items-center gap-2 pt-2">
++                  <Button
++                    type="button"
++                    variant="outline"
++                    onClick={() => setIsEditingProfile(false)}
++                    className="h-9 px-4 rounded-full text-xs border-border/80 text-muted-foreground hover:text-foreground gap-1.5"
++                  >
++                    <ChevronUp className="size-3.5" />
++                    <span>ยุบฟอร์ม</span>
++                  </Button>
+                   <Button
+                     onClick={handleSaveProfile}
+                     className="h-9 px-5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold gap-1.5 shadow-sm"
+                   >
+                     <Save className="size-3.5" />
+-                    <span>บันทึกข้อมูลผู้เชี่ยวชาญ</span>
++                    <span>บันทึกข้อมูล</span>
+                   </Button>
+                 </div>
+               </div>
+@@ -951,16 +1150,16 @@ export default function BlindEvaluation() {
+         </Card>
+ 
+         {/* SCENARIO HEADER & SELECTOR */}
+-        <Card className="rounded-3xl border border-border/80 bg-background/90 shadow-sm overflow-hidden">
+-          <CardHeader className="pb-3 border-b border-border/50">
++        <Card className="rounded-3xl border border-border/80 bg-background/90 shadow-2xs overflow-hidden">
++          <CardHeader className="p-4 sm:p-5 pb-3">
+             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+               <div>
+-                <span className="text-[11px] font-semibold text-purple-600 uppercase tracking-wider">
++                <span className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                   โจทย์การทดสอบ (Scenario Benchmark)
+                 </span>
+-                <CardTitle className="text-base sm:text-lg mt-0.5 flex items-center gap-2">
++                <CardTitle className="text-base sm:text-xl font-black mt-0.5 flex items-center gap-2">
+                   {currentScenarioObj?.title || selectedScenarioId}
+-                  <Badge variant="secondary" className="rounded-full text-[11px]">
++                  <Badge variant="secondary" className="rounded-full text-xs font-semibold px-2.5 py-0.5">
+                     {candidateTrips.length} แผนเปรียบเทียบ
+                   </Badge>
+                 </CardTitle>
+@@ -969,12 +1168,12 @@ export default function BlindEvaluation() {
+               {/* Scenario Selector */}
+               <div className="flex items-center gap-2 self-start sm:self-auto">
+                 <Select value={selectedScenarioId} onValueChange={handleScenarioChange}>
+-                  <SelectTrigger className="h-8 rounded-full text-xs min-w-[210px] border-border/80 bg-secondary/50">
++                  <SelectTrigger className="h-9 rounded-full text-xs sm:text-sm font-medium min-w-[220px] border-border/80 bg-secondary/50">
+                     <SelectValue placeholder="เลือก Scenario" />
+                   </SelectTrigger>
+                   <SelectContent>
+                     {scenarios.map((sc) => (
+-                      <SelectItem key={sc.id} value={sc.id} className="text-xs">
++                      <SelectItem key={sc.id} value={sc.id} className="text-xs sm:text-sm">
+                         {sc.id}: {sc.title} ({sc.count} แผน)
+                       </SelectItem>
+                     ))}
+@@ -983,104 +1182,102 @@ export default function BlindEvaluation() {
+               </div>
+             </div>
+ 
+-            {/* Constraints Card */}
+-            <div className="mt-3 rounded-2xl border border-purple-200/90 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/80 via-indigo-50/50 to-background dark:from-purple-950/40 dark:via-indigo-950/20 dark:to-background p-3.5 shadow-2xs">
+-              <div className="flex items-center justify-between gap-2 border-b border-purple-200/60 dark:border-purple-900/40 pb-2 mb-2.5">
++            {/* Constraints Card (Unified Parameter Chips) */}
++            <div className="mt-3 rounded-2xl border border-purple-200/80 dark:border-purple-900/60 bg-purple-50/40 dark:bg-purple-950/20 p-3.5 sm:p-4 shadow-2xs space-y-3">
++              <div className="flex items-center justify-between gap-2">
+                 <div className="flex items-center gap-2">
+                   <Compass className="size-4 text-purple-600 dark:text-purple-400" />
+-                  <span className="text-xs font-bold text-purple-950 dark:text-purple-200 uppercase tracking-wider">
++                  <span className="text-xs sm:text-sm font-bold text-foreground uppercase tracking-wider">
+                     เงื่อนไขและข้อมูลความต้องการที่ระบุในโจทย์ (Traveler Constraints)
+                   </span>
+                 </div>
+-                <Badge variant="outline" className="text-[10px] bg-background/80 font-medium">
++                <Badge variant="outline" className="text-xs bg-background/90 font-semibold border-purple-300 dark:border-purple-800">
+                   {activeTrip?.scenario_id || "SC-01"}
+                 </Badge>
+               </div>
+ 
+-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+-                <div className="p-2 rounded-xl bg-background/90 border border-border/50">
+-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+-                    <User className="size-2.5 text-purple-500" /> ประเภทผู้เดินทาง
+-                  </span>
+-                  <span className="font-semibold text-foreground mt-0.5 block truncate">
+-                    {activeTrip?.preferences?.travelerType || "Solo (เดี่ยว)"}
+-                  </span>
++              {/* Modern Parameter Chips Bar */}
++              <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
++                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border/70 shadow-2xs font-medium">
++                  <User className="size-3.5 text-purple-500 shrink-0" />
++                  <span className="text-muted-foreground text-xs">ผู้เดินทาง:</span>
++                  <strong className="text-foreground">{activeTrip?.preferences?.travelerType || "Solo (เดี่ยว)"}</strong>
+                 </div>
+ 
+-                <div className="p-2 rounded-xl bg-background/90 border border-border/50">
+-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+-                    <DollarSign className="size-2.5 text-emerald-500" /> งบประมาณ
+-                  </span>
+-                  <span className="font-semibold text-foreground mt-0.5 block truncate">
++                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border/70 shadow-2xs font-medium">
++                  <DollarSign className="size-3.5 text-emerald-500 shrink-0" />
++                  <span className="text-muted-foreground text-xs">งบประมาณ:</span>
++                  <strong className="text-foreground">
+                     {activeTrip?.preferences?.budget || "Budget"}
+                     {activeTrip?.preferences?.budgetMaxTHB ? ` (~${activeTrip.preferences.budgetMaxTHB.toLocaleString()} ฿)` : ""}
+-                  </span>
++                  </strong>
+                 </div>
+ 
+-                <div className="p-2 rounded-xl bg-background/90 border border-border/50">
+-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+-                    <Zap className="size-2.5 text-amber-500" /> จังหวะเวลา (Pace)
+-                  </span>
+-                  <span className="font-semibold text-foreground mt-0.5 block truncate">
+-                    {activeTrip?.preferences?.pace || "Fast-paced"}
+-                  </span>
++                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border/70 shadow-2xs font-medium">
++                  <Zap className="size-3.5 text-amber-500 shrink-0" />
++                  <span className="text-muted-foreground text-xs">จังหวะ (Pace):</span>
++                  <strong className="text-foreground">{activeTrip?.preferences?.pace || "Fast-paced"}</strong>
+                 </div>
+ 
+-                <div className="p-2 rounded-xl bg-background/90 border border-border/50">
+-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+-                    <CalendarRange className="size-2.5 text-sky-500" /> ระยะเวลา
+-                  </span>
+-                  <span className="font-semibold text-foreground mt-0.5 block truncate">
++                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border/70 shadow-2xs font-medium">
++                  <CalendarRange className="size-3.5 text-sky-500 shrink-0" />
++                  <span className="text-muted-foreground text-xs">ระยะเวลา:</span>
++                  <strong className="text-foreground">
+                     {tripMetrics.totalDays} วัน
+                     {activeTrip?.preferences?.startDate ? ` (${activeTrip.preferences.startDate})` : ""}
+-                  </span>
++                  </strong>
+                 </div>
+ 
+-                <div className="p-2 rounded-xl bg-background/90 border border-border/50 col-span-2">
+-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+-                    <Tag className="size-2.5 text-indigo-500" /> กิจกรรมที่เน้น
+-                  </span>
+-                  <div className="flex gap-1 flex-wrap mt-0.5">
+-                    {(activeTrip?.preferences?.activities && activeTrip.preferences.activities.length > 0
+-                      ? activeTrip.preferences.activities
+-                      : ["Culture", "Food", "Nightlife", "Shopping"]
+-                    ).map((act, i) => (
+-                      <Badge key={i} variant="secondary" className="text-[10px] px-1.5 py-0 capitalize">
+-                        {act}
+-                      </Badge>
+-                    ))}
+-                  </div>
+-                </div>
+-              </div>
+-
+-              <div className="mt-2 pt-2 border-t border-purple-200/40 dark:border-purple-900/30 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                 {activeTrip?.preferences?.destination && (
+-                  <span className="flex items-center gap-1">
+-                    <MapPin className="size-3 text-red-500" />
+-                    จุดหมาย: <strong className="text-foreground">{activeTrip.preferences.destination}</strong>
+-                  </span>
++                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border/70 shadow-2xs font-medium">
++                    <MapPin className="size-3.5 text-red-500 shrink-0" />
++                    <span className="text-muted-foreground text-xs">จุดหมาย:</span>
++                    <strong className="text-foreground">{activeTrip.preferences.destination}</strong>
++                  </div>
+                 )}
++
+                 {activeTrip?.preferences?.hotelName && (
+-                  <span className="flex items-center gap-1">
+-                    <Hotel className="size-3 text-purple-600" />
+-                    ที่พัก: <strong className="text-foreground">{activeTrip.preferences.hotelName}</strong>
+-                  </span>
++                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border/70 shadow-2xs font-medium">
++                    <Hotel className="size-3.5 text-purple-600 shrink-0" />
++                    <span className="text-muted-foreground text-xs">ที่พัก:</span>
++                    <strong className="text-foreground">{activeTrip.preferences.hotelName}</strong>
++                  </div>
+                 )}
++
+                 {activeTrip?.preferences?.flightCode && (
+-                  <span className="flex items-center gap-1">
+-                    <PlaneTakeoff className="size-3 text-sky-600" />
+-                    เที่ยวบิน: <strong className="text-foreground">{activeTrip.preferences.flightCode}</strong>
+-                  </span>
++                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border/70 shadow-2xs font-medium">
++                    <PlaneTakeoff className="size-3.5 text-sky-600 shrink-0" />
++                    <span className="text-muted-foreground text-xs">เที่ยวบิน:</span>
++                    <strong className="text-foreground">{activeTrip.preferences.flightCode}</strong>
++                  </div>
+                 )}
++              </div>
++
++              {/* Activities & Notes */}
++              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 border-t border-purple-200/50 dark:border-purple-900/30 text-xs sm:text-sm">
++                <div className="flex items-center gap-1.5 flex-wrap">
++                  <span className="text-muted-foreground flex items-center gap-1 text-xs">
++                    <Tag className="size-3 text-indigo-500" /> กิจกรรมที่เน้น:
++                  </span>
++                  {(activeTrip?.preferences?.activities && activeTrip.preferences.activities.length > 0
++                    ? activeTrip.preferences.activities
++                    : ["Culture", "Food", "Nightlife", "Shopping"]
++                  ).map((act, i) => (
++                    <Badge key={i} variant="secondary" className="text-xs px-2.5 py-0.5 capitalize font-medium">
++                      {act}
++                    </Badge>
++                  ))}
++                </div>
++
+                 {activeTrip?.scenario_notes && (
+-                  <span className="text-foreground/90 italic">
+-                    📌 หมายเหตุโจทย์: {activeTrip.scenario_notes}
++                  <span className="text-xs sm:text-sm text-foreground/85 italic">
++                    📌 หมายเหตุ: {activeTrip.scenario_notes}
+                   </span>
+                 )}
+               </div>
+             </div>
+ 
+-            {/* Input Locations from Uploaded Photos */}
++            {/* Input Locations from Uploaded Photos (Collapsible) */}
+             {(() => {
+               const uploadedLocs = candidateTrips
+                 .flatMap((t) => (t as any).uploaded_locations || [])
+@@ -1092,33 +1289,68 @@ export default function BlindEvaluation() {
+                 }, []);
+ 
+               return (
+-                <div className="mt-3 rounded-2xl border border-sky-200/80 dark:border-sky-900/50 bg-gradient-to-r from-sky-50/60 via-indigo-50/30 to-background dark:from-sky-950/25 dark:via-indigo-950/10 dark:to-background p-3.5 shadow-2xs">
+-                  <div className="flex items-center gap-2 mb-3 border-b border-sky-200/60 dark:border-sky-900/40 pb-2.5">
+-                    <Camera className="size-4 text-sky-600 dark:text-sky-400 shrink-0" />
+-                    <div className="flex flex-col min-w-0">
+-                      <span className="text-xs font-bold text-sky-950 dark:text-sky-200 uppercase tracking-wider leading-tight">
+-                        จุดหมายที่ระบุจากรูปที่ผู้ใช้อัปโหลด
+-                      </span>
+-                      <span className="text-[10px] text-sky-700/70 dark:text-sky-400/70 font-normal">
+-                        Input Locations (ผ่าน Vision AI + Outlier Filter)
+-                      </span>
++                <div className="mt-3 rounded-2xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/40 dark:bg-sky-950/20 p-3.5 shadow-2xs">
++                  <div className="flex items-center justify-between gap-2">
++                    <div className="flex items-center gap-2 min-w-0">
++                      <Camera className="size-4 text-sky-600 dark:text-sky-400 shrink-0" />
++                      <div className="flex items-center gap-2 flex-wrap">
++                        <span className="text-xs sm:text-sm font-bold text-sky-950 dark:text-sky-200 uppercase tracking-wider">
++                          จุดหมายที่ระบุจากรูปที่ผู้ใช้อัปโหลด (Input Locations)
++                        </span>
++                        {uploadedLocs.length > 0 && (
++                          <Badge variant="outline" className="text-xs bg-background/80 font-semibold border-sky-300/80 text-sky-700 dark:text-sky-300">
++                            {uploadedLocs.length} สถานที่
++                          </Badge>
++                        )}
++                      </div>
+                     </div>
++
+                     {uploadedLocs.length > 0 && (
+-                      <Badge variant="outline" className="ml-auto text-[10px] bg-background/80 font-medium border-sky-300/60 shrink-0">
+-                        {uploadedLocs.length} สถานที่
+-                      </Badge>
++                      <Button
++                        size="sm"
++                        variant="ghost"
++                        onClick={() => setIsPhotosOpen((prev) => !prev)}
++                        className="h-8 text-xs font-semibold rounded-full gap-1 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40"
++                      >
++                        <span>{isPhotosOpen ? "ซ่อนรูปภาพ" : "ดูรูปภาพสถานที่"}</span>
++                        {isPhotosOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
++                      </Button>
+                     )}
+                   </div>
+ 
+-                  {uploadedLocs.length > 0 ? (
+-                    <>
+-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
++                  {/* If closed, show a concise preview strip */}
++                  {!isPhotosOpen && uploadedLocs.length > 0 && (
++                    <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-sky-200/50 dark:border-sky-900/30">
++                      <span className="text-xs text-muted-foreground font-medium">สถานที่ที่ตรวจพบ:</span>
++                      {uploadedLocs.map((loc: any, idx: number) => (
++                        <span
++                          key={idx}
++                          className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-background border border-sky-200 dark:border-sky-800 font-medium text-foreground"
++                        >
++                          <MapPin className="size-2.5 text-sky-500" />
++                          {loc.place_th || loc.place}
++                        </span>
++                      ))}
++                      <button
++                        type="button"
++                        onClick={() => setIsPhotosOpen(true)}
++                        className="text-xs text-sky-600 dark:text-sky-400 hover:underline font-semibold ml-1"
++                      >
++                        (คลิกดูรูปและพิกัด AI)
++                      </button>
++                    </div>
++                  )}
++
++                  {/* If open, show full gallery */}
++                  {isPhotosOpen && uploadedLocs.length > 0 && (
++                    <div className="mt-3 pt-3 border-t border-sky-200/60 dark:border-sky-900/40 space-y-2 animate-in fade-in duration-200">
++                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                         {uploadedLocs.map((loc: any, idx: number) => (
+                           <div
+                             key={idx}
+-                            className="group relative overflow-hidden rounded-xl border border-border/60 bg-card shadow-2xs flex flex-col"
++                            className="group relative overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xs flex flex-col"
+                           >
+-                            <div className="relative h-20 w-full overflow-hidden bg-muted">
++                            <div className="relative h-24 w-full overflow-hidden bg-muted">
+                               {loc.uploadedImageUrl ? (
+                                 <img
+                                   src={loc.uploadedImageUrl}
+@@ -1132,21 +1364,21 @@ export default function BlindEvaluation() {
+                               )}
+                               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
+                               <div className="absolute bottom-1.5 right-1.5">
+-                                <span className="text-[9px] font-semibold bg-black/60 text-white rounded-full px-1.5 py-0.5 backdrop-blur-sm">
+-                                  {Math.round(loc.confidence * 100)}%
++                                <span className="text-[10px] font-bold bg-black/70 text-white rounded-full px-2 py-0.5 backdrop-blur-sm">
++                                  {Math.round(loc.confidence * 100)}% Match
+                                 </span>
+                               </div>
+                             </div>
+ 
+-                            <div className="p-2 flex flex-col gap-0.5">
+-                              <div className="flex items-center gap-1">
+-                                <MapPin className="size-2.5 text-sky-500 shrink-0" />
+-                                <span className="text-[11px] font-semibold text-foreground truncate leading-tight">
++                            <div className="p-2.5 flex flex-col gap-0.5">
++                              <div className="flex items-center gap-1.5">
++                                <MapPin className="size-3 text-sky-500 shrink-0" />
++                                <span className="text-xs sm:text-sm font-bold text-foreground truncate leading-tight">
+                                   {loc.place_th || loc.place}
+                                 </span>
+                               </div>
+                               {(loc.city_th || loc.city || loc.country_th || loc.country) && (
+-                                <span className="text-[10px] text-muted-foreground truncate pl-3.5">
++                                <span className="text-xs text-muted-foreground truncate pl-4">
+                                   {loc.city_th || loc.city}
+                                   {(loc.city_th || loc.city) && (loc.country_th || loc.country) ? ", " : ""}
+                                   {loc.country_th || loc.country}
+@@ -1156,19 +1388,21 @@ export default function BlindEvaluation() {
+                           </div>
+                         ))}
+                       </div>
+-                      <p className="text-[10px] text-sky-700/70 dark:text-sky-400/60 mt-2.5 italic">
+-                        📍 นี่คือสถานที่จริงที่ผู้ใช้อัปโหลดรูปมา — ใช้เป็นเกณฑ์หลักในการพิจารณาว่าแผนครอบคลุมจุดหมายที่ต้องการหรือไม่
++                      <p className="text-xs text-sky-700/80 dark:text-sky-400/80 mt-2 italic">
++                        📍 สถานที่ข้างต้นระบุจากรูปภาพที่อัปโหลด — ใช้เป็นเกณฑ์หลักในการพิจารณาว่าแผนครอบคลุมจุดหมายที่ต้องการหรือไม่
+                       </p>
+-                    </>
+-                  ) : (
++                    </div>
++                  )}
++
++                  {uploadedLocs.length === 0 && (
+                     <div className="flex items-center gap-3 py-2">
+                       <div className="size-9 rounded-xl bg-sky-100 dark:bg-sky-950/50 flex items-center justify-center shrink-0">
+                         <ImageIcon className="size-4 text-sky-400" />
+                       </div>
+                       <div>
+-                        <p className="text-xs font-medium text-foreground/80">ไม่มีข้อมูลรูปที่อัปโหลด</p>
+-                        <p className="text-[10px] text-muted-foreground mt-0.5">
+-                          ทริปนี้บันทึกก่อนระบบเก็บข้อมูล input locations — ดูจุดหมายได้จาก <strong>จุดหมาย</strong> ใน Traveler Constraints ด้านบน
++                        <p className="text-xs sm:text-sm font-medium text-foreground/80">ไม่มีข้อมูลรูปที่อัปโหลด</p>
++                        <p className="text-xs text-muted-foreground mt-0.5">
++                          ทริปนี้บันทึกก่อนระบบเก็บข้อมูล input locations — ดูจุดหมายได้จากหัวข้อด้านบน
+                         </p>
+                       </div>
+                     </div>
+@@ -1178,9 +1412,11 @@ export default function BlindEvaluation() {
+             })()}
+ 
+             {/* Switcher: Model Candidates OR Comparative Ranking View */}
+-            <div className="flex items-center justify-between gap-2 pt-3 flex-wrap border-t border-border/40 mt-3">
++            <div className="flex items-center justify-between gap-3 pt-3.5 flex-wrap border-t border-border/50 mt-3">
+               <div className="flex items-center gap-2 overflow-x-auto">
+-                <span className="text-xs text-muted-foreground mr-1 shrink-0">เลือกตรวจแผน:</span>
++                <span className="text-xs sm:text-sm font-bold text-foreground mr-1 shrink-0">
++                  เลือกตรวจแผน:
++                </span>
+                 {candidateTrips.map((candidate) => {
+                   const isActive = evalMode === "inspect" && activeTrip?.id === candidate.id;
+                   const isEvaluated = isTripEvaluatedByUser(candidate.id);
+@@ -1190,27 +1426,26 @@ export default function BlindEvaluation() {
+                       size="sm"
+                       variant={isActive ? "default" : "outline"}
+                       onClick={() => handlePlanChange(candidate.id)}
+-                      className={`rounded-2xl text-xs h-8 px-3.5 transition-all gap-1.5 ${
+-                        isActive
+-                          ? "bg-purple-600 hover:bg-purple-700 text-white shadow-xs font-semibold"
+-                          : "hover:bg-secondary/60 text-muted-foreground hover:text-foreground"
+-                      }`}
++                      className={`rounded-2xl text-xs sm:text-sm h-10 px-4 transition-all gap-2 ${isActive
++                          ? "bg-purple-600 hover:bg-purple-700 text-white shadow-sm font-bold scale-[1.02]"
++                          : "hover:bg-secondary/70 text-muted-foreground hover:text-foreground font-semibold"
++                        }`}
+                     >
+-                      <Award className="size-3.5" />
++                      <Award className="size-4 shrink-0" />
+                       <span>{candidate.blind_label}</span>
+ 
+                       {isEvaluated ? (
+-                        <span className="inline-flex items-center gap-0.5 text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full font-medium">
+-                          <CheckCircle2 className="size-2.5" /> ประเมินแล้ว
++                        <span className="inline-flex items-center gap-1 text-xs bg-emerald-500/20 text-emerald-300 dark:text-emerald-300 px-2 py-0.5 rounded-full font-semibold">
++                          <CheckCircle2 className="size-3 shrink-0" /> ประเมินแล้ว
+                         </span>
+                       ) : (
+-                        <span className="inline-flex items-center text-[10px] opacity-70">
++                        <span className="inline-flex items-center text-xs opacity-70 font-normal">
+                           (รอประเมิน)
+                         </span>
+                       )}
+ 
+                       {role === "dev" && candidate.actual_model && (
+-                        <span className="text-[10px] opacity-70 border-l border-white/30 pl-1 font-mono">
++                        <span className="text-xs opacity-70 border-l border-white/30 pl-1.5 font-mono">
+                           ({candidate.actual_model.split("/").pop()})
+                         </span>
+                       )}
+@@ -1224,13 +1459,12 @@ export default function BlindEvaluation() {
+                 size="sm"
+                 variant={evalMode === "compare" ? "default" : "outline"}
+                 onClick={() => setEvalMode("compare")}
+-                className={`rounded-2xl text-xs h-8 px-4 gap-1.5 shadow-xs ${
+-                  evalMode === "compare"
+-                    ? "bg-amber-600 hover:bg-amber-700 text-white font-bold"
+-                    : "border-amber-400/70 text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30 hover:bg-amber-100"
+-                }`}
++                className={`rounded-2xl text-xs sm:text-sm h-10 px-4 gap-2 shadow-xs ${evalMode === "compare"
++                    ? "bg-amber-600 hover:bg-amber-700 text-white font-bold scale-[1.02]"
++                    : "border-amber-400/80 text-amber-900 dark:text-amber-200 bg-amber-50/70 dark:bg-amber-950/40 hover:bg-amber-100 font-bold"
++                  }`}
+               >
+-                <Trophy className="size-3.5 text-amber-500" />
++                <Trophy className="size-4 text-amber-500 shrink-0" />
+                 <span>ส่วนที่ 3 & 4: จัดอันดับ & เปรียบเทียบภาพรวม</span>
+               </Button>
+             </div>
+@@ -1245,11 +1479,11 @@ export default function BlindEvaluation() {
+             <div className="lg:col-span-7 space-y-4">
+               {/* Header info bar */}
+               <div className="flex items-center justify-between flex-wrap gap-2">
+-                <div className="flex items-center gap-2">
+-                  <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 text-xs px-2.5 py-0.5 rounded-full">
++                <div className="flex items-center gap-2 flex-wrap">
++                  <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 text-xs sm:text-sm font-bold px-3 py-1 rounded-full">
+                     กำลังตรวจสอบ: {activeTrip?.blind_label}
+                   </Badge>
+-                  <span className="text-xs text-muted-foreground">
++                  <span className="text-xs sm:text-sm text-muted-foreground font-medium">
+                     ({tripMetrics.totalDays} วัน • {tripMetrics.totalStops} จุดกิจกรรม • {tripMetrics.lunchCount} มื้อเที่ยง • {tripMetrics.dinnerCount} มื้อค่ำ)
+                   </span>
+                 </div>
+@@ -1259,9 +1493,9 @@ export default function BlindEvaluation() {
+                     size="sm"
+                     variant="outline"
+                     onClick={() => setIsMapVisible((prev) => !prev)}
+-                    className="h-7 text-xs rounded-full gap-1"
++                    className="h-8 text-xs sm:text-sm rounded-full gap-1.5 font-semibold"
+                   >
+-                    <MapIcon className="size-3 text-purple-600" />
++                    <MapIcon className="size-3.5 text-purple-600" />
+                     <span>{isMapVisible ? "ซ่อนแผนที่" : "แสดงแผนที่"}</span>
+                   </Button>
+ 
+@@ -1270,9 +1504,9 @@ export default function BlindEvaluation() {
+                       size="sm"
+                       variant="ghost"
+                       onClick={() => handleDeleteTrip(activeTrip.id)}
+-                      className="h-7 text-destructive hover:bg-destructive/10 text-xs rounded-full gap-1"
++                      className="h-8 text-destructive hover:bg-destructive/10 text-xs sm:text-sm rounded-full gap-1"
+                     >
+-                      <Trash2 className="size-3" />
++                      <Trash2 className="size-3.5" />
+                       ลบทริป
+                     </Button>
+                   )}
+@@ -1283,14 +1517,14 @@ export default function BlindEvaluation() {
+               {isMapVisible && (
+                 <Card className="rounded-3xl border border-border/80 bg-background shadow-sm overflow-hidden">
+                   <CardHeader className="py-2.5 px-4 bg-secondary/30 border-b border-border/50 flex flex-row items-center justify-between">
+-                    <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+-                      <Navigation className="size-3.5 text-purple-600" />
++                    <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-foreground">
++                      <Navigation className="size-4 text-purple-600" />
+                       <span>แผนที่เส้นทางท่องเที่ยว (Interactive Route Map)</span>
+-                      <Badge variant="outline" className="text-[10px] rounded-full">
++                      <Badge variant="outline" className="text-xs rounded-full">
+                         {tripMetrics.hasCoordinates} หมุดพิกัด
+                       </Badge>
+                     </div>
+-                    <span className="text-[11px] text-muted-foreground">
++                    <span className="text-xs text-muted-foreground hidden sm:inline">
+                       สีหมุดแยกตามวัน (คลิกหมุดเพื่อดูข้อมูล)
+                     </span>
+                   </CardHeader>
+@@ -1310,11 +1544,11 @@ export default function BlindEvaluation() {
+               {/* Day Filter Bar */}
+               <div className="space-y-2">
+                 <div className="flex items-center justify-between">
+-                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+-                    <Layers className="size-3.5 text-purple-500" />
++                  <span className="text-xs sm:text-sm font-bold text-foreground flex items-center gap-1.5">
++                    <Layers className="size-4 text-purple-500" />
+                     ภาพรวมตารางกิจกรรม (Itinerary Overview)
+                   </span>
+-                  <span className="text-[11px] text-muted-foreground">
++                  <span className="text-xs text-muted-foreground">
+                     เลือกวันเพื่อโฟกัสตารางและเส้นทาง
+                   </span>
+                 </div>
+@@ -1324,11 +1558,10 @@ export default function BlindEvaluation() {
+                     size="sm"
+                     variant={selectedDayFilter === "all" ? "default" : "outline"}
+                     onClick={() => setSelectedDayFilter("all")}
+-                    className={`h-7 rounded-xl text-xs px-3 ${
+-                      selectedDayFilter === "all"
+-                        ? "bg-purple-600 hover:bg-purple-700 text-white font-semibold"
++                    className={`h-8 sm:h-9 rounded-xl text-xs sm:text-sm px-3.5 font-semibold ${selectedDayFilter === "all"
++                        ? "bg-purple-600 hover:bg-purple-700 text-white shadow-2xs"
+                         : "text-muted-foreground hover:text-foreground"
+-                    }`}
++                      }`}
+                   >
+                     ดูทุกวัน ({tripMetrics.totalStops} จุด)
+                   </Button>
+@@ -1342,18 +1575,17 @@ export default function BlindEvaluation() {
+                         size="sm"
+                         variant={isSelected ? "default" : "outline"}
+                         onClick={() => setSelectedDayFilter(d.day)}
+-                        className={`h-7 rounded-xl text-xs px-3 gap-1.5 ${
+-                          isSelected
+-                            ? "bg-purple-600 hover:bg-purple-700 text-white font-semibold"
++                        className={`h-8 sm:h-9 rounded-xl text-xs sm:text-sm px-3.5 gap-2 font-semibold ${isSelected
++                            ? "bg-purple-600 hover:bg-purple-700 text-white shadow-2xs"
+                             : "text-muted-foreground hover:text-foreground"
+-                        }`}
++                          }`}
+                       >
+                         <span
+-                          className="size-2 rounded-full shrink-0"
++                          className="size-2.5 rounded-full shrink-0"
+                           style={{ backgroundColor: dayColor }}
+                         />
+                         <span>Day {d.day || idx + 1}</span>
+-                        <span className="opacity-70 text-[10px]">({d.activities?.length || 0})</span>
++                        <span className="opacity-75 text-xs">({d.activities?.length || 0})</span>
+                       </Button>
+                     );
+                   })}
+@@ -1369,26 +1601,26 @@ export default function BlindEvaluation() {
+                   return (
+                     <Card
+                       key={dayPlan.day || dIdx}
+-                      className="rounded-3xl border border-border/80 bg-background/90 shadow-xs overflow-hidden"
++                      className="rounded-3xl border border-border/80 bg-background/90 shadow-2xs overflow-hidden"
+                     >
+                       <CardHeader className="py-3 px-5 bg-secondary/40 border-b border-border/50">
+                         <div className="flex items-center justify-between">
+                           <div className="flex items-center gap-2.5">
+                             <span
+-                              className="size-3 rounded-full shrink-0 shadow-xs"
++                              className="size-3.5 rounded-full shrink-0 shadow-2xs"
+                               style={{ backgroundColor: dayColor }}
+                             />
+-                            <CardTitle className="text-sm font-bold flex items-center gap-2">
++                            <CardTitle className="text-base sm:text-lg font-black flex items-center gap-2">
+                               <Calendar className="size-4 text-purple-600" />
+                               Day {dayPlan.day || dIdx + 1}
+                               {dayPlan.date && (
+-                                <span className="text-xs font-normal text-muted-foreground">
++                                <span className="text-xs sm:text-sm font-normal text-muted-foreground">
+                                   • {dayPlan.date}
+                                 </span>
+                               )}
+                             </CardTitle>
+                           </div>
+-                          <Badge variant="outline" className="text-[11px] rounded-full">
++                          <Badge variant="outline" className="text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                             {dayPlan.activities?.length || 0} จุดกิจกรรม
+                           </Badge>
+                         </div>
+@@ -1422,13 +1654,12 @@ export default function BlindEvaluation() {
+                               onClick={() => setSelectedActivity(act)}
+                               onMouseEnter={() => setHoveredActivityId(act.id)}
+                               onMouseLeave={() => setHoveredActivityId(null)}
+-                              className={`flex gap-3.5 p-3 rounded-2xl transition-all border cursor-pointer ${
+-                                isSelected
++                              className={`flex gap-4 p-3.5 rounded-2xl transition-all border cursor-pointer ${isSelected
+                                   ? "bg-purple-50/80 dark:bg-purple-950/40 border-purple-400 dark:border-purple-700 shadow-xs"
+                                   : "bg-secondary/20 hover:bg-secondary/40 border-border/50"
+-                              }`}
++                                }`}
+                             >
+-                              <div className="relative size-16 sm:size-20 rounded-xl overflow-hidden shrink-0 bg-muted border border-border/60">
++                              <div className="relative size-18 sm:size-22 rounded-xl overflow-hidden shrink-0 bg-muted border border-border/60">
+                                 <img
+                                   src={placeImage}
+                                   alt={act.title}
+@@ -1443,51 +1674,51 @@ export default function BlindEvaluation() {
+                               </div>
+ 
+                               <div className="flex-1 min-w-0 space-y-1.5">
+-                                <div className="flex items-center gap-1.5 flex-wrap">
+-                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-100/70 dark:bg-purple-950/70 px-2 py-0.5 rounded-md border border-purple-200 dark:border-purple-800/60">
+-                                    <Clock className="size-2.5" />
++                                <div className="flex items-center gap-2 flex-wrap">
++                                  <span className="inline-flex items-center gap-1 text-xs font-bold text-purple-700 dark:text-purple-300 bg-purple-100/80 dark:bg-purple-950/80 px-2.5 py-0.5 rounded-lg border border-purple-200 dark:border-purple-800/60">
++                                    <Clock className="size-3" />
+                                     {act.time || "--:--"}
+                                   </span>
+ 
+                                   <Badge
+                                     variant="outline"
+-                                    className={`text-[10px] uppercase font-mono px-2 py-0 rounded-md ${typeStyle.color}`}
++                                    className={`text-xs uppercase font-mono px-2 py-0.5 rounded-lg ${typeStyle.color}`}
+                                   >
+                                     {act.type}
+                                   </Badge>
+ 
+                                   {isLunch && (
+-                                    <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 border-amber-300 text-[10px] gap-1 px-1.5 py-0 rounded-md">
+-                                      <Utensils className="size-2.5" /> มื้อกลางวัน (Lunch)
++                                    <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 border-amber-300 text-xs font-semibold gap-1 px-2 py-0.5 rounded-lg">
++                                      <Utensils className="size-3" /> มื้อกลางวัน (Lunch)
+                                     </Badge>
+                                   )}
+ 
+                                   {isDinner && (
+-                                    <Badge className="bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200 border-indigo-300 text-[10px] gap-1 px-1.5 py-0 rounded-md">
+-                                      <Utensils className="size-2.5" /> มื้อค่ำ (Dinner)
++                                    <Badge className="bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200 border-indigo-300 text-xs font-semibold gap-1 px-2 py-0.5 rounded-lg">
++                                      <Utensils className="size-3" /> มื้อค่ำ (Dinner)
+                                     </Badge>
+                                   )}
+                                 </div>
+ 
+                                 <div>
+-                                  <h4 className="text-xs sm:text-sm font-bold text-foreground leading-snug">
++                                  <h4 className="text-sm sm:text-base font-bold text-foreground leading-snug">
+                                     {act.title_th || act.title}
+                                   </h4>
+                                   {act.title_en && act.title_en !== act.title && (
+-                                    <span className="text-[11px] text-muted-foreground font-normal">
++                                    <span className="text-xs sm:text-sm text-muted-foreground font-normal">
+                                       {act.title_en}
+                                     </span>
+                                   )}
+                                 </div>
+ 
+-                                <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
++                                <p className="text-xs sm:text-sm text-muted-foreground line-clamp-3 leading-relaxed">
+                                   {act.description_th || act.description}
+                                 </p>
+ 
+-                                <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground/80 flex-wrap">
++                                <div className="flex items-center gap-3 pt-1 text-xs text-muted-foreground/80 flex-wrap">
+                                   {act.openingHours && act.openingHours.length > 0 && (
+-                                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+-                                      <Clock className="size-2.5" />
++                                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
++                                      <Clock className="size-3" />
+                                       เวลาเปิด: {act.openingHours[0]}
+                                     </span>
+                                   )}
+@@ -1497,13 +1728,13 @@ export default function BlindEvaluation() {
+                                       target="_blank"
+                                       rel="noreferrer"
+                                       onClick={(e) => e.stopPropagation()}
+-                                      className="flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:underline"
++                                      className="flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:underline font-medium"
+                                     >
+-                                      <MapPin className="size-2.5" />
++                                      <MapPin className="size-3" />
+                                       <span>
+                                         {act.lat.toFixed(4)}, {act.lng.toFixed(4)}
+                                       </span>
+-                                      <ExternalLink className="size-2" />
++                                      <ExternalLink className="size-2.5" />
+                                     </a>
+                                   )}
+                                 </div>
+@@ -1519,31 +1750,31 @@ export default function BlindEvaluation() {
+             </div>
+ 
+             {/* Right Column: Section 2 - Model-by-Model 6-Dimension Rubric (5 cols Sticky) */}
+-            <div className="lg:col-span-5 sticky top-20 space-y-4">
++            <div className="lg:col-span-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto space-y-4 pr-1 scrollbar-thin">
+               <Card className="rounded-3xl border-2 border-purple-200 dark:border-purple-900/60 bg-background shadow-lg overflow-hidden">
+-                <CardHeader className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/40 dark:to-indigo-950/40 border-b border-border/60 pb-3">
++                <CardHeader className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/40 dark:to-indigo-950/40 border-b border-border/60 p-4 sm:p-5 pb-3">
+                   <div className="flex items-center justify-between">
+                     <div>
+-                      <span className="text-[11px] font-bold uppercase tracking-wider text-purple-600">
++                      <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-purple-600">
+                         ส่วนที่ 2: การประเมินแต่ละโมเดล
+                       </span>
+-                      <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 text-foreground mt-0.5">
++                      <CardTitle className="text-base sm:text-lg font-black flex items-center gap-1.5 text-foreground mt-0.5">
+                         <Star className="size-4 text-purple-600 fill-purple-500" />
+                         ประเมิน: <strong className="text-purple-700 dark:text-purple-300">{activeTrip?.blind_label}</strong>
+                       </CardTitle>
+                     </div>
+-                    <Badge className="bg-purple-600 text-white rounded-full text-[10px]">
++                    <Badge className="bg-purple-600 text-white rounded-full text-xs font-semibold px-2.5 py-0.5">
+                       Double-Blind
+                     </Badge>
+                   </div>
+-                  <p className="text-[11px] text-muted-foreground mt-1">
++                  <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                     คำชี้แจง: โปรดประเมินเกณฑ์ทั้ง 6 ด้าน (1 = น้อยที่สุด, 5 = มากที่สุด)
+                   </p>
+                 </CardHeader>
+ 
+-                <CardContent className="p-4 space-y-4">
++                <CardContent className="p-4 sm:p-5 space-y-4">
+                   {/* Dimension Tabs */}
+-                  <div className="grid grid-cols-3 sm:grid-cols-7 gap-1 p-1 bg-secondary/50 rounded-2xl">
++                  <div className="grid grid-cols-3 sm:grid-cols-7 gap-1 p-1.5 bg-secondary/60 rounded-2xl">
+                     {DIMENSIONS.map((dim) => {
+                       const avg = currentTripScores[`${dim.id}_avg` as keyof DetailedDimensionScores] || 4.0;
+                       const isActive = activeDimTab === dim.id;
+@@ -1552,14 +1783,13 @@ export default function BlindEvaluation() {
+                           key={dim.id}
+                           type="button"
+                           onClick={() => setActiveDimTab(dim.id)}
+-                          className={`py-1.5 px-1 rounded-xl text-center transition-all flex flex-col items-center justify-center ${
+-                            isActive
++                          className={`py-2 px-1 rounded-xl text-center transition-all flex flex-col items-center justify-center ${isActive
+                               ? "bg-purple-600 text-white shadow-2xs font-bold"
+-                              : "hover:bg-secondary text-muted-foreground hover:text-foreground"
+-                          }`}
++                              : "hover:bg-secondary text-muted-foreground hover:text-foreground font-medium"
++                            }`}
+                         >
+-                          <span className="text-[11px]">{dim.code}</span>
+-                          <span className={`text-[10px] ${isActive ? "text-purple-100" : "text-muted-foreground"}`}>
++                          <span className="text-xs sm:text-sm">{dim.code}</span>
++                          <span className={`text-xs font-semibold ${isActive ? "text-purple-100" : "text-muted-foreground"}`}>
+                             {avg}
+                           </span>
+                         </button>
+@@ -1569,14 +1799,13 @@ export default function BlindEvaluation() {
+                     <button
+                       type="button"
+                       onClick={() => setActiveDimTab("overall")}
+-                      className={`py-1.5 px-1 rounded-xl text-center transition-all flex flex-col items-center justify-center ${
+-                        activeDimTab === "overall"
++                      className={`py-2 px-1 rounded-xl text-center transition-all flex flex-col items-center justify-center ${activeDimTab === "overall"
+                           ? "bg-purple-600 text-white shadow-2xs font-bold"
+-                          : "hover:bg-secondary text-muted-foreground hover:text-foreground"
+-                      }`}
++                          : "hover:bg-secondary text-muted-foreground hover:text-foreground font-medium"
++                        }`}
+                     >
+-                      <span className="text-[11px]">สรุป</span>
+-                      <span className={`text-[10px] ${activeDimTab === "overall" ? "text-purple-100" : "text-muted-foreground"}`}>
++                      <span className="text-xs sm:text-sm">สรุป</span>
++                      <span className={`text-xs font-semibold ${activeDimTab === "overall" ? "text-purple-100" : "text-muted-foreground"}`}>
+                         {currentTripScores.overall_percentage}%
+                       </span>
+                     </button>
+@@ -1588,51 +1817,57 @@ export default function BlindEvaluation() {
+                     const dimAvg = currentTripScores[`${dim.id}_avg` as keyof DetailedDimensionScores] || 4.0;
+ 
+                     return (
+-                      <div key={dim.id} className="space-y-3.5">
+-                        <div className="flex items-center justify-between border-b pb-2">
+-                          <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+-                            <span className={`size-2 rounded-full ${dim.id === 'fa' ? 'bg-sky-500' : dim.id === 'cc' ? 'bg-emerald-500' : dim.id === 'pf' ? 'bg-amber-500' : dim.id === 'sr' ? 'bg-purple-500' : dim.id === 'de' ? 'bg-pink-500' : 'bg-teal-500'}`} />
++                      <div key={dim.id} className="space-y-4">
++                        <div className="flex items-center justify-between border-b pb-2.5">
++                          <span className="text-sm sm:text-base font-bold text-foreground flex items-center gap-2">
++                            <span className={`size-2.5 rounded-full ${dim.id === 'fa' ? 'bg-sky-500' : dim.id === 'cc' ? 'bg-emerald-500' : dim.id === 'pf' ? 'bg-amber-500' : dim.id === 'sr' ? 'bg-purple-500' : dim.id === 'de' ? 'bg-pink-500' : 'bg-teal-500'}`} />
+                             {dim.title}
+                           </span>
+-                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
++                          <span className="text-xs sm:text-sm font-bold px-2.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                             เฉลี่ย: {dimAvg} / 5
+                           </span>
+                         </div>
+ 
+-                        <div className="space-y-3">
++                        <div className="space-y-4">
+                           {dim.items.map((item) => {
+                             const val = (currentTripScores as any)[item.id] || 4;
+                             return (
+-                              <div key={item.id} className="space-y-1.5 pb-2.5 border-b border-border/40 last:border-0">
++                              <div key={item.id} className="space-y-2 pb-3 border-b border-border/40 last:border-0">
+                                 <div className="flex items-start justify-between gap-2">
+-                                  <Label className="text-xs leading-snug font-medium text-foreground/90">
+-                                    <span className="font-bold text-purple-600 mr-1">{item.code}:</span>
++                                  <Label className="text-sm sm:text-base leading-relaxed font-medium text-foreground/90">
++                                    <span className="font-bold text-purple-700 dark:text-purple-300 mr-1.5">{item.code}:</span>
+                                     {item.text}
+                                   </Label>
+-                                  <span className="text-xs font-bold text-purple-600 shrink-0 ml-1">
++                                  <span className="text-sm sm:text-base font-bold text-purple-700 dark:text-purple-300 px-2.5 py-0.5 rounded-lg bg-purple-100 dark:bg-purple-950/80 shrink-0 ml-1">
+                                     {val} / 5
+                                   </span>
+                                 </div>
+ 
+-                                {/* 1 - 5 Likert Buttons */}
+-                                <div className="grid grid-cols-5 gap-1.5 pt-0.5">
+-                                  {[1, 2, 3, 4, 5].map((num) => {
+-                                    const isSelected = val === num;
+-                                    return (
+-                                      <button
+-                                        key={num}
+-                                        type="button"
+-                                        onClick={() => updateActiveScore(item.id as any, num)}
+-                                        className={`h-7 rounded-xl text-xs font-semibold flex items-center justify-center transition-all ${
+-                                          isSelected
+-                                            ? "bg-purple-600 text-white shadow-xs scale-105"
+-                                            : "bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground"
+-                                        }`}
+-                                      >
+-                                        {num}
+-                                      </button>
+-                                    );
+-                                  })}
++                                {/* 1 - 5 Likert Buttons (Enlarged) */}
++                                <div className="space-y-1 pt-1">
++                                  <div className="grid grid-cols-5 gap-2">
++                                    {[1, 2, 3, 4, 5].map((num) => {
++                                      const isSelected = val === num;
++                                      return (
++                                        <button
++                                          key={num}
++                                          type="button"
++                                          onClick={() => updateActiveScore(item.id as any, num)}
++                                          className={`h-10 sm:h-11 rounded-xl text-sm sm:text-base font-bold flex items-center justify-center transition-all ${isSelected
++                                              ? "bg-purple-600 text-white shadow-sm scale-[1.03]"
++                                              : "bg-secondary/60 hover:bg-secondary text-foreground/80 hover:text-foreground"
++                                            }`}
++                                        >
++                                          {num}
++                                        </button>
++                                      );
++                                    })}
++                                  </div>
++                                  <div className="flex justify-between text-[11px] text-muted-foreground px-1 pt-0.5">
++                                    <span>1 = น้อยที่สุด</span>
++                                    <span>3 = ปานกลาง</span>
++                                    <span>5 = มากที่สุด</span>
++                                  </div>
+                                 </div>
+                               </div>
+                             );
+@@ -1648,7 +1883,7 @@ export default function BlindEvaluation() {
+                               const idx = DIMENSIONS.findIndex((d) => d.id === dim.id);
+                               if (idx > 0) setActiveDimTab(DIMENSIONS[idx - 1].id);
+                             }}
+-                            className="h-7 text-xs rounded-full"
++                            className="h-8 text-xs sm:text-sm rounded-full font-medium"
+                           >
+                             ย้อนกลับ
+                           </Button>
+@@ -1663,10 +1898,10 @@ export default function BlindEvaluation() {
+                                 setActiveDimTab("overall");
+                               }
+                             }}
+-                            className="h-7 text-xs rounded-full gap-1"
++                            className="h-8 text-xs sm:text-sm rounded-full gap-1 font-semibold"
+                           >
+                             <span>ถัดไป</span>
+-                            <ChevronRight className="size-3" />
++                            <ChevronRight className="size-3.5" />
+                           </Button>
+                         </div>
+                       </div>
+@@ -1677,12 +1912,12 @@ export default function BlindEvaluation() {
+                   {activeDimTab === "overall" && (
+                     <div className="space-y-4">
+                       {/* 1. Slider 0-100% */}
+-                      <div className="space-y-2 p-3.5 rounded-2xl bg-secondary/30 border border-border/60">
++                      <div className="space-y-2 p-3.5 sm:p-4 rounded-2xl bg-secondary/40 border border-border/60">
+                         <div className="flex items-center justify-between">
+-                          <Label className="text-xs font-bold text-foreground">
++                          <Label className="text-sm sm:text-base font-bold text-foreground">
+                             1. คะแนนภาพรวมของโมเดลนี้ (Overall 0–100%):
+                           </Label>
+-                          <span className="text-xs font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-2.5 py-0.5 rounded-full">
++                          <span className="text-sm sm:text-base font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-3 py-1 rounded-full">
+                             {currentTripScores.overall_percentage}%
+                           </span>
+                         </div>
+@@ -1696,7 +1931,7 @@ export default function BlindEvaluation() {
+                           className="py-2"
+                         />
+ 
+-                        <div className="flex justify-between text-[10px] text-muted-foreground px-0.5">
++                        <div className="flex justify-between text-xs text-muted-foreground px-0.5 font-medium">
+                           <span>0% (แย่มาก)</span>
+                           <span>50% (พอใช้)</span>
+                           <span>100% (ดีมาก)</span>
+@@ -1704,46 +1939,46 @@ export default function BlindEvaluation() {
+                       </div>
+ 
+                       {/* 2. Strengths */}
+-                      <div className="space-y-1">
+-                        <Label className="text-xs font-semibold text-foreground">
++                      <div className="space-y-1.5">
++                        <Label className="text-sm font-bold text-foreground">
+                           2. จุดเด่นของแผนจากโมเดลนี้:
+                         </Label>
+                         <Textarea
+                           value={currentTripScores.strengths || ""}
+                           onChange={(e) => updateActiveScore("strengths", e.target.value)}
+                           placeholder="ระบุจุดที่โมเดลนี้ทำได้ดี เช่น การเลือกสถานที่, จังหวะเวลา, ความน่าสนใจ..."
+-                          className="text-xs min-h-[60px] rounded-2xl"
++                          className="text-sm min-h-[75px] rounded-2xl leading-relaxed"
+                         />
+                       </div>
+ 
+                       {/* 3. Weaknesses */}
+-                      <div className="space-y-1">
+-                        <Label className="text-xs font-semibold text-foreground">
++                      <div className="space-y-1.5">
++                        <Label className="text-sm font-bold text-foreground">
+                           3. จุดอ่อน/ข้อควรปรับปรุงของแผนจากโมเดลนี้:
+                         </Label>
+                         <Textarea
+                           value={currentTripScores.weaknesses || ""}
+                           onChange={(e) => updateActiveScore("weaknesses", e.target.value)}
+                           placeholder="ระบุข้อผิดพลาด เช่น เส้นทางอ้อม, เวลาไม่สอดคล้อง, ขาดสถานที่สำคัญ..."
+-                          className="text-xs min-h-[60px] rounded-2xl"
++                          className="text-sm min-h-[75px] rounded-2xl leading-relaxed"
+                         />
+                       </div>
+ 
+                       {/* 4. Priority Improvement */}
+                       <div className="space-y-1.5">
+-                        <Label className="text-xs font-semibold text-foreground">
++                        <Label className="text-sm font-bold text-foreground">
+                           4. ท่านจะแนะนำให้ปรับปรุงอะไรเป็นอันดับแรกในแผนนี้?
+                         </Label>
+                         <Select
+                           value={currentTripScores.priority_improvement || PRIORITY_IMPROVEMENT_OPTIONS[0]}
+                           onValueChange={(v) => updateActiveScore("priority_improvement", v)}
+                         >
+-                          <SelectTrigger className="text-xs h-8 rounded-xl">
++                          <SelectTrigger className="text-sm h-9 rounded-xl">
+                             <SelectValue />
+                           </SelectTrigger>
+                           <SelectContent>
+                             {PRIORITY_IMPROVEMENT_OPTIONS.map((opt) => (
+-                              <SelectItem key={opt} value={opt} className="text-xs">
++                              <SelectItem key={opt} value={opt} className="text-sm">
+                                 {opt}
+                               </SelectItem>
+                             ))}
+@@ -1755,7 +1990,7 @@ export default function BlindEvaluation() {
+                             placeholder="ระบุสิ่งที่ควรปรับปรุง..."
+                             value={currentTripScores.priority_improvement_other || ""}
+                             onChange={(e) => updateActiveScore("priority_improvement_other", e.target.value)}
+-                            className="text-xs h-8 rounded-xl mt-1"
++                            className="text-sm h-9 rounded-xl mt-1.5"
+                           />
+                         )}
+                       </div>
+@@ -1766,7 +2001,7 @@ export default function BlindEvaluation() {
+                   <Button
+                     onClick={handleSubmitModelScore}
+                     disabled={submittingModelScore || !activeTrip}
+-                    className="w-full h-10 rounded-full bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs shadow-md gap-2 mt-2"
++                    className="w-full h-11 rounded-full bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm shadow-md gap-2 mt-2"
+                   >
+                     <CheckCircle2 className="size-4" />
+                     <span>{submittingModelScore ? "กำลังบันทึก..." : `บันทึกคะแนน ${activeTrip?.blind_label}`}</span>
+@@ -1777,10 +2012,10 @@ export default function BlindEvaluation() {
+                     <button
+                       type="button"
+                       onClick={() => setEvalMode("compare")}
+-                      className="text-xs text-purple-600 hover:underline inline-flex items-center gap-1"
++                      className="text-xs sm:text-sm text-purple-600 dark:text-purple-400 hover:underline inline-flex items-center gap-1 font-semibold"
+                     >
+                       <span>ไปที่ส่วนที่ 3 & 4: จัดอันดับ & เปรียบเทียบภาพรวม</span>
+-                      <ChevronRight className="size-3" />
++                      <ChevronRight className="size-3.5" />
+                     </button>
+                   </div>
+                 </CardContent>
+@@ -1798,47 +2033,47 @@ export default function BlindEvaluation() {
+                 variant="outline"
+                 size="sm"
+                 onClick={() => setEvalMode("inspect")}
+-                className="rounded-full text-xs gap-1"
++                className="rounded-full text-xs sm:text-sm font-semibold h-9 px-4 gap-2 border-border/80"
+               >
+-                <ArrowLeft className="size-3.5" />
+-                <span>กลับไปดูรายละเอียดแผน ({activeTrip?.blind_label})</span>
++                <ArrowLeft className="size-4" />
++                <span>กลับไปตรวจรายละเอียดแผน ({activeTrip?.blind_label})</span>
+               </Button>
+             </div>
+ 
+             {/* Summary Comparison Table Card */}
+-            <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
+-              <CardHeader className="pb-3 border-b border-border/50 bg-secondary/30">
+-                <div className="flex items-center justify-between">
++            <Card className="rounded-3xl border border-border/80 bg-background shadow-2xs overflow-hidden">
++              <CardHeader className="p-4 sm:p-5 pb-3 border-b border-border/50 bg-secondary/30">
++                <div className="flex items-center justify-between gap-2 flex-wrap">
+                   <div>
+-                    <span className="text-[11px] font-bold text-purple-600 uppercase tracking-wider">
++                    <span className="text-xs sm:text-sm font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                       ส่วนที่ 3: การเปรียบเทียบและจัดอันดับโมเดล (Comparative Ranking)
+                     </span>
+-                    <CardTitle className="text-base font-bold mt-0.5">
++                    <CardTitle className="text-base sm:text-xl font-black mt-0.5">
+                       ตารางเปรียบเทียบภาพรวม (Summary Matrix)
+                     </CardTitle>
+-                    <CardDescription className="text-xs">
++                    <CardDescription className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+                       คำนวณคะแนนเฉลี่ยจากแต่ละด้าน และคะแนนรวมที่ท่านให้ในส่วนที่ 2 โดยอัตโนมัติ
+                     </CardDescription>
+                   </div>
+-                  <Badge variant="outline" className="text-xs rounded-full">
++                  <Badge variant="outline" className="text-xs font-semibold px-2.5 py-1 rounded-full">
+                     {candidateTrips.length} โมเดลใน Scenario นี้
+                   </Badge>
+                 </div>
+               </CardHeader>
+ 
+-              <CardContent className="p-0">
++              <CardContent className="p-0 overflow-x-auto">
+                 <Table>
+                   <TableHeader>
+-                    <TableRow className="hover:bg-transparent">
+-                      <TableHead className="text-xs">โมเดล</TableHead>
+-                      <TableHead className="text-xs text-center">ความถูกต้อง (FA)</TableHead>
+-                      <TableHead className="text-xs text-center">ตามข้อจำกัด (CC)</TableHead>
+-                      <TableHead className="text-xs text-center">ความเป็นไปได้ (PF)</TableHead>
+-                      <TableHead className="text-xs text-center">เชิงพื้นที่ (SR)</TableHead>
+-                      <TableHead className="text-xs text-center">ความหลากหลาย (DE)</TableHead>
+-                      <TableHead className="text-xs text-center">ความยืดหยุ่น (RU)</TableHead>
+-                      <TableHead className="text-xs text-center font-bold text-purple-600">คะแนนรวม (0-100%)</TableHead>
+-                      <TableHead className="text-xs text-right">สถานะ</TableHead>
++                    <TableRow className="hover:bg-transparent bg-secondary/20">
++                      <TableHead className="text-xs sm:text-sm font-bold py-3.5">โมเดล</TableHead>
++                      <TableHead className="text-xs sm:text-sm font-bold text-center py-3.5">ความถูกต้อง (FA)</TableHead>
++                      <TableHead className="text-xs sm:text-sm font-bold text-center py-3.5">ตามข้อจำกัด (CC)</TableHead>
++                      <TableHead className="text-xs sm:text-sm font-bold text-center py-3.5">ความเป็นไปได้ (PF)</TableHead>
++                      <TableHead className="text-xs sm:text-sm font-bold text-center py-3.5">เชิงพื้นที่ (SR)</TableHead>
++                      <TableHead className="text-xs sm:text-sm font-bold text-center py-3.5">ความหลากหลาย (DE)</TableHead>
++                      <TableHead className="text-xs sm:text-sm font-bold text-center py-3.5">ความยืดหยุ่น (RU)</TableHead>
++                      <TableHead className="text-xs sm:text-sm font-black text-center text-purple-600 dark:text-purple-400 py-3.5">คะแนนรวม (0-100%)</TableHead>
++                      <TableHead className="text-xs sm:text-sm font-bold text-right py-3.5 pr-5">สถานะ</TableHead>
+                     </TableRow>
+                   </TableHeader>
+                   <TableBody>
+@@ -1847,50 +2082,50 @@ export default function BlindEvaluation() {
+                       const isEvaluated = isTripEvaluatedByUser(candidate.id);
+ 
+                       return (
+-                        <TableRow key={candidate.id} className="text-xs">
+-                          <TableCell className="font-bold">
+-                            <div className="flex items-center gap-1.5">
+-                              <Award className="size-3.5 text-purple-600" />
+-                              <span>{candidate.blind_label}</span>
++                        <TableRow key={candidate.id} className="text-xs sm:text-sm">
++                          <TableCell className="font-bold py-3">
++                            <div className="flex items-center gap-2">
++                              <Award className="size-4 text-purple-600 shrink-0" />
++                              <span className="text-sm font-bold">{candidate.blind_label}</span>
+                               {role === "dev" && candidate.actual_model && (
+-                                <span className="text-[10px] text-muted-foreground font-mono font-normal">
++                                <span className="text-xs text-muted-foreground font-mono font-normal">
+                                   ({candidate.actual_model})
+                                 </span>
+                               )}
+                             </div>
+                           </TableCell>
+-                          <TableCell className="text-center font-semibold">
++                          <TableCell className="text-center font-semibold py-3">
+                             {scores?.fa_avg ? `${scores.fa_avg} / 5` : "-"}
+                           </TableCell>
+-                          <TableCell className="text-center font-semibold">
++                          <TableCell className="text-center font-semibold py-3">
+                             {scores?.cc_avg ? `${scores.cc_avg} / 5` : "-"}
+                           </TableCell>
+-                          <TableCell className="text-center font-semibold">
++                          <TableCell className="text-center font-semibold py-3">
+                             {scores?.pf_avg ? `${scores.pf_avg} / 5` : "-"}
+                           </TableCell>
+-                          <TableCell className="text-center font-semibold">
++                          <TableCell className="text-center font-semibold py-3">
+                             {scores?.sr_avg ? `${scores.sr_avg} / 5` : "-"}
+                           </TableCell>
+-                          <TableCell className="text-center font-semibold">
++                          <TableCell className="text-center font-semibold py-3">
+                             {scores?.de_avg ? `${scores.de_avg} / 5` : "-"}
+                           </TableCell>
+-                          <TableCell className="text-center font-semibold">
++                          <TableCell className="text-center font-semibold py-3">
+                             {scores?.ru_avg ? `${scores.ru_avg} / 5` : "-"}
+                           </TableCell>
+-                          <TableCell className="text-center font-black text-purple-600">
++                          <TableCell className="text-center font-black text-sm sm:text-base text-purple-600 dark:text-purple-400 py-3">
+                             {scores?.overall_percentage !== undefined ? `${scores.overall_percentage}%` : "-"}
+                           </TableCell>
+-                          <TableCell className="text-right">
++                          <TableCell className="text-right py-3 pr-5">
+                             {isEvaluated ? (
+-                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] gap-1">
+-                                <CheckCircle2 className="size-2.5" /> บันทึกแล้ว
++                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-xs font-semibold gap-1 px-2.5 py-0.5">
++                                <CheckCircle2 className="size-3" /> บันทึกแล้ว
+                               </Badge>
+                             ) : (
+                               <Button
+                                 size="sm"
+                                 variant="ghost"
+                                 onClick={() => handlePlanChange(candidate.id)}
+-                                className="h-6 text-[10px] text-purple-600 hover:underline p-0"
++                                className="h-7 text-xs sm:text-sm font-bold text-purple-600 hover:underline p-0"
+                               >
+                                 กดประเมินแผนนี้ →
+                               </Button>
+@@ -1905,18 +2140,18 @@ export default function BlindEvaluation() {
+             </Card>
+ 
+             {/* Model Ranking Inputs */}
+-            <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
+-              <CardHeader className="pb-3 border-b border-border/50">
+-                <CardTitle className="text-sm font-bold flex items-center gap-2">
+-                  <Trophy className="size-4 text-amber-500" />
++            <Card className="rounded-3xl border border-border/80 bg-background shadow-2xs overflow-hidden">
++              <CardHeader className="p-4 sm:p-5 pb-3 border-b border-border/50">
++                <CardTitle className="text-base sm:text-lg font-black flex items-center gap-2">
++                  <Trophy className="size-5 text-amber-500" />
+                   การจัดอันดับโมเดล (Model Ranking)
+                 </CardTitle>
+-                <CardDescription className="text-xs">
+-                  จัดอันดับโมเดลจากดีที่สุดไปหาดีน้อยที่สุด (1 = ดีที่สุด) พร้อมระบุเหตุผลสั้นๆ
++                <CardDescription className="text-xs sm:text-sm text-muted-foreground mt-0.5">
++                  จัดอันดับโมเดลจากดีที่สุดไปหาดีน้อยที่สุด (1 = ดีที่สุด) พร้อมระบุเหตุผลประกอบสั้นๆ
+                 </CardDescription>
+               </CardHeader>
+ 
+-              <CardContent className="p-5 space-y-4">
++              <CardContent className="p-4 sm:p-5 space-y-4">
+                 <div className="space-y-3">
+                   {candidateTrips.map((_, idx) => {
+                     const rankNum = idx + 1;
+@@ -1929,18 +2164,18 @@ export default function BlindEvaluation() {
+                     return (
+                       <div
+                         key={rankNum}
+-                        className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-3 rounded-2xl bg-secondary/30 border border-border/50"
++                        className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-3.5 rounded-2xl bg-secondary/30 border border-border/60"
+                       >
+                         <div className="flex items-center gap-2 shrink-0">
+-                          <span className="flex size-7 items-center justify-center rounded-xl bg-purple-600 text-white font-bold text-xs shadow-2xs">
++                          <span className="flex size-8 items-center justify-center rounded-xl bg-purple-600 text-white font-black text-sm shadow-2xs">
+                             #{rankNum}
+                           </span>
+-                          <span className="text-xs font-semibold text-foreground">
++                          <span className="text-sm font-bold text-foreground">
+                             อันดับ {rankNum}:
+                           </span>
+                         </div>
+ 
+-                        <div className="w-full sm:w-[220px] shrink-0">
++                        <div className="w-full sm:w-[240px] shrink-0">
+                           <Select
+                             value={curRank.trip_id}
+                             onValueChange={(val) => {
+@@ -1956,12 +2191,12 @@ export default function BlindEvaluation() {
+                               });
+                             }}
+                           >
+-                            <SelectTrigger className="h-8 text-xs rounded-xl">
++                            <SelectTrigger className="h-10 text-xs sm:text-sm rounded-xl">
+                               <SelectValue placeholder="เลือกโมเดล/แผน" />
+                             </SelectTrigger>
+                             <SelectContent>
+                               {candidateTrips.map((t) => (
+-                                <SelectItem key={t.id} value={t.id} className="text-xs">
++                                <SelectItem key={t.id} value={t.id} className="text-xs sm:text-sm">
+                                   {t.blind_label}
+                                 </SelectItem>
+                               ))}
+@@ -1986,7 +2221,7 @@ export default function BlindEvaluation() {
+                                 return copy;
+                               });
+                             }}
+-                            className="h-8 text-xs rounded-xl"
++                            className="h-10 text-xs sm:text-sm rounded-xl"
+                           />
+                         </div>
+                       </div>
+@@ -1995,8 +2230,8 @@ export default function BlindEvaluation() {
+                 </div>
+ 
+                 {/* Best for Practical Use */}
+-                <div className="mt-4 pt-4 border-t border-border/50 space-y-2">
+-                  <Label className="text-xs font-bold text-foreground">
++                <div className="mt-4 pt-4 border-t border-border/50 space-y-2.5">
++                  <Label className="text-sm sm:text-base font-bold text-foreground">
+                     2. โมเดลใดที่ท่านคิดว่าเหมาะสมที่สุดสำหรับการนำไปใช้งานจริง?
+                   </Label>
+                   <div className="flex gap-2 flex-wrap">
+@@ -2007,11 +2242,10 @@ export default function BlindEvaluation() {
+                         size="sm"
+                         variant={bestModelTripId === t.id ? "default" : "outline"}
+                         onClick={() => setBestModelTripId(t.id)}
+-                        className={`rounded-xl text-xs h-8 px-4 ${
+-                          bestModelTripId === t.id
+-                            ? "bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-xs"
++                        className={`rounded-xl text-xs sm:text-sm h-9 px-4 font-bold ${bestModelTripId === t.id
++                            ? "bg-purple-600 hover:bg-purple-700 text-white shadow-xs scale-[1.02]"
+                             : "text-muted-foreground hover:text-foreground"
+-                        }`}
++                          }`}
+                       >
+                         {t.blind_label}
+                       </Button>
+@@ -2022,70 +2256,70 @@ export default function BlindEvaluation() {
+                     placeholder="ระบุเหตุผลว่าเพราะเหตุใดโมเดลนี้จึงเหมาะสมที่สุดในการนำไปใช้งานจริง..."
+                     value={bestModelRationale}
+                     onChange={(e) => setBestModelRationale(e.target.value)}
+-                    className="text-xs min-h-[70px] rounded-2xl mt-1.5"
++                    className="text-sm min-h-[75px] rounded-2xl mt-1.5 leading-relaxed"
+                   />
+                 </div>
+               </CardContent>
+             </Card>
+ 
+             {/* Part 4: Qualitative Feedback */}
+-            <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
+-              <CardHeader className="pb-3 border-b border-border/50">
+-                <CardTitle className="text-sm font-bold flex items-center gap-2">
+-                  <MessageSquareQuote className="size-4 text-purple-600" />
++            <Card className="rounded-3xl border border-border/80 bg-background shadow-2xs overflow-hidden">
++              <CardHeader className="p-4 sm:p-5 pb-3 border-b border-border/50">
++                <CardTitle className="text-base sm:text-lg font-black flex items-center gap-2">
++                  <MessageSquareQuote className="size-5 text-purple-600" />
+                   ส่วนที่ 4: คำถามเชิงคุณภาพ (Qualitative Feedback)
+                 </CardTitle>
+-                <CardDescription className="text-xs">
++                <CardDescription className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+                   คำตอบของท่านจะนำไปใช้วิเคราะห์เชิงลึกสำหรับงานวิทยานิพนธ์
+                 </CardDescription>
+               </CardHeader>
+ 
+-              <CardContent className="p-5 space-y-4">
++              <CardContent className="p-4 sm:p-5 space-y-4">
+                 <div className="space-y-1.5">
+-                  <Label className="text-xs font-semibold text-foreground leading-snug">
++                  <Label className="text-sm sm:text-base font-bold text-foreground leading-snug">
+                     1. จากแผนทั้งหมดที่ท่านประเมิน แผนจากโมเดลใดที่ท่านจะนำไปใช้เดินทางจริงมากที่สุด? เพราะเหตุใด?
+                   </Label>
+                   <Textarea
+                     value={qualitativeFeedback.q1_real_travel}
+                     onChange={(e) => setQualitativeFeedback((prev) => ({ ...prev, q1_real_travel: e.target.value }))}
+                     placeholder="เช่น เลือกแผน B เพราะจังหวะเวลาพอดี มีร้านอาหารท้องถิ่นน่าสนใจ..."
+-                    className="text-xs min-h-[70px] rounded-2xl"
++                    className="text-sm min-h-[85px] rounded-2xl leading-relaxed"
+                   />
+                 </div>
+ 
+                 <div className="space-y-1.5">
+-                  <Label className="text-xs font-semibold text-foreground leading-snug">
++                  <Label className="text-sm sm:text-base font-bold text-foreground leading-snug">
+                     2. โมเดลใดที่ทำได้ดีที่สุดในด้าน "ความเข้าใจบริบทการท่องเที่ยว"? (เช่น เข้าใจวัฒนธรรมท้องถิ่น, เข้าใจพฤติกรรมนักท่องเที่ยว, เข้าใจข้อจำกัดจริง)
+                   </Label>
+                   <Textarea
+                     value={qualitativeFeedback.q2_tourism_context}
+                     onChange={(e) => setQualitativeFeedback((prev) => ({ ...prev, q2_tourism_context: e.target.value }))}
+                     placeholder="ระบุชื่อโมเดลและเหตุผล..."
+-                    className="text-xs min-h-[70px] rounded-2xl"
++                    className="text-sm min-h-[85px] rounded-2xl leading-relaxed"
+                   />
+                 </div>
+ 
+                 <div className="space-y-1.5">
+-                  <Label className="text-xs font-semibold text-foreground leading-snug">
++                  <Label className="text-sm sm:text-base font-bold text-foreground leading-snug">
+                     3. โมเดลใดที่ทำได้ดีที่สุดในด้าน "การให้ประสบการณ์ที่คุ้มค่า"? (เช่น ใช้งบได้คุ้มค่า, ได้เที่ยวที่ดีๆ คุ้มค่าเวลา)
+                   </Label>
+                   <Textarea
+                     value={qualitativeFeedback.q3_value_experience}
+                     onChange={(e) => setQualitativeFeedback((prev) => ({ ...prev, q3_value_experience: e.target.value }))}
+                     placeholder="ระบุชื่อโมเดลและเหตุผล..."
+-                    className="text-xs min-h-[70px] rounded-2xl"
++                    className="text-sm min-h-[85px] rounded-2xl leading-relaxed"
+                   />
+                 </div>
+ 
+                 <div className="space-y-1.5">
+-                  <Label className="text-xs font-semibold text-foreground leading-snug">
++                  <Label className="text-sm sm:text-base font-bold text-foreground leading-snug">
+                     4. ข้อแตกต่างที่ชัดเจนที่สุดระหว่างโมเดลที่ท่านประเมินคืออะไร? (เช่น โมเดล A เน้นสถานที่ดัง, โมเดล B เน้นอาหาร, โมเดล C เน้นประหยัด)
+                   </Label>
+                   <Textarea
+                     value={qualitativeFeedback.q4_distinct_differences}
+                     onChange={(e) => setQualitativeFeedback((prev) => ({ ...prev, q4_distinct_differences: e.target.value }))}
+                     placeholder="อธิบายข้อแตกต่างหลักของแต่ละโมเดล..."
+-                    className="text-xs min-h-[70px] rounded-2xl"
++                    className="text-sm min-h-[85px] rounded-2xl leading-relaxed"
+                   />
+                 </div>
+ 
+@@ -2093,7 +2327,7 @@ export default function BlindEvaluation() {
+                   <Button
+                     onClick={handleSubmitComparison}
+                     disabled={submittingComparison}
+-                    className="w-full h-11 rounded-full bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs shadow-md gap-2"
++                    className="w-full h-12 rounded-full bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm sm:text-base shadow-md gap-2"
+                   >
+                     <Send className="size-4" />
+                     <span>
+@@ -2117,202 +2351,56 @@ export default function BlindEvaluation() {
+   function renderResultsSection() {
+     return (
+       <div className="space-y-6">
+-        <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
+-          <CardHeader className="pb-3 border-b border-border/50">
+-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+-              <div>
+-                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+-                  <BarChart3 className="size-5 text-purple-600" />
+-                  สรุปผลการประเมินของผู้เชี่ยวชาญ (Evaluation Analytics)
+-                </CardTitle>
+-                <CardDescription className="text-xs sm:text-sm mt-0.5">
+-                  วิเคราะห์ผลคะแนน 6 มิติ และการจัดอันดับของแต่ละโมเดล
+-                </CardDescription>
++        {/* Cloud Sync & Database Status Banner for Dev */}
++        <Card className="rounded-3xl border border-purple-200/80 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/70 via-indigo-50/40 to-background dark:from-purple-950/30 dark:via-indigo-950/15 dark:to-background p-4 sm:p-5 shadow-xs">
++          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
++            <div className="flex items-center gap-3">
++              <div className="size-10 rounded-2xl bg-purple-600/10 text-purple-600 flex items-center justify-center shrink-0">
++                <Cloud className="size-5" />
+               </div>
+-
+-              <div className="flex items-center gap-3 p-2 px-3 rounded-2xl bg-secondary/40 border border-border/60">
++              <div>
+                 <div className="flex items-center gap-2">
+-                  {revealModels ? (
+-                    <Eye className="size-4 text-emerald-600" />
+-                  ) : (
+-                    <EyeOff className="size-4 text-muted-foreground" />
++                  <h3 className="text-sm font-bold text-foreground">ระบบจัดเก็บฐานข้อมูล (Supabase Cloud Database)</h3>
++                  {dbStatus && (
++                    <Badge
++                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
++                        dbStatus.provider === "supabase"
++                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
++                          : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
++                      }`}
++                    >
++                      {dbStatus.provider === "supabase" ? "Online / Connected" : "Local Storage Mode"}
++                    </Badge>
+                   )}
+-                  <Label htmlFor="revealToggle" className="text-xs font-semibold cursor-pointer">
+-                    เฉลยชื่อโมเดลจริง (Unblind)
+-                  </Label>
+                 </div>
+-                <Switch
+-                  id="revealToggle"
+-                  checked={revealModels}
+-                  onCheckedChange={setRevealModels}
+-                />
+-              </div>
+-            </div>
+-          </CardHeader>
+-
+-          <CardContent className="p-5">
+-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+-              <div className="p-4 rounded-2xl bg-secondary/30 border border-border/50 text-center">
+-                <span className="text-xs text-muted-foreground">จำนวนการประเมิน</span>
+-                <p className="text-2xl font-bold text-foreground mt-1">
+-                  {resultsData.evaluations.length} ครั้ง
+-                </p>
+-              </div>
+-              <div className="p-4 rounded-2xl bg-secondary/30 border border-border/50 text-center">
+-                <span className="text-xs text-muted-foreground">การจัดอันดับ Scenario</span>
+-                <p className="text-2xl font-bold text-amber-600 mt-1">
+-                  {resultsData.comparisons?.length || 0} ครั้ง
+-                </p>
+-              </div>
+-              <div className="p-4 rounded-2xl bg-secondary/30 border border-border/50 text-center">
+-                <span className="text-xs text-muted-foreground">จำนวนทริปในระบบ</span>
+-                <p className="text-2xl font-bold text-purple-600 mt-1">
+-                  {resultsData.total_trips} แผน
+-                </p>
+-              </div>
+-              <div className="p-4 rounded-2xl bg-secondary/30 border border-border/50 text-center">
+-                <span className="text-xs text-muted-foreground">โมเดลที่ร่วมทดสอบ</span>
+-                <p className="text-2xl font-bold text-sky-600 mt-1">
+-                  {resultsData.summary.length} โมเดล
++                <p className="text-xs text-muted-foreground mt-0.5">
++                  {dbStatus?.provider === "supabase"
++                    ? `เชื่อมต่อตาราง blind_trips, blind_evaluations, blind_comparisons บน Supabase พร้อมรองรับผู้เชี่ยวชาญประเมินระยะไกล`
++                    : `กำลังใช้ข้อมูลจาก Local Backend สามารถกดซิงก์เพื่อนำเข้าข้อมูลขึ้น Supabase Cloud สำหรับ Deploy ได้ทันที`}
+                 </p>
+               </div>
+             </div>
+-          </CardContent>
+-        </Card>
+ 
+-        {/* 6-Dimension Score Leaderboard */}
+-        <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
+-          <CardHeader className="py-4 border-b border-border/50">
+-            <CardTitle className="text-sm font-semibold">
+-              ตารางเปรียบเทียบคะแนนเฉลี่ย 6 มิติ (6-Dimension Leaderboard)
+-            </CardTitle>
+-          </CardHeader>
+-          <CardContent className="p-0 overflow-x-auto">
+-            <Table>
+-              <TableHeader>
+-                <TableRow className="hover:bg-transparent">
+-                  <TableHead className="text-xs">โมเดล AI</TableHead>
+-                  <TableHead className="text-xs text-center">จำนวนประเมิน</TableHead>
+-                  <TableHead className="text-xs text-center">FA (ถูกต้อง)</TableHead>
+-                  <TableHead className="text-xs text-center">CC (ข้อจำกัด)</TableHead>
+-                  <TableHead className="text-xs text-center">PF (เป็นไปได้)</TableHead>
+-                  <TableHead className="text-xs text-center">SR (เชิงพื้นที่)</TableHead>
+-                  <TableHead className="text-xs text-center">DE (หลากหลาย)</TableHead>
+-                  <TableHead className="text-xs text-center">RU (ยืดหยุ่น)</TableHead>
+-                  <TableHead className="text-xs text-center font-bold text-purple-600">เฉลี่ย 6 ด้าน</TableHead>
+-                  <TableHead className="text-xs text-center font-bold text-emerald-600">คะแนนภาพรวม (%)</TableHead>
+-                  <TableHead className="text-xs text-center">ชนะโหวต</TableHead>
+-                </TableRow>
+-              </TableHeader>
+-              <TableBody>
+-                {resultsData.summary.length === 0 ? (
+-                  <TableRow>
+-                    <TableCell colSpan={11} className="text-center py-8 text-xs text-muted-foreground">
+-                      ยังไม่มีข้อมูลการประเมินที่ส่งเข้ามา
+-                    </TableCell>
+-                  </TableRow>
+-                ) : (
+-                  resultsData.summary.map((st, idx) => {
+-                    const displayName = revealModels
+-                      ? st.model
+-                      : `Candidate Model #${idx + 1}`;
+-                    return (
+-                      <TableRow key={st.model} className="text-xs">
+-                        <TableCell className="font-semibold">
+-                          <div className="flex items-center gap-1.5">
+-                            {revealModels ? (
+-                              <Badge variant="outline" className="text-[11px] font-mono">
+-                                {st.model}
+-                              </Badge>
+-                            ) : (
+-                              <Badge variant="secondary" className="text-[11px]">
+-                                {displayName}
+-                              </Badge>
+-                            )}
+-                          </div>
+-                        </TableCell>
+-                        <TableCell className="text-center">{st.evaluations_count}</TableCell>
+-                        <TableCell className="text-center">{st.avg_fa ?? st.avg_accuracy}</TableCell>
+-                        <TableCell className="text-center">{st.avg_cc ?? st.avg_persona}</TableCell>
+-                        <TableCell className="text-center">{st.avg_pf ?? st.avg_temporal}</TableCell>
+-                        <TableCell className="text-center">{st.avg_sr ?? st.avg_spatial}</TableCell>
+-                        <TableCell className="text-center">{st.avg_de ?? st.avg_attraction}</TableCell>
+-                        <TableCell className="text-center">{st.avg_ru ?? "-"}</TableCell>
+-                        <TableCell className="text-center font-bold text-purple-600">
+-                          {st.overall_score} / 5
+-                        </TableCell>
+-                        <TableCell className="text-center font-bold text-emerald-600">
+-                          {st.avg_overall_percentage ? `${st.avg_overall_percentage}%` : "-"}
+-                        </TableCell>
+-                        <TableCell className="text-center">
+-                          <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[11px]">
+-                            {st.total_wins}
+-                          </Badge>
+-                        </TableCell>
+-                      </TableRow>
+-                    );
+-                  })
+-                )}
+-              </TableBody>
+-            </Table>
+-          </CardContent>
++            <Button
++              size="sm"
++              variant="outline"
++              disabled={syncingCloud}
++              onClick={handleSyncToCloud}
++              className="h-9 px-4 rounded-full gap-2 text-xs font-semibold bg-background hover:bg-purple-50 hover:text-purple-700 border-purple-300 shadow-2xs shrink-0 self-end sm:self-auto"
++            >
++              <RefreshCw className={`size-3.5 ${syncingCloud ? "animate-spin text-purple-600" : ""}`} />
++              <span>{syncingCloud ? "กำลังซิงก์ข้อมูลขึ้น Cloud..." : "ซิงก์ข้อมูล Local ขึ้น Supabase Cloud"}</span>
++            </Button>
++          </div>
+         </Card>
+ 
+-        {/* Qualitative Thesis Analysis Section */}
+-        {resultsData.comparisons && resultsData.comparisons.length > 0 && (
+-          <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
+-            <CardHeader className="py-4 border-b border-border/50">
+-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+-                <MessageSquareQuote className="size-4 text-purple-600" />
+-                ผลการจัดอันดับและคำถามเชิงคุณภาพจากผู้เชี่ยวชาญ ({resultsData.comparisons.length} รายการ)
+-              </CardTitle>
+-            </CardHeader>
+-            <CardContent className="p-4 space-y-4">
+-              {resultsData.comparisons.map((cmp) => (
+-                <div key={cmp.id} className="p-4 rounded-2xl bg-secondary/20 border border-border/40 space-y-2 text-xs">
+-                  <div className="flex items-center justify-between">
+-                    <span className="font-bold text-foreground">
+-                      ผู้ประเมิน: {cmp.expert_name} ({cmp.expert_profile?.role || "ผู้เชี่ยวชาญ"} • ประสบการณ์ {cmp.expert_profile?.experience || "-"})
+-                    </span>
+-                    <span className="text-[11px] text-muted-foreground">{cmp.submitted_at}</span>
+-                  </div>
+-
+-                  <div className="flex gap-2 flex-wrap items-center">
+-                    <Badge variant="outline">Scenario: {cmp.scenario_id}</Badge>
+-                    <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+-                      เหมาะสมใช้งานจริง: {cmp.best_for_practical_use?.blind_label}
+-                    </Badge>
+-                  </div>
+-
+-                  {cmp.best_for_practical_use?.rationale && (
+-                    <p className="text-muted-foreground italic">
+-                      "เหตุผลความเหมาะสม: {cmp.best_for_practical_use.rationale}"
+-                    </p>
+-                  )}
+-
+-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-2 border-t border-border/30">
+-                    <div className="p-2.5 rounded-xl bg-background/80">
+-                      <span className="font-semibold block text-[11px] text-purple-600">1. นำไปใช้จริงมากที่สุด:</span>
+-                      <p className="text-foreground mt-0.5">{cmp.qualitative_feedback?.q1_real_travel || "-"}</p>
+-                    </div>
+-                    <div className="p-2.5 rounded-xl bg-background/80">
+-                      <span className="font-semibold block text-[11px] text-purple-600">2. เข้าใจบริบทท่องเที่ยวดีที่สุด:</span>
+-                      <p className="text-foreground mt-0.5">{cmp.qualitative_feedback?.q2_tourism_context || "-"}</p>
+-                    </div>
+-                    <div className="p-2.5 rounded-xl bg-background/80">
+-                      <span className="font-semibold block text-[11px] text-purple-600">3. ประสบการณ์คุ้มค่าที่สุด:</span>
+-                      <p className="text-foreground mt-0.5">{cmp.qualitative_feedback?.q3_value_experience || "-"}</p>
+-                    </div>
+-                    <div className="p-2.5 rounded-xl bg-background/80">
+-                      <span className="font-semibold block text-[11px] text-purple-600">4. ข้อแตกต่างหลักระหว่างโมเดล:</span>
+-                      <p className="text-foreground mt-0.5">{cmp.qualitative_feedback?.q4_distinct_differences || "-"}</p>
+-                    </div>
+-                  </div>
+-                </div>
+-              ))}
+-            </CardContent>
+-          </Card>
+-        )}
++        <EvaluationAnalytics
++          resultsData={resultsData}
++          trips={trips}
++          revealModels={revealModels}
++          setRevealModels={setRevealModels}
++          onRefreshResults={loadResults}
++        />
+       </div>
+     );
+   }
+@@ -2407,13 +2495,12 @@ export default function BlindEvaluation() {
+                     <TableCell className="text-muted-foreground">{u.name || "-"}</TableCell>
+                     <TableCell>
+                       <Badge
+-                        className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${
+-                          u.role === "dev"
++                        className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${u.role === "dev"
+                             ? "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300"
+                             : u.role === "expert"
+-                            ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
+-                            : "bg-slate-100 text-slate-700"
+-                        }`}
++                              ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
++                              : "bg-slate-100 text-slate-700"
++                          }`}
+                       >
+                         {u.role}
+                       </Badge>
+@@ -2422,9 +2509,13 @@ export default function BlindEvaluation() {
+                     <TableCell className="text-right">
+                       <Select
+                         value={u.role}
+-                        onValueChange={(newRole) => {
+-                          updateUserRole(u.email, newRole as UserRole);
+-                          toast.success(`เปลี่ยนสิทธิ์ ${u.email} เป็น ${newRole} เรียบร้อยแล้ว`);
++                        onValueChange={async (newRole) => {
++                          try {
++                            await updateUserRole(u.email, newRole as UserRole);
++                            toast.success(`เปลี่ยนสิทธิ์ ${u.email} เป็น ${newRole.toUpperCase()} เรียบร้อยแล้ว`);
++                          } catch (err: any) {
++                            toast.error(`ไม่สามารถเปลี่ยนสิทธิ์ได้: ${err.message || err}`);
++                          }
+                         }}
+                       >
+                         <SelectTrigger className="h-7 text-[11px] rounded-lg w-[110px] ml-auto">

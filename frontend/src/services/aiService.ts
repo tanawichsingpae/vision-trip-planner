@@ -11,6 +11,7 @@ import { hasThaiScript, translateTextSync } from "@/services/translatorService";
 
 const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY;
 validateApiKey(GEOAPIFY_API_KEY, "Geoapify");
+const BACKEND_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8080";
 
 export interface TypicalWeather {
   month: string;
@@ -212,7 +213,7 @@ ${currentItinerary.map((d, idx) => `    {
 }`;
 
   try {
-    const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
+    const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -913,7 +914,7 @@ ${daySchemaExamples}
     }
   }`;
 
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
+  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -995,7 +996,7 @@ ${daySchemaExamples}
 }
 
 async function analyzeImageOpenRouter(base64: string, mimeType: string, prompt: string, modelId: string): Promise<VisionResult> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
+  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1027,7 +1028,7 @@ async function chatOpenRouter(
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   modelId: string
 ): Promise<string> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
+  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1041,7 +1042,7 @@ async function chatOpenRouter(
 }
 
 async function callOpenRouterMoreSuggestions(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
+  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1058,7 +1059,7 @@ async function callOpenRouterMoreSuggestions(prompt: string, modelId: string): P
 }
 
 async function callOpenRouterMoreAccommodations(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
+  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1090,7 +1091,7 @@ export async function getEmbedding(image: File | Blob): Promise<number[]> {
   }
 
   try {
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/embedding`, {
+    const res = await fetch(`${BACKEND_URL}/embedding`, {
       method: "POST",
       body: formData
     });
@@ -1112,7 +1113,7 @@ export async function getEmbedding(image: File | Blob): Promise<number[]> {
 export async function getEmbeddingFromUrl(url: string): Promise<number[]> {
   console.log("Getting CLIP embedding from URL (Server-side fetch):", url);
   try {
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/embedding_url`, {
+    const res = await fetch(`${BACKEND_URL}/embedding_url`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -1250,7 +1251,7 @@ async function getInitialGuessesOpenRouter(
   prompt: string,
   modelId: string
 ): Promise<InitialGuessResult> {
-  const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL}/ai`, {
+  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1723,7 +1724,7 @@ async function fileToBase64(file: File): Promise<string> {
 
 export async function testOpenRouterConnection() {
   try {
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/ai`, {
+    const response = await fetch(`${BACKEND_URL}/ai`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
 import { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabaseClient'
 import { fetchUserRoles, saveUserRole, type UserRoleRecord } from '@/api/blindEvalApi'
@@ -9,13 +9,15 @@ type AuthContextType = {
   user: User | null
   session: Session | null
   loading: boolean
-  role: UserRole
-  setRole: (role: UserRole) => void
+  role: UserRole // Current active perspective / preview role
+  setRole: (role: UserRole) => void // Switch active perspective
+  actualRole: UserRole // Permanent database/system role
   userEmail: string
   userRolesList: UserRoleRecord[]
   refreshUserRoles: () => Promise<void>
   updateUserRole: (email: string, role: UserRole, name?: string) => Promise<void>
   signOut: () => Promise<void>
+  isDev: boolean // True if user is a system developer/admin
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -24,11 +26,13 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   role: 'dev',
   setRole: () => {},
+  actualRole: 'dev',
   userEmail: '',
   userRolesList: [],
   refreshUserRoles: async () => {},
   updateUserRole: async () => {},
-  signOut: async () => {}
+  signOut: async () => {},
+  isDev: true
 })
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -37,60 +41,66 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true)
   const [userRolesList, setUserRolesList] = useState<UserRoleRecord[]>([])
 
-  // Default role from localStorage or fallback to 'dev' for smooth local testing
-  const [role, setRoleState] = useState<UserRole>(() => {
+  // Default role from localStorage or fallback to 'dev' for smooth testing
+  const [previewRole, setPreviewRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem('pix_active_role') as UserRole
     if (saved === 'dev' || saved === 'expert' || saved === 'user') return saved
     return 'dev'
   })
 
-  const setRole = (newRole: UserRole) => {
+  // Known developer emails for instant recognition
+  const KNOWN_DEV_EMAILS = useMemo(
+    () => ['tanawichsingpae@gmail.com', 'supannika1212548@gmail.com', 'dev@pixinerary.com'],
+    []
+  )
+
+  // Compute actual account role from Supabase/Backend records
+  const actualRole: UserRole = useMemo(() => {
+    if (!user?.email) {
+      // Offline / local sandbox default to dev
+      return 'dev'
+    }
+    const emailLower = user.email.toLowerCase()
+    const found = userRolesList.find((u) => u.email.toLowerCase() === emailLower)
+    if (found?.role) return found.role
+    if (KNOWN_DEV_EMAILS.includes(emailLower)) return 'dev'
+    return 'user'
+  }, [user?.email, userRolesList, KNOWN_DEV_EMAILS])
+
+  const isDev = useMemo(() => actualRole === 'dev', [actualRole])
+
+  // Active role: If user is Dev, they can preview any role. If user is not Dev, their active role matches actualRole
+  const role: UserRole = useMemo(() => {
+    if (isDev) {
+      return previewRole
+    }
+    return actualRole
+  }, [isDev, previewRole, actualRole])
+
+  // Switch preview role (dev only preview toggle) - does NOT overwrite DB role
+  const setRole = useCallback((newRole: UserRole) => {
     localStorage.setItem('pix_active_role', newRole)
-    setRoleState(newRole)
-  }
+    setPreviewRole(newRole)
+  }, [])
 
   const refreshUserRoles = useCallback(async () => {
     try {
       let records = await fetchUserRoles()
 
-      // Also query Supabase profiles table if it exists
-      try {
-        const { data: profiles, error } = await supabase.from('profiles').select('*')
-        if (!error && profiles && profiles.length > 0) {
-          const map = new Map<string, UserRoleRecord>()
-          for (const r of records) map.set(r.email.toLowerCase(), r)
-          for (const p of profiles) {
-            if (p.email) {
-              map.set(p.email.toLowerCase(), {
-                email: p.email,
-                role: (p.role as UserRole) || 'user',
-                name: p.name || p.full_name || p.email.split('@')[0],
-                updated_at: p.updated_at || p.created_at,
-              })
-            }
-          }
-          records = Array.from(map.values())
-        }
-      } catch {
-        // Fallback gracefully if profiles table does not exist yet
-      }
-
-      // If user is logged in via Supabase, ensure their email is visible in the management list!
+      // If user is logged in via Supabase, ensure their record is tracked
       if (user?.email) {
         const emailLower = user.email.toLowerCase()
-        const found = records.find(r => r.email.toLowerCase() === emailLower)
+        const found = records.find((r) => r.email.toLowerCase() === emailLower)
         if (!found) {
-          const defaultRole = (localStorage.getItem('pix_active_role') as UserRole) || 'dev'
+          const isKnownDev = KNOWN_DEV_EMAILS.includes(emailLower)
           const newRecord: UserRoleRecord = {
             email: user.email,
-            role: defaultRole,
+            role: isKnownDev ? 'dev' : 'expert',
             name: user.user_metadata?.full_name || user.email.split('@')[0],
-            updated_at: new Date().toLocaleString(),
+            updated_at: new Date().toISOString(),
           }
           records = [newRecord, ...records]
           saveUserRole(newRecord).catch(() => {})
-        } else if (found && found.role && !localStorage.getItem('pix_active_role')) {
-          setRoleState(found.role)
         }
       }
 
@@ -98,28 +108,43 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (err) {
       console.warn('refreshUserRoles error:', err)
     }
-  }, [user?.email, user?.user_metadata])
+  }, [user?.email, user?.user_metadata, KNOWN_DEV_EMAILS])
 
+  // Admin function: explicitly update a user's role in DB
   const updateUserRole = async (email: string, targetRole: UserRole, name?: string) => {
-    // 1. Save to backend user_roles.json
-    await saveUserRole({ email, role: targetRole, name })
+    const emailLower = email.trim().toLowerCase()
 
-    // 2. Also attempt to save to Supabase profiles table if present
+    // 1. Optimistic UI update immediately
+    setUserRolesList((prev) => {
+      const exists = prev.some((u) => u.email.toLowerCase() === emailLower)
+      if (exists) {
+        return prev.map((u) =>
+          u.email.toLowerCase() === emailLower
+            ? { ...u, role: targetRole, name: name || u.name, updated_at: new Date().toISOString() }
+            : u
+        )
+      }
+      return [
+        ...prev,
+        {
+          email: emailLower,
+          role: targetRole,
+          name: name || emailLower.split('@')[0],
+          updated_at: new Date().toISOString(),
+        },
+      ]
+    })
+
+    // 2. Persist to Supabase profiles & backend
     try {
-      await supabase.from('profiles').upsert({
-        email: email.toLowerCase(),
-        role: targetRole,
-        name: name || email.split('@')[0],
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'email' })
-    } catch {
-      // Ignored if profiles table doesn't exist
+      await saveUserRole({ email: emailLower, role: targetRole, name })
+    } catch (err) {
+      console.warn('updateUserRole error:', err)
+      throw err
     }
 
+    // 3. Refresh to ensure state is synchronized
     await refreshUserRoles()
-    if (user?.email && user.email.toLowerCase() === email.toLowerCase()) {
-      setRole(targetRole)
-    }
   }
 
   useEffect(() => {
@@ -155,11 +180,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       loading,
       role,
       setRole,
+      actualRole,
       userEmail,
       userRolesList,
       refreshUserRoles,
       updateUserRole,
-      signOut
+      signOut,
+      isDev
     }}>
       {children}
     </AuthContext.Provider>

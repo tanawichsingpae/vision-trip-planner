@@ -7,9 +7,6 @@ import {
   submitScenarioComparison,
   fetchBlindResults,
   deleteBlindTrip,
-  checkDatabaseConnection,
-  syncLocalToSupabase,
-  type DatabaseStatus,
   type BlindTrip,
   type EvaluationRecord,
   type ModelSummaryStat,
@@ -34,7 +31,6 @@ import MapSection from "@/components/MapSection";
 import type { LocationData } from "@/components/LocationDisplay";
 import { DAY_COLORS, type Activity, typeConfig } from "@/components/TravelItinerary";
 import { getPlaceImage } from "@/utils/getPlaceImage";
-import EvaluationAnalytics from "@/components/EvaluationAnalytics";
 import {
   Plane,
   Eye,
@@ -78,13 +74,6 @@ import {
   Send,
   Save,
   Sliders,
-  Cloud,
-  Database,
-  RefreshCw,
-  AlertCircle,
-  ChevronUp,
-  ChevronDown,
-  BookOpen,
 } from "lucide-react";
 
 // ==========================================
@@ -207,7 +196,7 @@ const DEFAULT_SCORES: DetailedDimensionScores = {
 };
 
 export default function BlindEvaluation() {
-  const { role, setRole, userEmail, userRolesList, updateUserRole, refreshUserRoles, isDev } = useAuth();
+  const { role, setRole, userEmail, userRolesList, updateUserRole, refreshUserRoles } = useAuth();
 
   // Active Main Tab (Dev only can switch tabs; Expert stays in 'eval')
   const [activeTab, setActiveTab] = useState<"eval" | "results" | "users">("eval");
@@ -226,8 +215,6 @@ export default function BlindEvaluation() {
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [hoveredActivityId, setHoveredActivityId] = useState<string | null>(null);
   const [isMapVisible, setIsMapVisible] = useState(true);
-  const [isInstructionsOpen, setIsInstructionsOpen] = useState(false);
-  const [isPhotosOpen, setIsPhotosOpen] = useState(false);
 
   // Active Dimension Tab inside the Rubric
   const [activeDimTab, setActiveDimTab] = useState<string>("fa");
@@ -240,22 +227,11 @@ export default function BlindEvaluation() {
   const [expertProfile, setExpertProfile] = useState<ExpertProfile>(() => {
     try {
       const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        return {
-          name: parsed.name || "",
-          role: parsed.role || "อาจารย์/นักวิชาการด้านการท่องเที่ยว",
-          role_other: parsed.role_other || "",
-          experience: parsed.experience || "3–5 ปี",
-          ai_familiarity: parsed.ai_familiarity || "เคยใช้บ้าง (เช่น Google Trips, TripAdvisor, Klook)",
-          saved_at: parsed.saved_at,
-        };
-      }
+      if (cached) return JSON.parse(cached);
     } catch (e) {
       console.warn("Failed to load expert profile from localStorage:", e);
     }
     return {
-      name: "",
       role: "อาจารย์/นักวิชาการด้านการท่องเที่ยว",
       role_other: "",
       experience: "3–5 ปี",
@@ -264,40 +240,14 @@ export default function BlindEvaluation() {
   });
 
   const [isProfileSaved, setIsProfileSaved] = useState<boolean>(() => {
-    try {
-      const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        return !!(parsed && parsed.name && parsed.name.trim());
-      }
-    } catch {
-      // ignore
-    }
-    return false;
+    return !!(localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile"));
   });
   const [isEditingProfile, setIsEditingProfile] = useState<boolean>(() => {
-    try {
-      const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        return !(parsed && parsed.name && parsed.name.trim());
-      }
-    } catch {
-      // ignore
-    }
-    return true;
+    return !(localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile"));
   });
 
   const handleSaveProfile = () => {
-    if (!expertProfile.name || !expertProfile.name.trim()) {
-      toast.error("กรุณากรอกชื่อ-นามสกุล หรือชื่อของผู้ประเมิน");
-      return;
-    }
-    const updated = {
-      ...expertProfile,
-      name: expertProfile.name.trim(),
-      saved_at: new Date().toISOString(),
-    };
+    const updated = { ...expertProfile, saved_at: new Date().toISOString() };
     setExpertProfile(updated);
     try {
       localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updated));
@@ -307,7 +257,7 @@ export default function BlindEvaluation() {
     }
     setIsProfileSaved(true);
     setIsEditingProfile(false);
-    toast.success("บันทึกข้อมูลเรียบร้อยแล้ว (ระบบจะจดจำไว้ ไม่ต้องกรอกซ้ำ)");
+    toast.success("บันทึกข้อมูลผู้เชี่ยวชาญเรียบร้อยแล้ว (ระบบจะจดจำไว้ ไม่ต้องกรอกซ้ำ)");
   };
 
   // -------------------------------------------------------------
@@ -348,36 +298,6 @@ export default function BlindEvaluation() {
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState<UserRole>("expert");
   const [newUserName, setNewUserName] = useState("");
-
-  // Database Connection Status & Cloud Sync
-  const [dbStatus, setDbStatus] = useState<DatabaseStatus | null>(null);
-  const [syncingCloud, setSyncingCloud] = useState(false);
-
-  const checkDb = async () => {
-    try {
-      const st = await checkDatabaseConnection();
-      setDbStatus(st);
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleSyncToCloud = async () => {
-    setSyncingCloud(true);
-    try {
-      const res = await syncLocalToSupabase();
-      toast.success(
-        `ซิงก์ข้อมูลขึ้น Supabase Cloud สำเร็จ! (${res.tripsCount} แผนทริป, ${res.evalsCount} ผลคะแนน, ${res.compsCount} การจัดอันดับ)`
-      );
-      await checkDb();
-      await loadTrips();
-      await loadResults();
-    } catch (err: any) {
-      toast.error(`การซิงก์ล้มเหลว: ${err.message || err}`);
-    } finally {
-      setSyncingCloud(false);
-    }
-  };
 
   // Load Trips
   const loadTrips = async () => {
@@ -425,7 +345,6 @@ export default function BlindEvaluation() {
   };
 
   useEffect(() => {
-    checkDb();
     loadTrips();
     loadResults();
     if (role === "dev") {
@@ -570,7 +489,7 @@ export default function BlindEvaluation() {
   const handleSubmitModelScore = async () => {
     if (!activeTrip) return;
     if (!isProfileSaved) {
-      toast.error("กรุณากดบันทึกข้อมูลในส่วนที่ 1 ก่อนทำการประเมิน");
+      toast.error("กรุณากดบันทึกข้อมูลผู้เชี่ยวชาญในส่วนที่ 1 ก่อนทำการประเมิน");
       setIsEditingProfile(true);
       return;
     }
@@ -582,7 +501,7 @@ export default function BlindEvaluation() {
         trip_id: activeTrip.id,
         blind_label: activeTrip.blind_label,
         expert_id: userEmail || "expert",
-        expert_name: expertProfile.name?.trim() || userEmail.split("@")[0] || "Tourism Expert",
+        expert_name: userEmail.split("@")[0] || "Tourism Expert",
         expert_profile: expertProfile,
         scores: {
           spatial_feasibility: Math.round(currentTripScores.sr_avg),
@@ -608,11 +527,6 @@ export default function BlindEvaluation() {
   // Submit Comparative Ranking & Qualitative Feedback
   const handleSubmitComparison = async () => {
     if (!selectedScenarioId) return;
-    if (!isProfileSaved) {
-      toast.error("กรุณากรอกและบันทึกข้อมูลผู้เชี่ยวชาญในส่วนที่ 1 ก่อนทำการประเมิน");
-      setIsEditingProfile(true);
-      return;
-    }
     if (!bestModelTripId) {
       toast.error("กรุณาเลือกโมเดลที่ท่านคิดว่าเหมาะสมที่สุดสำหรับการนำไปใช้งานจริง (ข้อ 2)");
       return;
@@ -637,7 +551,7 @@ export default function BlindEvaluation() {
       await submitScenarioComparison({
         scenario_id: selectedScenarioId,
         expert_id: userEmail || "expert",
-        expert_name: expertProfile.name?.trim() || userEmail.split("@")[0] || "Tourism Expert",
+        expert_name: userEmail.split("@")[0] || "Tourism Expert",
         expert_profile: expertProfile,
         rankings: formattedRankings,
         best_for_practical_use: {
@@ -705,69 +619,33 @@ export default function BlindEvaluation() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Database Status Indicator */}
-            {dbStatus && (
-              <Badge
-                variant="outline"
-                className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs ${
-                  dbStatus.provider === "supabase"
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
-                    : dbStatus.provider === "backend_local"
-                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                      : "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30"
-                }`}
-                title={dbStatus.message}
-              >
-                {dbStatus.provider === "supabase" ? (
-                  <Cloud className="size-3 text-emerald-500" />
-                ) : (
-                  <Database className="size-3 text-amber-500" />
-                )}
-                <span className="hidden md:inline">
-                  {dbStatus.provider === "supabase"
-                    ? "Cloud DB (Supabase)"
-                    : dbStatus.provider === "backend_local"
-                      ? "Local Storage"
-                      : "Offline"}
-                </span>
-              </Badge>
-            )}
-
+          <div className="flex items-center gap-2 sm:gap-4">
             {/* Active Role Badge & Quick Role Switcher */}
             <div className="flex items-center gap-2">
               <span className="hidden sm:inline text-xs text-muted-foreground">บทบาทปัจจุบัน:</span>
               <Badge
                 variant="outline"
-                className={`text-xs capitalize font-semibold px-2.5 py-0.5 rounded-full ${role === "dev"
+                className={`text-xs capitalize font-semibold px-2.5 py-0.5 rounded-full ${
+                  role === "dev"
                     ? "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-950 dark:text-purple-300"
                     : role === "expert"
-                      ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-950 dark:text-sky-300"
-                      : "bg-slate-100 text-slate-700 border-slate-300"
-                  }`}
+                    ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-950 dark:text-sky-300"
+                    : "bg-slate-100 text-slate-700 border-slate-300"
+                }`}
               >
                 {role}
               </Badge>
 
-              {/* Only show role switcher dropdown to Dev accounts to prevent experts from changing roles */}
-              {isDev && (
-                <Select
-                  value={role}
-                  onValueChange={(v) => {
-                    setRole(v as UserRole);
-                    toast.success(`สลับโหมดมุมมองเป็น: ${v.toUpperCase()}`);
-                  }}
-                >
-                  <SelectTrigger className="h-7 text-[11px] rounded-lg px-2 border-border/80 bg-secondary/50 gap-1">
-                    <SelectValue placeholder="สลับบทบาท" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="dev">Dev (สิทธิ์เต็ม / จัดการ Role)</SelectItem>
-                    <SelectItem value="expert">Expert (มุมมองผู้เชี่ยวชาญ)</SelectItem>
-                    <SelectItem value="user">User (มุมมองผู้ใช้ทั่วไป)</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
+              <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>
+                <SelectTrigger className="h-7 text-[11px] rounded-lg px-2 border-border/80 bg-secondary/50 gap-1">
+                  <SelectValue placeholder="สลับบทบาท" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dev">Dev (สิทธิ์เต็ม / จัดการ Role)</SelectItem>
+                  <SelectItem value="expert">Expert (มุมมองผู้เชี่ยวชาญ)</SelectItem>
+                  <SelectItem value="user">User (มุมมองผู้ใช้ทั่วไป)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <Link to="/">
@@ -783,7 +661,7 @@ export default function BlindEvaluation() {
       {/* Main Container */}
       <main className="mx-auto max-w-7xl px-4 pt-6 sm:px-8 space-y-6">
         {/* Role Tabs for Dev (Expert only sees Evaluation Arena) */}
-        {isDev && role === "dev" ? (
+        {role === "dev" ? (
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full space-y-6">
             <TabsList className="grid w-full grid-cols-3 max-w-md mx-auto p-1 bg-secondary/80 rounded-2xl">
               <TabsTrigger value="eval" className="rounded-xl text-xs gap-1.5">
@@ -814,27 +692,6 @@ export default function BlindEvaluation() {
           </Tabs>
         ) : (
           <div className="space-y-6">
-            {isDev && role !== "dev" && (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 px-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-amber-800 dark:text-amber-300">
-                <div className="flex items-center gap-2">
-                  <Info className="size-4 text-amber-600 shrink-0" />
-                  <span>
-                    กำลังดูตัวอย่างในมุมมอง <strong>{role === "expert" ? "Expert (ผู้เชี่ยวชาญ)" : "User (ผู้ใช้ทั่วไป)"}</strong> (แท็บผลเฉลยและการจัดการ Role จะถูกซ่อนตามสิทธิ์จริง)
-                  </span>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setRole("dev");
-                    toast.success("สลับกลับสู่มุมมอง Dev เรียบร้อยแล้ว");
-                  }}
-                  className="h-7 text-xs rounded-full border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 shrink-0"
-                >
-                  สลับกลับสู่โหมด Dev
-                </Button>
-              </div>
-            )}
             {renderEvaluationSection()}
           </div>
         )}
@@ -932,13 +789,9 @@ export default function BlindEvaluation() {
             <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-foreground">
               <UserCheck className="size-4 text-purple-600" />
               <span>ส่วนที่ 1: ข้อมูลผู้เชี่ยวชาญ (Expert Profile)</span>
-              {isProfileSaved ? (
+              {isProfileSaved && !isEditingProfile && (
                 <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 text-[10px] rounded-full gap-1">
-                  <CheckCircle2 className="size-3" /> บันทึกแล้ว (พร้อมประเมิน)
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-300 text-[10px] rounded-full gap-1">
-                  <AlertCircle className="size-3 text-amber-600" /> ยังไม่ได้บันทึก
+                  <CheckCircle2 className="size-3" /> บันทึกแล้ว (ไม่ต้องกรอกซ้ำ)
                 </Badge>
               )}
             </div>
@@ -947,87 +800,39 @@ export default function BlindEvaluation() {
               size="sm"
               variant="outline"
               onClick={() => setIsEditingProfile((prev) => !prev)}
-              className={`h-7 text-xs rounded-full gap-1 px-3 transition-colors ${
-                isEditingProfile
-                  ? "border-border/80 bg-background hover:bg-secondary text-muted-foreground hover:text-foreground"
-                  : isProfileSaved
-                    ? "border-purple-300/80 bg-purple-50/50 hover:bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300"
-                    : "border-amber-300 bg-amber-50/60 hover:bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-              }`}
+              className="h-7 text-xs rounded-full gap-1 px-3"
             >
-              {isEditingProfile ? (
-                <>
-                  <ChevronUp className="size-3.5 text-purple-600" />
-                  <span>ยุบฟอร์ม</span>
-                </>
-              ) : isProfileSaved ? (
-                <>
-                  <Edit3 className="size-3 text-purple-600" />
-                  <span>แก้ไขข้อมูล</span>
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="size-3.5 text-amber-600" />
-                  <span>ขยายฟอร์ม</span>
-                </>
-              )}
+              <Edit3 className="size-3" />
+              <span>{isEditingProfile ? "ยุบฟอร์ม" : "แก้ไขข้อมูล"}</span>
             </Button>
           </CardHeader>
 
           <CardContent className="p-4 sm:p-5">
-            {!isEditingProfile ? (
-              /* Collapsed Views */
-              isProfileSaved ? (
-                /* Verified Compact Summary View */
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-900/60">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs flex-1">
-                    <div>
-                      <span className="text-[10px] text-muted-foreground block font-medium">ชื่อ-นามสกุล / ผู้ประเมิน</span>
-                      <span className="font-semibold text-foreground flex items-center gap-1.5 mt-0.5">
-                        <User className="size-3 text-purple-600 shrink-0" />
-                        <span className="truncate">{expertProfile.name || "(ยังไม่ระบุชื่อ)"}</span>
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground block">ตำแหน่ง/บทบาทหลัก</span>
-                      <span className="font-semibold text-foreground block mt-0.5 truncate">
-                        {expertProfile.role === "อื่นๆ" ? expertProfile.role_other || "อื่นๆ" : expertProfile.role}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground block">ประสบการณ์ในวงการท่องเที่ยว</span>
-                      <span className="font-semibold text-foreground block mt-0.5">{expertProfile.experience}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground block">ความคุ้นเคยกับเทคโนโลยี AI</span>
-                      <span className="font-semibold text-foreground block mt-0.5 truncate">{expertProfile.ai_familiarity}</span>
-                    </div>
-                  </div>
-
-                  <div className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1 font-medium shrink-0">
-                    <CheckCircle2 className="size-3.5" />
-                    <span>ใช้ข้อมูลนี้กับทุกการประเมิน</span>
-                  </div>
-                </div>
-              ) : (
-                /* Unsaved Collapsed Notice */
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/50 text-xs">
-                  <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
-                    <AlertCircle className="size-4 text-amber-600 shrink-0" />
-                    <span>
-                      <strong>ข้อมูลผู้เชี่ยวชาญยังไม่ได้บันทึก</strong> — กรุณากรอกชื่อและข้อมูลก่อนส่งผลการประเมิน (ระบบจะจดจำไว้ตลอดการใช้งาน)
+            {isProfileSaved && !isEditingProfile ? (
+              /* Verified Compact View */
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-900/60">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs flex-1">
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">ตำแหน่ง/บทบาทหลัก</span>
+                    <span className="font-semibold text-foreground">
+                      {expertProfile.role === "อื่นๆ" ? expertProfile.role_other || "อื่นๆ" : expertProfile.role}
                     </span>
                   </div>
-                  <Button
-                    size="sm"
-                    onClick={() => setIsEditingProfile(true)}
-                    className="h-7 text-xs rounded-full gap-1.5 px-3.5 bg-purple-600 hover:bg-purple-700 text-white shrink-0"
-                  >
-                    <Edit3 className="size-3" />
-                    <span>กรอกข้อมูลผู้เชี่ยวชาญ</span>
-                  </Button>
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">ประสบการณ์ในวงการท่องเที่ยว</span>
+                    <span className="font-semibold text-foreground">{expertProfile.experience}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block">ความคุ้นเคยกับเทคโนโลยี AI</span>
+                    <span className="font-semibold text-foreground">{expertProfile.ai_familiarity}</span>
+                  </div>
                 </div>
-              )
+
+                <div className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1 font-medium shrink-0">
+                  <CheckCircle2 className="size-3.5" />
+                  <span>ใช้ข้อมูลนี้กับทุกการประเมิน</span>
+                </div>
+              </div>
             ) : (
               /* Expanded Edit Form */
               <div className="space-y-4">
@@ -1036,27 +841,6 @@ export default function BlindEvaluation() {
                   <span>
                     ข้อมูลส่วนนี้กรอกเพียงครั้งเดียว ระบบจะบันทึกไว้ในเบราว์เซอร์อัตโนมัติ และจะนำไปเชื่อมต่อกับทุกการประเมินของท่าน
                   </span>
-                </div>
-
-                {/* 0. Expert Full Name */}
-                <div className="p-2.5 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/70 dark:border-purple-900/50 space-y-1">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                    <Label htmlFor="expert-name-input" className="text-xs font-bold text-foreground flex items-center gap-1">
-                      <User className="size-3 text-purple-600" />
-                      <span>ชื่อ-นามสกุล / ชื่อผู้ประเมิน:</span>
-                      <span className="text-red-500 font-bold">*</span>
-                    </Label>
-                    <span className="text-[10px] text-muted-foreground">
-                      (ใช้แสดงผลในรายงานและการบันทึกผลการประเมิน)
-                    </span>
-                  </div>
-                  <Input
-                    id="expert-name-input"
-                    placeholder="เช่น ดร. สมชาย ใจดี, อ. วิภาวี เก่งการท่องเที่ยว, คุณกานต์ ทราเวลเลอร์"
-                    value={expertProfile.name || ""}
-                    onChange={(e) => setExpertProfile((p) => ({ ...p, name: e.target.value }))}
-                    className="text-xs h-8 rounded-xl bg-background border-border/80"
-                  />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1152,22 +936,10 @@ export default function BlindEvaluation() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-border/40 flex-wrap gap-2">
+                <div className="flex justify-end pt-2">
                   <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsEditingProfile(false)}
-                    className="h-8 px-3.5 rounded-full text-xs text-muted-foreground hover:text-foreground gap-1.5"
-                  >
-                    <ChevronUp className="size-3.5" />
-                    <span>ยุบฟอร์ม</span>
-                  </Button>
-
-                  <Button
-                    type="button"
                     onClick={handleSaveProfile}
-                    className="h-8 px-5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold gap-1.5 shadow-xs"
+                    className="h-9 px-5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold gap-1.5 shadow-sm"
                   >
                     <Save className="size-3.5" />
                     <span>บันทึกข้อมูลผู้เชี่ยวชาญ</span>
@@ -2345,56 +2117,202 @@ export default function BlindEvaluation() {
   function renderResultsSection() {
     return (
       <div className="space-y-6">
-        {/* Cloud Sync & Database Status Banner for Dev */}
-        <Card className="rounded-3xl border border-purple-200/80 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/70 via-indigo-50/40 to-background dark:from-purple-950/30 dark:via-indigo-950/15 dark:to-background p-4 sm:p-5 shadow-xs">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="size-10 rounded-2xl bg-purple-600/10 text-purple-600 flex items-center justify-center shrink-0">
-                <Cloud className="size-5" />
-              </div>
+        <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
+          <CardHeader className="pb-3 border-b border-border/50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
+                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                  <BarChart3 className="size-5 text-purple-600" />
+                  สรุปผลการประเมินของผู้เชี่ยวชาญ (Evaluation Analytics)
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm mt-0.5">
+                  วิเคราะห์ผลคะแนน 6 มิติ และการจัดอันดับของแต่ละโมเดล
+                </CardDescription>
+              </div>
+
+              <div className="flex items-center gap-3 p-2 px-3 rounded-2xl bg-secondary/40 border border-border/60">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-foreground">ระบบจัดเก็บฐานข้อมูล (Supabase Cloud Database)</h3>
-                  {dbStatus && (
-                    <Badge
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                        dbStatus.provider === "supabase"
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                          : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-                      }`}
-                    >
-                      {dbStatus.provider === "supabase" ? "Online / Connected" : "Local Storage Mode"}
-                    </Badge>
+                  {revealModels ? (
+                    <Eye className="size-4 text-emerald-600" />
+                  ) : (
+                    <EyeOff className="size-4 text-muted-foreground" />
                   )}
+                  <Label htmlFor="revealToggle" className="text-xs font-semibold cursor-pointer">
+                    เฉลยชื่อโมเดลจริง (Unblind)
+                  </Label>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {dbStatus?.provider === "supabase"
-                    ? `เชื่อมต่อตาราง blind_trips, blind_evaluations, blind_comparisons บน Supabase พร้อมรองรับผู้เชี่ยวชาญประเมินระยะไกล`
-                    : `กำลังใช้ข้อมูลจาก Local Backend สามารถกดซิงก์เพื่อนำเข้าข้อมูลขึ้น Supabase Cloud สำหรับ Deploy ได้ทันที`}
+                <Switch
+                  id="revealToggle"
+                  checked={revealModels}
+                  onCheckedChange={setRevealModels}
+                />
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-5">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div className="p-4 rounded-2xl bg-secondary/30 border border-border/50 text-center">
+                <span className="text-xs text-muted-foreground">จำนวนการประเมิน</span>
+                <p className="text-2xl font-bold text-foreground mt-1">
+                  {resultsData.evaluations.length} ครั้ง
+                </p>
+              </div>
+              <div className="p-4 rounded-2xl bg-secondary/30 border border-border/50 text-center">
+                <span className="text-xs text-muted-foreground">การจัดอันดับ Scenario</span>
+                <p className="text-2xl font-bold text-amber-600 mt-1">
+                  {resultsData.comparisons?.length || 0} ครั้ง
+                </p>
+              </div>
+              <div className="p-4 rounded-2xl bg-secondary/30 border border-border/50 text-center">
+                <span className="text-xs text-muted-foreground">จำนวนทริปในระบบ</span>
+                <p className="text-2xl font-bold text-purple-600 mt-1">
+                  {resultsData.total_trips} แผน
+                </p>
+              </div>
+              <div className="p-4 rounded-2xl bg-secondary/30 border border-border/50 text-center">
+                <span className="text-xs text-muted-foreground">โมเดลที่ร่วมทดสอบ</span>
+                <p className="text-2xl font-bold text-sky-600 mt-1">
+                  {resultsData.summary.length} โมเดล
                 </p>
               </div>
             </div>
-
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={syncingCloud}
-              onClick={handleSyncToCloud}
-              className="h-9 px-4 rounded-full gap-2 text-xs font-semibold bg-background hover:bg-purple-50 hover:text-purple-700 border-purple-300 shadow-2xs shrink-0 self-end sm:self-auto"
-            >
-              <RefreshCw className={`size-3.5 ${syncingCloud ? "animate-spin text-purple-600" : ""}`} />
-              <span>{syncingCloud ? "กำลังซิงก์ข้อมูลขึ้น Cloud..." : "ซิงก์ข้อมูล Local ขึ้น Supabase Cloud"}</span>
-            </Button>
-          </div>
+          </CardContent>
         </Card>
 
-        <EvaluationAnalytics
-          resultsData={resultsData}
-          trips={trips}
-          revealModels={revealModels}
-          setRevealModels={setRevealModels}
-          onRefreshResults={loadResults}
-        />
+        {/* 6-Dimension Score Leaderboard */}
+        <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
+          <CardHeader className="py-4 border-b border-border/50">
+            <CardTitle className="text-sm font-semibold">
+              ตารางเปรียบเทียบคะแนนเฉลี่ย 6 มิติ (6-Dimension Leaderboard)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="text-xs">โมเดล AI</TableHead>
+                  <TableHead className="text-xs text-center">จำนวนประเมิน</TableHead>
+                  <TableHead className="text-xs text-center">FA (ถูกต้อง)</TableHead>
+                  <TableHead className="text-xs text-center">CC (ข้อจำกัด)</TableHead>
+                  <TableHead className="text-xs text-center">PF (เป็นไปได้)</TableHead>
+                  <TableHead className="text-xs text-center">SR (เชิงพื้นที่)</TableHead>
+                  <TableHead className="text-xs text-center">DE (หลากหลาย)</TableHead>
+                  <TableHead className="text-xs text-center">RU (ยืดหยุ่น)</TableHead>
+                  <TableHead className="text-xs text-center font-bold text-purple-600">เฉลี่ย 6 ด้าน</TableHead>
+                  <TableHead className="text-xs text-center font-bold text-emerald-600">คะแนนภาพรวม (%)</TableHead>
+                  <TableHead className="text-xs text-center">ชนะโหวต</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {resultsData.summary.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={11} className="text-center py-8 text-xs text-muted-foreground">
+                      ยังไม่มีข้อมูลการประเมินที่ส่งเข้ามา
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  resultsData.summary.map((st, idx) => {
+                    const displayName = revealModels
+                      ? st.model
+                      : `Candidate Model #${idx + 1}`;
+                    return (
+                      <TableRow key={st.model} className="text-xs">
+                        <TableCell className="font-semibold">
+                          <div className="flex items-center gap-1.5">
+                            {revealModels ? (
+                              <Badge variant="outline" className="text-[11px] font-mono">
+                                {st.model}
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-[11px]">
+                                {displayName}
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">{st.evaluations_count}</TableCell>
+                        <TableCell className="text-center">{st.avg_fa ?? st.avg_accuracy}</TableCell>
+                        <TableCell className="text-center">{st.avg_cc ?? st.avg_persona}</TableCell>
+                        <TableCell className="text-center">{st.avg_pf ?? st.avg_temporal}</TableCell>
+                        <TableCell className="text-center">{st.avg_sr ?? st.avg_spatial}</TableCell>
+                        <TableCell className="text-center">{st.avg_de ?? st.avg_attraction}</TableCell>
+                        <TableCell className="text-center">{st.avg_ru ?? "-"}</TableCell>
+                        <TableCell className="text-center font-bold text-purple-600">
+                          {st.overall_score} / 5
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-emerald-600">
+                          {st.avg_overall_percentage ? `${st.avg_overall_percentage}%` : "-"}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[11px]">
+                            {st.total_wins}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        {/* Qualitative Thesis Analysis Section */}
+        {resultsData.comparisons && resultsData.comparisons.length > 0 && (
+          <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
+            <CardHeader className="py-4 border-b border-border/50">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <MessageSquareQuote className="size-4 text-purple-600" />
+                ผลการจัดอันดับและคำถามเชิงคุณภาพจากผู้เชี่ยวชาญ ({resultsData.comparisons.length} รายการ)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 space-y-4">
+              {resultsData.comparisons.map((cmp) => (
+                <div key={cmp.id} className="p-4 rounded-2xl bg-secondary/20 border border-border/40 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-foreground">
+                      ผู้ประเมิน: {cmp.expert_name} ({cmp.expert_profile?.role || "ผู้เชี่ยวชาญ"} • ประสบการณ์ {cmp.expert_profile?.experience || "-"})
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{cmp.submitted_at}</span>
+                  </div>
+
+                  <div className="flex gap-2 flex-wrap items-center">
+                    <Badge variant="outline">Scenario: {cmp.scenario_id}</Badge>
+                    <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                      เหมาะสมใช้งานจริง: {cmp.best_for_practical_use?.blind_label}
+                    </Badge>
+                  </div>
+
+                  {cmp.best_for_practical_use?.rationale && (
+                    <p className="text-muted-foreground italic">
+                      "เหตุผลความเหมาะสม: {cmp.best_for_practical_use.rationale}"
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-2 border-t border-border/30">
+                    <div className="p-2.5 rounded-xl bg-background/80">
+                      <span className="font-semibold block text-[11px] text-purple-600">1. นำไปใช้จริงมากที่สุด:</span>
+                      <p className="text-foreground mt-0.5">{cmp.qualitative_feedback?.q1_real_travel || "-"}</p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-background/80">
+                      <span className="font-semibold block text-[11px] text-purple-600">2. เข้าใจบริบทท่องเที่ยวดีที่สุด:</span>
+                      <p className="text-foreground mt-0.5">{cmp.qualitative_feedback?.q2_tourism_context || "-"}</p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-background/80">
+                      <span className="font-semibold block text-[11px] text-purple-600">3. ประสบการณ์คุ้มค่าที่สุด:</span>
+                      <p className="text-foreground mt-0.5">{cmp.qualitative_feedback?.q3_value_experience || "-"}</p>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-background/80">
+                      <span className="font-semibold block text-[11px] text-purple-600">4. ข้อแตกต่างหลักระหว่างโมเดล:</span>
+                      <p className="text-foreground mt-0.5">{cmp.qualitative_feedback?.q4_distinct_differences || "-"}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
       </div>
     );
   }
@@ -2489,12 +2407,13 @@ export default function BlindEvaluation() {
                     <TableCell className="text-muted-foreground">{u.name || "-"}</TableCell>
                     <TableCell>
                       <Badge
-                        className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${u.role === "dev"
+                        className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${
+                          u.role === "dev"
                             ? "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300"
                             : u.role === "expert"
-                              ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
-                              : "bg-slate-100 text-slate-700"
-                          }`}
+                            ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
+                            : "bg-slate-100 text-slate-700"
+                        }`}
                       >
                         {u.role}
                       </Badge>
@@ -2503,13 +2422,9 @@ export default function BlindEvaluation() {
                     <TableCell className="text-right">
                       <Select
                         value={u.role}
-                        onValueChange={async (newRole) => {
-                          try {
-                            await updateUserRole(u.email, newRole as UserRole, u.name);
-                            toast.success(`เปลี่ยนสิทธิ์ ${u.email} เป็น ${newRole.toUpperCase()} เรียบร้อยแล้ว`);
-                          } catch (err: any) {
-                            toast.error(`ไม่สามารถเปลี่ยนสิทธิ์ได้: ${err.message || err}`);
-                          }
+                        onValueChange={(newRole) => {
+                          updateUserRole(u.email, newRole as UserRole);
+                          toast.success(`เปลี่ยนสิทธิ์ ${u.email} เป็น ${newRole} เรียบร้อยแล้ว`);
                         }}
                       >
                         <SelectTrigger className="h-7 text-[11px] rounded-lg w-[110px] ml-auto">
