@@ -71,7 +71,7 @@ const categoryConfig: Record<string, { label: string; label_th: string; color: s
   attraction: { label: "Attraction", label_th: "สถานที่ท่องเที่ยว", color: "bg-primary/15 text-primary border-primary/20" },
 };
 
-function getFallbackSuggestions(locationName: string): SuggestedPlace[] {
+export function getFallbackSuggestions(locationName: string): SuggestedPlace[] {
   const defaults = [
     {
       name: `Scenic SkyWalk & Photo Landmark in ${locationName}`,
@@ -154,6 +154,51 @@ function getFallbackSuggestions(locationName: string): SuggestedPlace[] {
       description_en: `Calming sanctuary for traditional massage and relaxation.`,
       description_th: `สถานที่ผ่อนคลายด้วยการนวดแผนโบราณและการปรนนิบัติสุขภาพอย่างแท้จริง`
     },
+    {
+      name: `Outdoor Adventure Trail & Nature Walk in ${locationName}`,
+      name_en: `Outdoor Adventure Trail & Nature Walk in ${locationName}`,
+      name_th: `เส้นทางผจญภัยศึกษาธรรมชาติ & กิจกรรมกลางแจ้งใน ${locationName}`,
+      category: "adventure" as const,
+      description: `Scenic hiking and nature exploration trail with lush surroundings.`,
+      description_en: `Scenic hiking and nature exploration trail with lush surroundings.`,
+      description_th: `เส้นทางเดินป่าและสำรวจธรรมชาติสัมผัสความร่มรื่นและบรรยากาศอันบริสุทธิ์`
+    },
+    {
+      name: `Iconic Local Cafe & Dessert Spot in ${locationName}`,
+      name_en: `Iconic Local Cafe & Dessert Spot in ${locationName}`,
+      name_th: `คาเฟ่และร้านขนมหวานยอดนิยมใน ${locationName}`,
+      category: "food" as const,
+      description: `Charming local cafe offering specialty coffee, beverages, and famous artisan desserts.`,
+      description_en: `Charming local cafe offering specialty coffee, beverages, and famous artisan desserts.`,
+      description_th: `คาเฟ่บรรยากาศอบอุ่นพร้อมกาแฟแก้วโปรด เครื่องดื่ม และขนมหวานสูตรพิเศษแสนอร่อย`
+    },
+    {
+      name: `Interactive Cultural Museum & Art Gallery in ${locationName}`,
+      name_en: `Interactive Cultural Museum & Art Gallery in ${locationName}`,
+      name_th: `พิพิธภัณฑ์ศิลปวัฒนธรรม & แกลเลอรีสร้างสรรค์ใน ${locationName}`,
+      category: "culture" as const,
+      description: `Engaging cultural exhibits, local history, and contemporary regional artworks.`,
+      description_en: `Engaging cultural exhibits, local history, and contemporary regional artworks.`,
+      description_th: `นิทรรศการวัฒนธรรมอันทรงคุณค่า ประวัติศาสตร์ท้องถิ่น และผลงานศิลปะร่วมสมัย`
+    },
+    {
+      name: `Waterfront Marina & Scenic Boat Pier in ${locationName}`,
+      name_en: `Waterfront Marina & Scenic Boat Pier in ${locationName}`,
+      name_th: `ท่าเรือท่องเที่ยวริมน้ำ & จุดชมทัศนียภาพริมสายน้ำใน ${locationName}`,
+      category: "activity" as const,
+      description: `Scenic riverside walk and boat tour terminal offering picturesque cruise activities.`,
+      description_en: `Scenic riverside walk and boat tour terminal offering picturesque cruise activities.`,
+      description_th: `ท่าเรือท่องเที่ยวริมสายน้ำและจุดล่องเรือสัมผัสบรรยากาศวิถีชีวิตริมน้ำสุดประทับใจ`
+    },
+    {
+      name: `Boutique Handicraft & Artisan Mall in ${locationName}`,
+      name_en: `Boutique Handicraft & Artisan Mall in ${locationName}`,
+      name_th: `คอมมูนิตี้มอลล์งานคราฟต์ & แหล่งช้อปปิ้งของทำมือใน ${locationName}`,
+      category: "shopping" as const,
+      description: `Open-air lifestyle complex featuring handcrafted goods, fashion, and local artist stalls.`,
+      description_en: `Open-air lifestyle complex featuring handcrafted goods, fashion, and local artist stalls.`,
+      description_th: `ศูนย์รวมสินค้างานฝีมือ ของทำมือน่ารัก งานดีไซน์ และสินค้าไลฟ์สไตล์จากศิลปินท้องถิ่น`
+    }
   ];
 
   return defaults.map((item, i) => ({
@@ -348,7 +393,27 @@ const AISuggestedPlaces = ({ onAddToItinerary, locationName, suggestions: propSu
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string>("all");
 
-  const suggestions = propSuggestions || internalSuggestions;
+  // Guarantee at least 10 suggestions are always displayed (backfill if needed)
+  const rawSuggestions = propSuggestions && propSuggestions.length > 0 ? propSuggestions : internalSuggestions;
+  const suggestions = useMemo(() => {
+    if (rawSuggestions.length >= 10) {
+      return rawSuggestions;
+    }
+    const fallbacks = getFallbackSuggestions(locationName || "Destination");
+    const existingNames = new Set(
+      rawSuggestions.map((s) => (s.name || s.name_en || s.title_en || "").toLowerCase().trim())
+    );
+    const combined = [...rawSuggestions];
+    for (const fb of fallbacks) {
+      const fbKey = (fb.name || fb.name_en || "").toLowerCase().trim();
+      if (!existingNames.has(fbKey)) {
+        combined.push(fb);
+        existingNames.add(fbKey);
+        if (combined.length >= 10) break;
+      }
+    }
+    return combined;
+  }, [rawSuggestions, locationName]);
 
   const fetchSuggestions = useCallback(async () => {
     if (!locationName || propSuggestions) return;
@@ -396,10 +461,15 @@ const AISuggestedPlaces = ({ onAddToItinerary, locationName, suggestions: propSu
   return (
     <div className="animate-slide-up w-full">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
-          <Sparkles className="w-6 h-6 text-primary" />
-          {language === "th" ? `สถานที่แนะนำเพิ่มเติมใกล้เคียง ${locPlace({ name: locationName }) || locationName}` : `AI Suggested Places near ${locPlace({ name: locationName }) || locationName}`}
-        </h2>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <Sparkles className="w-6 h-6 text-primary" />
+            {language === "th" ? `สถานที่แนะนำเพิ่มเติมใกล้เคียง ${locPlace({ name: locationName }) || locationName}` : `AI Suggested Places near ${locPlace({ name: locationName }) || locationName}`}
+          </h2>
+          <Badge variant="secondary" className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary border-primary/20">
+            {suggestions.length} {language === "th" ? "แห่ง" : "places"}
+          </Badge>
+        </div>
         <Button
           variant="outline"
           size="sm"

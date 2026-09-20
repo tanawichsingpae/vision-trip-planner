@@ -72,6 +72,20 @@ export interface FoursquareSearchResponse {
   context?: any;
 }
 
+// Circuit breaker: If Foursquare reports 429 (Requires paid credits / rate limited),
+// we silence further requests for the rest of the session to avoid spamming the console.
+let isSearchApiExhausted = false;
+let isPhotoApiExhausted = false;
+
+export function isFoursquareRateLimited(): boolean {
+  return isSearchApiExhausted || isPhotoApiExhausted;
+}
+
+export function setFoursquareRateLimited(limited: boolean = true) {
+  isSearchApiExhausted = limited;
+  isPhotoApiExhausted = limited;
+}
+
 /**
  * Perform a venue search with automatic CORS-safe proxy routing.
  */
@@ -85,7 +99,7 @@ export async function foursquareSearch(
   }
 ): Promise<FoursquareSearchResponse | null> {
   const cleanQ = query.trim();
-  if (!cleanQ) return null;
+  if (!cleanQ || isSearchApiExhausted) return null;
 
   const limit = options?.limit ?? 1;
   const radius = options?.radius ?? 50000;
@@ -102,6 +116,11 @@ export async function foursquareSearch(
         url += `&ll=${llParam}&radius=${radius}`;
       }
       const res = await fetch(url);
+      if (res.status === 429 || res.status === 402) {
+        console.warn("[foursquareSearch] Foursquare rate limit (429/402) reached. Circuit breaker activated.");
+        isSearchApiExhausted = true;
+        return null;
+      }
       if (res.ok) {
         return (await res.json()) as FoursquareSearchResponse;
       }
@@ -110,6 +129,8 @@ export async function foursquareSearch(
     }
   }
 
+  if (isSearchApiExhausted) return null;
+
   // 2. Production or fallback: Backend server proxy
   try {
     let url = `${BACKEND_URL}/foursquare/search?query=${encodeURIComponent(cleanQ)}&limit=${limit}`;
@@ -117,6 +138,11 @@ export async function foursquareSearch(
       url += `&ll=${llParam}&radius=${radius}`;
     }
     const res = await fetch(url);
+    if (res.status === 429 || res.status === 402) {
+      console.warn("[foursquareSearch] Foursquare backend proxy rate limit (429/402) reached. Circuit breaker activated.");
+      isSearchApiExhausted = true;
+      return null;
+    }
     if (res.ok) {
       return (await res.json()) as FoursquareSearchResponse;
     }
@@ -126,10 +152,6 @@ export async function foursquareSearch(
 
   return null;
 }
-
-// Circuit breaker: If Foursquare reports 429 (Requires paid credits for photos endpoint),
-// we silence further requests for the rest of the session to avoid spamming the console.
-let isPhotoApiExhausted = false;
 
 /**
  * Fetch venue photos with automatic CORS-safe proxy routing.

@@ -71,20 +71,39 @@ describe("LanguageContext & Localization Helpers", () => {
       expect(getLocalizedPlace({ title: "night market" }, "th")).toBe("ตลาดนัดกลางคืน");
     });
 
-    it("translates known attractions or falls back gracefully when absent", () => {
-      const sensojiItem: LocalizablePlace = {
+    it("falls back to english_name or title when localized field is absent", () => {
+      const legacyItem: LocalizablePlace = {
         title: "Senso-ji Temple",
         english_name: "Senso-ji Temple",
       };
-      expect(getLocalizedPlace(sensojiItem, "th")).toBe("วัดเซ็นโซจิ (อาซากุสะ)");
-      expect(getLocalizedPlace(sensojiItem, "en")).toBe("Senso-ji Temple");
+      expect(getLocalizedPlace(legacyItem, "th")).toBe("Senso-ji Temple");
+      expect(getLocalizedPlace(legacyItem, "en")).toBe("Senso-ji Temple");
+    });
 
-      const unknownItem: LocalizablePlace = {
-        title: "Unknown Hidden Spot 99",
-        english_name: "Unknown Hidden Spot 99",
+    it("handles compound bilingual place names cleanly", () => {
+      const compound1: LocalizablePlace = {
+        title: "วัดพระแก้ว (Wat Phra Kaew)",
       };
-      expect(getLocalizedPlace(unknownItem, "th")).toBe("Unknown Hidden Spot 99");
-      expect(getLocalizedPlace(unknownItem, "en")).toBe("Unknown Hidden Spot 99");
+      expect(getLocalizedPlace(compound1, "th")).toBe("วัดพระแก้ว");
+      expect(getLocalizedPlace(compound1, "en")).toBe("Wat Phra Kaew");
+
+      const compound2: LocalizablePlace = {
+        title: "Wat Arun (วัดอรุณ)",
+      };
+      expect(getLocalizedPlace(compound2, "th")).toBe("วัดอรุณ");
+      expect(getLocalizedPlace(compound2, "en")).toBe("Wat Arun");
+
+      const compoundDelimited: LocalizablePlace = {
+        title: "ตลาดน้ำดำเนินสะดวก / Damnoen Saduak Floating Market",
+      };
+      expect(getLocalizedPlace(compoundDelimited, "th")).toBe("ตลาดน้ำดำเนินสะดวก");
+      expect(getLocalizedPlace(compoundDelimited, "en")).toBe("Damnoen Saduak Floating Market");
+    });
+
+    it("translates top landmarks using expanded dictionary", () => {
+      expect(getLocalizedPlace({ title: "พระบรมมหาราชวัง" }, "en")).toBe("The Grand Palace");
+      expect(getLocalizedPlace({ title: "chatuchak weekend market" }, "th")).toBe("ตลาดนัดจตุจักร");
+      expect(getLocalizedPlace({ title: "iconsiam" }, "th")).toBe("ไอคอนสยาม");
     });
 
     it("handles null and undefined gracefully", () => {
@@ -116,28 +135,73 @@ describe("LanguageContext & Localization Helpers", () => {
       );
     });
 
-    it("translates phrase patterns or falls back to default description", () => {
-      const patternedItem: LocalizableDescription = {
-        description: "Enjoy lunch at Siam Paragon",
+    it("falls back to default description when localized version is missing", () => {
+      const item: LocalizableDescription = {
+        description: "Explore the bustling street food night market",
       };
-      expect(getLocalizedDescription(patternedItem, "th")).toBe(
-        "รับประทานอาหารกลางวันแสนอร่อยที่ สยามพารากอน"
+      expect(getLocalizedDescription(item, "th")).toBe(
+        "Explore the bustling street food night market"
       );
+      expect(getLocalizedDescription(item, "en")).toBe(
+        "Explore the bustling street food night market"
+      );
+    });
 
-      const customItem: LocalizableDescription = {
-        description: "A very unique custom activity note 123",
+    it("extracts bilingual components from compound description", () => {
+      const compoundDesc: LocalizableDescription = {
+        description: "สัมผัสความงดงามทางประวัติศาสตร์ (Experience the magnificent historic beauty)",
       };
-      expect(getLocalizedDescription(customItem, "th")).toBe(
-        "A very unique custom activity note 123"
+      expect(getLocalizedDescription(compoundDesc, "th")).toBe(
+        "สัมผัสความงดงามทางประวัติศาสตร์"
       );
-      expect(getLocalizedDescription(customItem, "en")).toBe(
-        "A very unique custom activity note 123"
+      expect(getLocalizedDescription(compoundDesc, "en")).toBe(
+        "Experience the magnificent historic beauty"
       );
     });
 
     it("handles empty description gracefully", () => {
       expect(getLocalizedDescription(null, "th")).toBe("");
       expect(getLocalizedDescription(undefined, "en")).toBe("");
+    });
+
+    it("switches title and description back and forth between Thai and English smoothly", () => {
+      const activityItem: LocalizablePlace & LocalizableDescription = {
+        title_th: "วัดอรุณราชวราราม",
+        title_en: "Wat Arun (Temple of Dawn)",
+        description_th: "ชมพระปรางค์ริมแม่น้ำเจ้าพระยาอันวิจิตรงดงาม",
+        description_en: "Admire the magnificent porcelain spires along the Chao Phraya River",
+      };
+
+      // Cycle 1: Thai
+      expect(getLocalizedPlace(activityItem, "th")).toBe("วัดอรุณราชวราราม");
+      expect(getLocalizedDescription(activityItem, "th")).toBe("ชมพระปรางค์ริมแม่น้ำเจ้าพระยาอันวิจิตรงดงาม");
+
+      // Switch to English
+      expect(getLocalizedPlace(activityItem, "en")).toBe("Wat Arun (Temple of Dawn)");
+      expect(getLocalizedDescription(activityItem, "en")).toBe("Admire the magnificent porcelain spires along the Chao Phraya River");
+
+      // Switch BACK to Thai
+      expect(getLocalizedPlace(activityItem, "th")).toBe("วัดอรุณราชวราราม");
+      expect(getLocalizedDescription(activityItem, "th")).toBe("ชมพระปรางค์ริมแม่น้ำเจ้าพระยาอันวิจิตรงดงาม");
+
+      // Switch BACK to English again
+      expect(getLocalizedPlace(activityItem, "en")).toBe("Wat Arun (Temple of Dawn)");
+      expect(getLocalizedDescription(activityItem, "en")).toBe("Admire the magnificent porcelain spires along the Chao Phraya River");
+    });
+
+    it("prefers cached AI translation when opposite language field was missing", () => {
+      const placeKey = "Custom Night Market Stall";
+      localStorage.setItem(`trans_th:${placeKey}`, "แผงขายของตลาดกลางคืนพิเศษ");
+
+      const item: LocalizablePlace = {
+        title: placeKey,
+      };
+
+      expect(getLocalizedPlace(item, "th")).toBe("แผงขายของตลาดกลางคืนพิเศษ");
+      expect(getLocalizedPlace(item, "en")).toBe("Custom Night Market Stall");
+
+      // Toggle back to Thai
+      expect(getLocalizedPlace(item, "th")).toBe("แผงขายของตลาดกลางคืนพิเศษ");
     });
   });
 
@@ -175,3 +239,4 @@ describe("LanguageContext & Localization Helpers", () => {
     });
   });
 });
+

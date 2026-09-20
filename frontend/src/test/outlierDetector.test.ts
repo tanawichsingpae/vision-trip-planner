@@ -87,6 +87,50 @@ describe("Vision AI Outlier Detection & Geo-Distance Rules", () => {
     expect(chiangMaiOutlier.canRestore).toBe(true);
   });
 
+  it("should flag places > 55 km (e.g. Chon Buri / Bang Saen ~68 km) as DISTANCE_EXCEEDED with default 55 km threshold", () => {
+    const results: GeoVisionResult[] = [
+      {
+        place: "Grand Palace",
+        country: "Thailand",
+        type: "culture",
+        confidence: 0.85,
+        lat: 13.7500,
+        lng: 100.4913,
+        similar_locations: [],
+      },
+      {
+        place: "Wat Pho",
+        country: "Thailand",
+        type: "culture",
+        confidence: 0.88,
+        lat: 13.7466,
+        lng: 100.4930,
+        similar_locations: [],
+      },
+      {
+        place: "Bang Saen Beach (Chon Buri)", // ~68 km south-east of Bangkok
+        country: "Thailand",
+        type: "nature",
+        confidence: 0.82,
+        lat: 13.2830,
+        lng: 100.9150,
+        similar_locations: [],
+      },
+    ];
+
+    // Using default threshold (55 km)
+    const { kept, outliers } = detectVisionOutliers(results, true);
+
+    expect(kept.length).toBe(2);
+    expect(outliers.length).toBe(1);
+
+    const chonBuriOutlier = outliers[0];
+    expect(chonBuriOutlier.category).toBe("DISTANCE_EXCEEDED");
+    expect(chonBuriOutlier.distanceKm).toBeGreaterThan(55);
+    expect(chonBuriOutlier.distanceKm).toBeLessThan(100);
+    expect(chonBuriOutlier.canRestore).toBe(true);
+  });
+
   it("should detect country mismatch outliers", () => {
     const results: GeoVisionResult[] = [
       {

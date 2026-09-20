@@ -160,37 +160,48 @@ TRAVELER PREFERENCES:
 DAILY WEATHER FORECAST:
 ${weatherText}
 
-ACADEMIC OPTIMIZATION & SELECTION MISSION (TTDP & OPTW STANDARDS):
-1. UNTANGLE GEOGRAPHIC PATHS & NO CIRCULAR LOOPS (2-Opt TSP):
-   - Sequence activities in each day so the route flows in an open forward direction across the neighborhood.
-   - Strictly ELIMINATE zigzagging back-and-forth across town (>10 km U-turns) and loopbacks where the evening spot meets the morning starting spot.
-2. DISTRICT GROUPING:
-   - If attractions are in the same neighborhood (within ~2.5-3.5 km), schedule them on the SAME day rather than split across days.
-   - For distant attractions (>25 km), dedicate an isolated excursion day cluster.
-3. PHYSIOLOGICAL DINING RHYTHM & MEAL SEPARATION:
-   - Every day MUST have a dedicated midday lunch window (11:30 - 13:00) located near morning attractions (within ~1.5 km).
+ACADEMIC OPTIMIZATION & TRIP OVERVIEW REVIEW (TTDP & OPTW STANDARDS):
+0. TRIP OVERVIEW & MACRO-ZONE ARCHITECTURE (CRITICAL):
+   - Review the OVERALL TRIP OVERVIEW across all ${currentItinerary.length} days as a whole.
+   - NON-OVERLAPPING DAILY ZONES: Each day MUST explore a distinct, non-overlapping geographic zone/district (e.g. Day 1: Historic Old Town & Riverside, Day 2: Downtown Siam & Shopping, Day 3: Northern Culture / Ari / Chatuchak).
+   - RADIAL DISTRIBUTION: Daily trips MUST radiate outward around the user's uploaded locations into distinct sectors across the city without revisiting or duplicating districts across different days.
+   - LOAD BALANCE: Balance activities and travel rhythm evenly across days so no day is excessively rushed or empty.
+1. TIGHT INTRA-DAY NEIGHBORHOOD CLUSTERING (NO CROSS-TOWN JUMPING):
+   - All activities for a single day MUST be tightly clustered within that day's designated zone (radius <= 3.5 - 4.0 km).
+   - Strictly ELIMINATE cross-town jumping (e.g. jumping between North and South, or Phahonyothin, Old Town, Sathon, and Rama 3 in the same day). All consecutive hops must be <= 3.0 km.
+   - If any day contains a stray or distant venue (> 4.0 km away from the day's primary cluster), REPLACE IT with a top-rated, popular venue located in the SAME district as the other activities of that day.
+2. UNTANGLE GEOGRAPHIC PATHS & NO CIRCULAR LOOPS (2-Opt TSP):
+   - Sequence activities in each day so the route flows in an open forward direction across the neighborhood corridor.
+   - Strictly ELIMINATE zigzagging back-and-forth and loopbacks where the evening spot meets the morning starting spot.
+3. DISTRICT GROUPING:
+   - If attractions are in the same neighborhood (within ~2.0-2.8 km), schedule them on the SAME day rather than split across days.
+   - For distant attractions (>20 km), dedicate an isolated excursion day cluster.
+4. PHYSIOLOGICAL DINING RHYTHM & MEAL SEPARATION:
+   - Every day MUST have a dedicated midday lunch window (11:30 - 13:00) located near morning attractions (within ~1.0-1.2 km).
    - Evening dinner MUST be scheduled at 18:00 - 20:30.
    - Golden Hour & Sunset observation decks MUST be at 17:00 - 18:30.
    - NEVER place consecutive food/restaurant stops back-to-back without a cultural/sightseeing/leisure stop in between.
-4. OPERATING HOURS & DWELL TIME BUFFER:
+5. OPERATING HOURS & DWELL TIME BUFFER:
    - For venues closing around 17:00-18:00, schedule them with at least 1.5 - 2 hours buffer before closing (start by 15:30 - 16:30).
    - Public walking streets, night markets, and open areas are assumed open 24 hours.
-   - Keep distance between consecutive stops within 10 - 15 km max.
-5. BUDGET COMPATIBILITY (TTDP MULTI-OBJECTIVE CONSTRAINT):
+   - Keep distance between consecutive stops strictly within 3.5 km max (or walking distance).
+6. BUDGET COMPATIBILITY (TTDP MULTI-OBJECTIVE CONSTRAINT):
    - If Budget is "Budget", replace expensive luxury venues (Price Level 3-4, fine dining) with top-rated local authentic street food and affordable attractions.
    - If Budget is "Luxury", prioritize premium dining and iconic upscale experiences.
-6. TRAVELER PERSONA SUITABILITY (TOURIST TYPOLOGY):
+7. TRAVELER PERSONA SUITABILITY (TOURIST TYPOLOGY):
    - If Traveler Type is "Family", strictly replace any nightlife, bars, adult spots, or extreme hiking with family-friendly attractions (museums, aquariums, theme parks, calm parks).
    - If "Senior", strictly eliminate strenuous physical exertion and steep treks.
-7. QUALITY GATE & ANTI-TOURIST-TRAP:
+8. QUALITY GATE & ANTI-TOURIST-TRAP:
    - If an activity has a low rating (<3.8★) or is flagged as an overpriced tourist trap, replace it with a higher-rated (>=4.0★) local favorite in the same district.
-8. CATEGORY BURNOUT PREVENTION (SATIATION THEORY):
+9. CATEGORY BURNOUT PREVENTION (SATIATION THEORY):
    - Never schedule 3 or more consecutive spots of the same category (e.g. 3 temples or 3 shopping malls in a row). Interleave dining, shopping, scenic parks, or relaxation.
-9. WEATHER SUITABILITY:
+10. WEATHER SUITABILITY:
    - For any day forecasted with heavy rain or thunderstorms, move outdoor beach, island, or open-air activities to indoor cultural, museum, or covered market venues.
-10. PRESERVE USER-CHOSEN PLACES: Keep valid user-selected attractions unless specifically flagged as incompatible, closed, or unsafe.
-11. CATEGORY TYPE ACCURACY: Each activity "type" MUST accurately reflect its true category: "culture", "food", "nature", "adventure", "shopping", "nightlife", "relax", "landmark", "entertainment", "spiritual", or "hotel". DO NOT label everything as "attraction".
-12. PRESERVE EXACT TRIP DURATION (MANDATORY): The input itinerary has EXACTLY ${currentItinerary.length} days. You MUST output EXACTLY ${currentItinerary.length} days (Day 1 through Day ${currentItinerary.length}) in the "itinerary" array. NEVER drop, merge, or collapse days!
+11. PRESERVE USER-CHOSEN PLACES: Keep valid user-selected attractions unless specifically flagged as incompatible, closed, or unsafe, anchored into their proper day zone.
+12. CATEGORY TYPE ACCURACY: Each activity "type" MUST accurately reflect its true category: "culture", "food", "nature", "adventure", "shopping", "nightlife", "relax", "landmark", "entertainment", "spiritual", or "hotel". DO NOT label everything as "attraction".
+13. PRESERVE EXACT TRIP DURATION (MANDATORY): The input itinerary has EXACTLY ${currentItinerary.length} days. You MUST output EXACTLY ${currentItinerary.length} days (Day 1 through Day ${currentItinerary.length}) in the "itinerary" array. NEVER drop, merge, or collapse days!
+14. ELIMINATE SPATIAL OUTLIERS & LONG HOPS (MANDATORY):
+   - If any activity is flagged with [Spatial Outlier Alert], [Intra-Day Hop Alert], or [Trip Overview: Scattered Day] (located > 4.0 km away from adjacent stops or cluster center), you MUST IMMEDIATELY REPLACE IT with a top-rated, popular attraction situated in the SAME district as the other activities of that day (within 1.5-3.0 km). NEVER allow an intra-day hop between consecutive places to exceed 3.5 km.
 
 Return ONLY the refined itinerary strictly in this JSON format:
 {
@@ -288,11 +299,12 @@ export async function generateMoreSuggestions(
   model: AIModelType
 ): Promise<SuggestedPlace[]> {
   const modelId = MODEL_ID_MAP[model];
-  const prompt = `Generate 10 new travel suggestions for ${locationName}. 
+  const prompt = `Generate AT LEAST 10 to 12 new, distinct travel suggestions for ${locationName}. 
   
   Requirements:
+  - MANDATORY COUNT: You MUST return AT LEAST 10 to 12 distinct suggestions. Never return fewer than 10.
   - DO NOT include these places: ${existingPlaces.length > 0 ? existingPlaces.join(", ") : "none"}.
-  - Ensure the suggestions cover all these categories: attraction, food, nature, culture, activity, shopping, nightlife, relax.
+  - Ensure the suggestions cover diverse categories: attraction, food, nature, culture, activity, shopping, nightlife, relax, landmark, spiritual, entertainment.
   - BILINGUAL RULE (MANDATORY): For every place, provide BOTH Thai ("name_th", "description_th") AND English ("name_en", "description_en") fields with natural, high quality translations.
   - COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every suggestion based on real Google Maps data. DO NOT return 0 or fictional coordinates.
   - Use ONLY real, geocodable place names.
@@ -765,17 +777,23 @@ async function callOpenRouterPlan(
   const month = preferences.startDate.getMonth() + 1;
   const season = month >= 3 && month <= 5 ? "Spring" : month >= 6 && month <= 8 ? "Summer" : month >= 9 && month <= 11 ? "Autumn" : "Winter";
 
+  const rawTargetCity = places[0] || "the destination";
+  const isTargetLandmark = /(wat|temple|palace|shrine|museum|park|sanctuary|eatery|food|eateries)/i.test(rawTargetCity);
+  const promptTargetCity = isTargetLandmark ? (places[0] || "the destination") : rawTargetCity;
+
   const hotelInfoText = preferences.hasHotel === "yes" && preferences.hotelName
     ? `\nHotel / Accommodation Anchor: ${preferences.hotelName}${preferences.hotelLat && preferences.hotelLng ? ` (Lat: ${preferences.hotelLat}, Lng: ${preferences.hotelLng})` : ""}. Daily exploration should originate from and conclude near this accommodation without unnecessary backtracking.\n`
     : "";
 
   const spatialConstraintsText = dayClusters && dayClusters.length > 0
-    ? `\nSPATIAL CLUSTER & DIRECTIONAL CONSTRAINTS (MANDATORY TO FOLLOW):
-The locations have been partitioned into ${dayClusters.length} spatial daily clusters with Macro-TSP progression.
-${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
-- Centroid: Lat ${c.centroid?.lat.toFixed(4) || "N/A"}, Lng ${c.centroid?.lng.toFixed(4) || "N/A"}${c.radiusKm ? ` (Max Radius: ${c.radiusKm.toFixed(1)} km)` : ""}
+    ? `\nSPATIAL CLUSTER & RADIAL NON-OVERLAPPING ZONE CONSTRAINTS (CRITICAL & MANDATORY):
+The trip MUST be partitioned into ${dayClusters.length} DISTINCT, NON-OVERLAPPING DAILY DISTRICT ZONES radiating around the user's primary locations:
+${dayClusters.map((c) => `Day ${c.day} Geographic Zone:
+- Centroid: Lat ${c.centroid?.lat.toFixed(4) || "N/A"}, Lng ${c.centroid?.lng.toFixed(4) || "N/A"}${c.radiusKm ? ` (Tight Neighborhood Radius: <= ${Math.min(3.5, c.radiusKm).toFixed(1)} km)` : " (Tight Neighborhood Radius: <= 3.5 km)"}
 - Suggested Anchors: ${c.pois.map(p => p.name).slice(0, 4).join(", ")}
-- Rule for Day ${c.day}: Keep ALL activities for Day ${c.day} strictly clustered in this specific geographic zone. DO NOT jump to another district far away. Progress logically from morning to evening without criss-crossing paths.`).join("\n")}\n`
+- MANDATORY RULE FOR DAY ${c.day}: Keep ALL activities for Day ${c.day} strictly clustered in this single neighborhood/district (radius <= 3.5 km). DO NOT jump to another district across town (e.g. NEVER mix North and South Bangkok in the same day). All consecutive hops must be <= 3.0 km.
+- NON-OVERLAPPING RULE: Day ${c.day}'s zone must be completely distinct from other days. NEVER repeat or duplicate districts across different days.
+- MONOTONIC OPEN CORRIDOR: Sequence spots from morning anchor to lunch to afternoon attraction to sunset and dinner in an open forward flow without looping back to the morning starting spot.`).join("\n")}\n`
     : "";
 
   const totalDays = Math.max(1, preferences.days || 1);
@@ -785,10 +803,10 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
         "day": ${d},
         "date": "Day ${d} - [District / Area Theme]",
         "activities": [
-          { "time": "09:30", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "culture", "lat": 0, "lng": 0, "openingHours": ["Monday: 08:30 – 17:30", "Tuesday: 08:30 – 17:30", "Wednesday: 08:30 – 17:30", "Thursday: 08:30 – 17:30", "Friday: 08:30 – 17:30", "Saturday: 08:30 – 17:30", "Sunday: 08:30 – 17:30"] },
-          { "time": "12:00", "title": "... (Lunch)", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "food", "lat": 0, "lng": 0, "openingHours": ["Monday: 11:00 – 21:30", "Tuesday: 11:00 – 21:30", "Wednesday: 11:00 – 21:30", "Thursday: 11:00 – 21:30", "Friday: 11:00 – 22:00", "Saturday: 11:00 – 22:00", "Sunday: 11:00 – 21:30"] },
-          { "time": "14:30", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "landmark", "lat": 0, "lng": 0, "openingHours": ["Monday: 10:00 – 20:00", "Tuesday: 10:00 – 20:00", "Wednesday: 10:00 – 20:00", "Thursday: 10:00 – 20:00", "Friday: 10:00 – 20:00", "Saturday: 10:00 – 20:00", "Sunday: 10:00 – 20:00"] },
-          { "time": "18:00", "title": "... (Dinner / Night)", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "nightlife", "lat": 0, "lng": 0, "openingHours": ["Monday: 17:00 – 00:00", "Tuesday: 17:00 – 00:00", "Wednesday: 17:00 – 00:00", "Thursday: 17:00 – 00:00", "Friday: 17:00 – 01:00", "Saturday: 17:00 – 01:00", "Sunday: 17:00 – 00:00"] }
+          { "time": "09:30", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "culture", "lat": 13.7563, "lng": 100.5018, "openingHours": ["Monday: 08:30 – 17:30", "Tuesday: 08:30 – 17:30", "Wednesday: 08:30 – 17:30", "Thursday: 08:30 – 17:30", "Friday: 08:30 – 17:30", "Saturday: 08:30 – 17:30", "Sunday: 08:30 – 17:30"] },
+          { "time": "12:00", "title": "... (Lunch)", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "food", "lat": 13.7540, "lng": 100.5030, "openingHours": ["Monday: 11:00 – 21:30", "Tuesday: 11:00 – 21:30", "Wednesday: 11:00 – 21:30", "Thursday: 11:00 – 21:30", "Friday: 11:00 – 22:00", "Saturday: 11:00 – 22:00", "Sunday: 11:00 – 21:30"] },
+          { "time": "14:30", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "landmark", "lat": 13.7580, "lng": 100.5060, "openingHours": ["Monday: 10:00 – 20:00", "Tuesday: 10:00 – 20:00", "Wednesday: 10:00 – 20:00", "Thursday: 10:00 – 20:00", "Friday: 10:00 – 20:00", "Saturday: 10:00 – 20:00", "Sunday: 10:00 – 20:00"] },
+          { "time": "18:00", "title": "... (Dinner / Night)", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "nightlife", "lat": 13.7595, "lng": 100.5085, "openingHours": ["Monday: 17:00 – 00:00", "Tuesday: 17:00 – 00:00", "Wednesday: 17:00 – 00:00", "Thursday: 17:00 – 00:00", "Friday: 17:00 – 01:00", "Saturday: 17:00 – 01:00", "Sunday: 17:00 – 00:00"] }
         ]
       }`;
   }).join(",\n");
@@ -808,35 +826,36 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
   0. MANDATORY TRIP DURATION & MULTI-DAY EXPANSION (CRITICAL):
      - The user explicitly requested a ${totalDays}-DAY itinerary.
      - You MUST generate an "itinerary" array containing EXACTLY ${totalDays} separate day objects (from Day 1 up to Day ${totalDays}).
-     - NEVER return fewer than ${totalDays} days! (e.g. if the trip is 3 days, you MUST return an array with Day 1, Day 2, and Day 3).
+     - NEVER return fewer than ${totalDays} days!
      - MULTI-DAY EXPANSION: Even if the user provided only 1 or 2 initial locations (${places.join(", ")}), do NOT bunch everything onto Day 1!
-       * Schedule the user's uploaded location(s) in Day 1 (and/or Day 2).
-       * For all other days (Day 2, Day 3, up to Day ${totalDays}), YOU MUST ACTIVELY EXPAND and introduce the best complementary attractions, iconic sights, local food markets, and cultural landmarks in different geographic districts of the destination city.
+       * Schedule the user's uploaded location(s) in Day 1 (and/or Day 2) anchored in its natural local zone.
+       * For all other days (Day 2, Day 3, up to Day ${totalDays}), YOU MUST ACTIVELY EXPAND and introduce the best complementary attractions in DIFFERENT, NON-OVERLAPPING geographic districts radiating outward from the center.
        * Each day must be a full, engaging schedule with 3 to 5 realistic activities (Morning Sightseeing, Midday Lunch, Afternoon Attraction, Dinner/Nightlife).
-       * RETURNING FEWER THAN ${totalDays} DAYS IS STRICTLY UNACCEPTABLE AND WILL BE REJECTED.
-  1. UNTANGLED DAILY ROUTE & NO CIRCULAR LOOPING (OPEN PROGRESSION):
-     - DO NOT force the 1st point and the last point of the day to meet or loop back to each other! Real travelers follow an OPEN forward path across the district:
-       Morning Sightseeing -> Lunch nearby -> Afternoon Attraction -> Sunset Viewpoint -> Dinner / Night Market at the other end of the corridor.
-     - NEVER organize a circular loop where the evening spot is right next to the morning start point while midday was far away.
-     - Each day's travel route MUST progress smoothly in one direction without criss-crossing or zigzagging across town.
-  2. STRICT GEOGRAPHIC DISTRICT GROUPING (NO REVISITING SAME DISTRICT ACROSS DAYS):
-     - Group all places within the same neighborhood/district (within ~2.5-3.5 km) into the SAME day.
+  1. UNTANGLED DAILY ROUTE & TIGHT NEIGHBORHOOD CLUSTERING:
+     - All activities within a single day MUST be clustered within ONE specific neighborhood/zone (radius <= 3.5 - 4.0 km).
+     - NEVER jump across distant districts within the same day (e.g. jumping between Phahonyothin/Sanam Pao, Old Town, Sathon, and Rama 3 on the same day is strictly forbidden!).
+     - DO NOT force the 1st point and the last point of the day to meet or loop back to each other. Real travelers follow an OPEN forward corridor path across the district.
+  2. RADIAL DISTRIBUTION & STRICT NON-OVERLAPPING DAILY ZONES:
+     - Daily trips MUST radiate outward around the user's uploaded locations into distinct sectors across the city without repeating or overlapping zones across days.
+     - Day 1 anchors the user's uploaded location(s) in its local zone (e.g. Historic Old Town & Riverside).
+     - Subsequent days radiate outward to complementary, mutually exclusive geographic zones (e.g. Day 2: Downtown Siam/Pathum Wan, Day 3: Chatuchak/Ari, Day 4: Riverside South/Silom).
      - NEVER scatter places from the same district across different days (e.g., avoid visiting Grand Palace on Day 1 and returning to Wat Pho on Day 3).
   3. MANDATORY MIDDAY LUNCH (11:00 - 13:00 / 11:30 - 13:00):
-     - EVERY single day MUST include a dedicated lunch restaurant/food activity in the midday slot (11:30 - 13:00) located within walking distance (<= 800m - 1km) of the morning attraction.
+     - EVERY single day MUST include a dedicated lunch restaurant/food activity in the midday slot (11:30 - 13:00) located within walking distance (<= 600m - 1km) of the morning attraction.
   4. STRICTLY NO CONSECUTIVE RESTAURANTS:
      - DO NOT schedule back-to-back restaurants or cafes in the same day without a sightseeing or cultural activity in between.
      - Structure per day: Morning Sightseeing -> Lunch (11:30-13:00) -> Afternoon Attraction -> Sunset/Golden Hour (17:00-18:30) -> Dinner/Nightlife (18:30-21:00).
-  5. DEDICATED DAY-TRIP EXCURSION DAYS (>25 KM):
-     - If visiting attractions outside the central urban area (>25-50 km, e.g. Ayutthaya, Safari World, Damnoen Saduak, Mt. Fuji), dedicate ONE ENTIRE DAY exclusively as a "Day-Trip Excursion". DO NOT mix a distant excursion with city-center walking spots on the same day.
+  5. DEDICATED DAY-TRIP EXCURSION DAYS (>20 KM):
+     - If visiting attractions outside the central urban area (>20-40 km, e.g. Ayutthaya, Safari World, Damnoen Saduak, Mt. Fuji), dedicate ONE ENTIRE DAY exclusively as a "Day-Trip Excursion". DO NOT mix a distant excursion with city-center walking spots on the same day.
   6. REAL-WORLD TIMING, CLOSING BUFFER & DWELL TIME (MANDATORY):
      - DWELL TIME CLOSING BUFFER: Do NOT schedule a venue right before it closes! The activity start time plus visit duration (dwell time, typically 1.5 - 2 hours) MUST be less than or equal to closing time (e.g., if a temple/museum closes at 18:00, schedule it to begin at 16:00 - 16:30 at the latest so visitors have ample time).
      - 24-HOUR ZONE EXCEPTION: Public districts, old towns, street food areas, walking streets, riverfronts, and beaches are open public zones assumed to be 24 hours.
      - Place observation decks/viewpoints/sunset spots at 16:30 - 18:30 (Golden Hour).
      - Place night markets, evening cruises, and nightlife after 18:30.
-  7. COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every activity, suggestion, and accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
+  7. COORDINATES RULE (MANDATORY & ACCURATE):
+     - Provide real, accurate latitude and longitude ("lat" and "lng") for every activity, suggestion, and accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
   8. ACCOMMODATIONS RULE (MANDATORY): You MUST provide at least 5 to 8 diverse, real accommodations/hotels (luxury, boutique, mid-range, budget) located in or near the trip destinations. Include real hotel names with priceLevel from 1 (budget) to 4 (luxury).
-  9. Use ONLY real, geocodable place names for activity "title". DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll") in the "title". Place descriptions in the "description" field.
+  9. Use ONLY real, geocodable, specific POI names for activity "title". DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll") in the "title". DO NOT invent generic places or duplicate sibling park numbers (e.g. do NOT schedule "Park 1" and "Park 2" on the same day). Place descriptions in the "description" field.
   10. CATEGORY TYPE ACCURACY (MANDATORY):
       - Each activity "type" MUST accurately match its true function from one of these categories:
         * "culture" (historic temples, museums, ancient ruins, palaces, heritage monuments, art galleries)
@@ -853,12 +872,21 @@ ${dayClusters.map((c) => `Day ${c.day} Cluster Zone:
       - DO NOT default to "attraction". Choose the exact true category for every place.
   11. OPENING HOURS (MANDATORY):
       - For EVERY activity and suggestion, provide an authentic 7-day operating schedule in the "openingHours" array (Monday to Sunday) reflecting actual real-world venue hours (e.g. ["Monday: 08:30 – 17:30", "Tuesday: 08:30 – 17:30", "Wednesday: 08:30 – 17:30", "Thursday: 08:30 – 17:30", "Friday: 08:30 – 17:30", "Saturday: 08:30 – 17:30", "Sunday: 08:30 – 17:30"]). If closed on certain days, specify e.g. "Monday: Closed".
-  12. ADJACENT HOP DISTANCE & COMMUTE LIMIT (10-15 KM HARD CEILING):
-      - Consecutive activities (Activity 1 -> 2, 2 -> 3) within a day MUST be in close proximity (ideally <= 3 to 5 km, or 10-15 min travel).
-      - HARD CEILING: The distance between any two consecutive activities MUST NOT exceed 10 to 15 km (or <= 20 to 30 min transit). Never jump across distant ends of the metropolis back and forth.
+  12. ADJACENT HOP DISTANCE & COMMUTE LIMIT (STRICT 3.5 KM MAXIMUM CEILING IN URBAN ZONES):
+      - Consecutive activities (Activity 1 -> 2, 2 -> 3) within a day MUST be in close proximity (ideally <= 1.0 to 2.5 km, or 5-15 min travel).
+      - HARD CEILING: The distance between ANY two consecutive activities MUST NOT exceed 3.5 km. Never jump across distant ends of the metropolis back and forth.
   13. BILINGUAL TRANSLATION (MANDATORY):
       - Every activity, every suggestion, and every accommodation MUST include both Thai ("title_th"/"name_th", "description_th") AND English ("title_en"/"name_en", "description_en") fields.
       - Provide natural, accurate translations in both Thai and English.
+  14. AI SUGGESTED PLACES (MANDATORY - AT LEAST 10 TO 12 SUGGESTIONS):
+      - You MUST return AT LEAST 10 to 12 distinct, exciting, and diverse suggested places in the "suggestions" array for visitors exploring ${promptTargetCity}.
+      - Cover diverse categories: culture, food, nature, adventure, activity, shopping, nightlife, relax, landmark, spiritual, entertainment.
+      - Never return fewer than 10 suggestions.
+  15. NO SPATIAL OUTLIERS (STRICT 4.0 KM TOTAL DAY SPAN LIMIT):
+      - All activities scheduled in a single day MUST be clustered within the same local district (<= 4.0 km total radius from cluster center).
+      - NEVER schedule a single rogue outlier place in a distant province or outer suburb (e.g. do NOT include Chon Buri, Pattaya, Rayong, or distant suburbs in an urban Bangkok trip).
+      - Every consecutive pair on Day D must be strictly within 3.5 km. Any hop > 3.5 km is STRICTLY FORBIDDEN.
+
 
   Return the response strictly in JSON format matching this schema:
   {
@@ -869,6 +897,7 @@ ${daySchemaExamples}
       /* MANDATORY: The "itinerary" array MUST contain EXACTLY ${totalDays} day items (Day 1 through Day ${totalDays}) */
     ],
     "suggestions": [
+      /* MANDATORY: The "suggestions" array MUST contain AT LEAST 10 to 12 unique, diverse items */
       {
         "name": "Primary Name",
         "name_th": "ชื่อภาษาไทย",
@@ -953,7 +982,7 @@ ${daySchemaExamples}
     // If still fewer days than totalDays, populate missing days from suggestions or destination highlights
     while (parsed.itinerary.length < totalDays) {
       const nextDayNum = parsed.itinerary.length + 1;
-      const suggestionsPool = Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
+      const suggestionsPool = Array.isArray(parsed.suggestions) ? [...parsed.suggestions] : [];
       
       const dayActivities: any[] = [];
       const times = ["09:30", "12:30", "15:00", "18:30"];
@@ -1604,11 +1633,11 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
         priceLevel: details.priceLevel,
         website: details.website,
         phoneNumber: details.phoneNumber,
-        title_th: act.title_th || (hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "th")),
-        title_en: act.title_en || act.english_name || (!hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "en")),
-        description_th: act.description_th || (hasThaiScript(act.description) ? act.description : translateTextSync(act.description, "th")),
-        description_en: act.description_en || (!hasThaiScript(act.description) ? act.description : translateTextSync(act.description, "en")),
-        english_name: act.english_name || act.title_en || (!hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "en")),
+        title_th: (act.title_th && hasThaiScript(act.title_th)) ? act.title_th : (hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "th")),
+        title_en: (act.title_en && !hasThaiScript(act.title_en)) ? act.title_en : (act.english_name || (!hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "en"))),
+        description_th: (act.description_th && hasThaiScript(act.description_th)) ? act.description_th : (hasThaiScript(act.description) ? act.description : ""),
+        description_en: (act.description_en && !hasThaiScript(act.description_en)) ? act.description_en : (!hasThaiScript(act.description) ? act.description : ""),
+        english_name: (act.english_name && !hasThaiScript(act.english_name)) ? act.english_name : (act.title_en || (!hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "en"))),
         wiki_title: act.wiki_title,
         image_keyword: act.image_keyword,
       };
@@ -1628,10 +1657,10 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
     );
     const accurateCategory = inferActivityType(sug.name, sug.description, sug.category, details?.types);
     const resolvedPhoto = details.photo_url || getCuratedFallbackPhoto(accurateCategory, searchKeyword || sug.name, { cityName, countryName, indexOffset });
-    const name_th = sug.name_th || (hasThaiScript(sug.name) ? sug.name : translateTextSync(sug.name, "th"));
-    const name_en = sug.name_en || sug.english_name || (!hasThaiScript(sug.name) ? sug.name : translateTextSync(sug.name, "en"));
-    const desc_th = sug.description_th || (hasThaiScript(sug.description) ? sug.description : translateTextSync(sug.description, "th"));
-    const desc_en = sug.description_en || (!hasThaiScript(sug.description) ? sug.description : translateTextSync(sug.description, "en"));
+    const name_th = (sug.name_th && hasThaiScript(sug.name_th)) ? sug.name_th : (hasThaiScript(sug.name) ? sug.name : translateTextSync(sug.name, "th"));
+    const name_en = (sug.name_en && !hasThaiScript(sug.name_en)) ? sug.name_en : (sug.english_name || (!hasThaiScript(sug.name) ? sug.name : translateTextSync(sug.name, "en")));
+    const desc_th = (sug.description_th && hasThaiScript(sug.description_th)) ? sug.description_th : (hasThaiScript(sug.description) ? sug.description : "");
+    const desc_en = (sug.description_en && !hasThaiScript(sug.description_en)) ? sug.description_en : (!hasThaiScript(sug.description) ? sug.description : "");
     return {
       ...sug,
       category: (accurateCategory === "transport" ? "attraction" : accurateCategory) as any,
@@ -1672,10 +1701,10 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
       { countryName, wikiTitle: acc.wiki_title, indexOffset }
     );
     const resolvedPhoto = details.photo_url || getCuratedFallbackPhoto("hotel", searchKeyword || acc.name, { cityName, countryName, indexOffset });
-    const name_th = acc.name_th || (hasThaiScript(acc.name) ? acc.name : translateTextSync(acc.name, "th"));
-    const name_en = acc.name_en || acc.english_name || (!hasThaiScript(acc.name) ? acc.name : translateTextSync(acc.name, "en"));
-    const desc_th = acc.description_th || (hasThaiScript(acc.description) ? acc.description : translateTextSync(acc.description, "th"));
-    const desc_en = acc.description_en || (!hasThaiScript(acc.description) ? acc.description : translateTextSync(acc.description, "en"));
+    const name_th = (acc.name_th && hasThaiScript(acc.name_th)) ? acc.name_th : (hasThaiScript(acc.name) ? acc.name : translateTextSync(acc.name, "th"));
+    const name_en = (acc.name_en && !hasThaiScript(acc.name_en)) ? acc.name_en : (acc.english_name || (!hasThaiScript(acc.name) ? acc.name : translateTextSync(acc.name, "en")));
+    const desc_th = (acc.description_th && hasThaiScript(acc.description_th)) ? acc.description_th : (hasThaiScript(acc.description) ? acc.description : "");
+    const desc_en = (acc.description_en && !hasThaiScript(acc.description_en)) ? acc.description_en : (!hasThaiScript(acc.description) ? acc.description : "");
     return {
       ...acc,
       category: "hotel" as const,

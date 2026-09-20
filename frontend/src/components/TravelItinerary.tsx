@@ -29,7 +29,7 @@ import { useDistanceMatrix } from "@/hooks/useDistanceMatrix";
 import { type ForecastHour } from "@/services/environmentService";
 import { type ItineraryCoherence } from "@/api/spatialPlanner";
 import { useLanguage } from "@/context/LanguageContext";
-import { translateTextSync, hasThaiScript } from "@/services/translatorService";
+import { translateTextSync, translateTextAsync, batchTranslateWithAI, hasThaiScript, extractBilingualText } from "@/services/translatorService";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -359,7 +359,7 @@ const SortableCard = ({
       <div className="relative h-44 sm:h-48 overflow-hidden pdf-img-compact">
         <img
           src={getActivityImage(activity, cityName)}
-          alt={activity.title}
+          alt={displayTitle || activity.title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
           onError={(e) => {
@@ -449,9 +449,6 @@ const SortableCard = ({
               </SelectContent>
             </Select>
           </div>
-          <span className="pdf-only text-xs font-bold px-1.5 py-0.5 select-none">
-            {activity.time || "10:00"}
-          </span>
         </div>
 
         <div className="absolute top-3 left-12 z-20 opacity-0 group-hover:opacity-100 transition-opacity pdf-hidden">
@@ -1454,10 +1451,13 @@ const TravelItinerary = ({
   };
 
   const addActivity = (dayIndex: number, place: SuggestedPlace, time: string) => {
-    const placeNameTh = place.name_th || (place as any).title_th || (hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "th"));
-    const placeNameEn = place.name_en || (place as any).title_en || place.english_name || (!hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "en"));
-    const placeDescTh = place.description_th || (hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "th"));
-    const placeDescEn = place.description_en || (!hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "en"));
+    const bilingualName = extractBilingualText(place.name);
+    const bilingualDesc = extractBilingualText(place.description);
+
+    const placeNameTh = place.name_th || (place as any).title_th || bilingualName?.th || (hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "th"));
+    const placeNameEn = place.name_en || (place as any).title_en || place.english_name || bilingualName?.en || (!hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "en"));
+    const placeDescTh = place.description_th || bilingualDesc?.th || (hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "th"));
+    const placeDescEn = place.description_en || bilingualDesc?.en || (!hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "en"));
 
     const newActivity: Activity = {
       id: `act-${Date.now()}`,
@@ -1491,14 +1491,141 @@ const TravelItinerary = ({
   };
 
   const saveEdit = (dayIndex: number, activityId: string) => {
+    const isThai = language === "th";
+    const newTitle = editValue.trim();
+    if (!newTitle) {
+      setEditingId(null);
+      return;
+    }
+
     const updated = itinerary.map((day, i) =>
       i === dayIndex
-        ? { ...day, activities: day.activities.map((a) => (a.id === activityId ? { ...a, title: editValue } : a)) }
+        ? {
+            ...day,
+            activities: day.activities.map((a) => {
+              if (a.id !== activityId) return a;
+              return {
+                ...a,
+                title: newTitle,
+                title_th: isThai ? newTitle : a.title_th,
+                title_en: !isThai ? newTitle : a.title_en,
+              };
+            }),
+          }
         : day
     );
     onUpdate(updated);
     setEditingId(null);
+
+    // Asynchronously translate the edited title so language toggling keeps working
+    const targetLang = isThai ? "en" : "th";
+    translateTextAsync(newTitle, targetLang).then((translated) => {
+      if (translated && translated !== newTitle) {
+        onUpdate(
+          itinerary.map((day, i) =>
+            i === dayIndex
+              ? {
+                  ...day,
+                  activities: day.activities.map((a) => {
+                    if (a.id !== activityId) return a;
+                    return {
+                      ...a,
+                      title_th: isThai ? newTitle : translated,
+                      title_en: !isThai ? newTitle : translated,
+                      english_name: !isThai ? newTitle : translated,
+                    };
+                  }),
+                }
+              : day
+          )
+        );
+      }
+    }).catch(() => {});
   };
+
+  // Background AI translation to ensure both Thai and English fields are populated for all activities
+  useEffect(() => {
+    if (!itinerary || itinerary.length === 0) return;
+
+    const itemsToTranslateTh: Array<{ id: string; text: string }> = [];
+    const itemsToTranslateEn: Array<{ id: string; text: string }> = [];
+
+    for (const day of itinerary) {
+      for (const act of day.activities) {
+        // Missing Thai title
+        if (!act.title_th || !hasThaiScript(act.title_th)) {
+          const candidate = act.title || act.title_en || "";
+          if (candidate && !hasThaiScript(candidate)) {
+            itemsToTranslateTh.push({ id: `t_${act.id}`, text: candidate });
+          }
+        }
+        // Missing English title
+        if (!act.title_en || hasThaiScript(act.title_en)) {
+          const candidate = act.title || act.title_th || "";
+          if (candidate && hasThaiScript(candidate)) {
+            itemsToTranslateEn.push({ id: `t_${act.id}`, text: candidate });
+          }
+        }
+        // Missing Thai description
+        if (!act.description_th || !hasThaiScript(act.description_th)) {
+          const candidate = act.description || act.description_en || "";
+          if (candidate && !hasThaiScript(candidate)) {
+            itemsToTranslateTh.push({ id: `d_${act.id}`, text: candidate });
+          }
+        }
+        // Missing English description
+        if (!act.description_en || hasThaiScript(act.description_en)) {
+          const candidate = act.description || act.description_th || "";
+          if (candidate && hasThaiScript(candidate)) {
+            itemsToTranslateEn.push({ id: `d_${act.id}`, text: candidate });
+          }
+        }
+      }
+    }
+
+    if (itemsToTranslateTh.length > 0) {
+      batchTranslateWithAI(itemsToTranslateTh, "th").then((transMap) => {
+        if (!transMap || Object.keys(transMap).length === 0) return;
+        onUpdate(
+          itinerary.map((d) => ({
+            ...d,
+            activities: d.activities.map((a) => {
+              const thTitle = transMap[`t_${a.id}`];
+              const thDesc = transMap[`d_${a.id}`];
+              if (!thTitle && !thDesc) return a;
+              return {
+                ...a,
+                title_th: thTitle || a.title_th,
+                description_th: thDesc || a.description_th,
+              };
+            }),
+          }))
+        );
+      }).catch(() => {});
+    }
+
+    if (itemsToTranslateEn.length > 0) {
+      batchTranslateWithAI(itemsToTranslateEn, "en").then((transMap) => {
+        if (!transMap || Object.keys(transMap).length === 0) return;
+        onUpdate(
+          itinerary.map((d) => ({
+            ...d,
+            activities: d.activities.map((a) => {
+              const enTitle = transMap[`t_${a.id}`];
+              const enDesc = transMap[`d_${a.id}`];
+              if (!enTitle && !enDesc) return a;
+              return {
+                ...a,
+                title_en: enTitle || a.title_en,
+                english_name: enTitle || a.english_name,
+                description_en: enDesc || a.description_en,
+              };
+            }),
+          }))
+        );
+      }).catch(() => {});
+    }
+  }, [itinerary.length]);
 
   const updateTime = (dayIndex: number, activityId: string, newTime: string) => {
     const updated = itinerary.map((day, i) => {
@@ -1563,61 +1690,63 @@ const TravelItinerary = ({
           </p>
         </div>
 
-        {/* AI Self-Review & Auto-Optimize Button with Confirmation Dialog */}
-        {onAIRefine && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button
-                disabled={isAIRefining}
-                className="flex items-center gap-2 px-3.5 sm:px-4 py-2 bg-primary text-primary-foreground text-xs sm:text-sm font-semibold rounded-2xl shadow-xs hover:bg-primary/90 active:scale-95 transition-all pdf-hidden disabled:opacity-50 cursor-pointer"
-                title={language === "th" ? "ให้ AI ตรวจสอบกฎการเดินทาง เส้นทาง และจัดระเบียบตารางใหม่อัตโนมัติ" : "Let AI verify travel rules, routes, and auto-optimize schedule"}
-              >
-                {isAIRefining ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>{language === "th" ? "กำลังตรวจ & จัดระเบียบ..." : "Reviewing & Optimizing..."}</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>{language === "th" ? "AI Review & จัดระเบียบ" : "AI Review & Auto-Optimize"}</span>
-                  </>
-                )}
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent className="max-w-md rounded-2xl p-6 bg-card border-border shadow-lg">
-              <AlertDialogHeader className="text-left space-y-2.5">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
-                    <Sparkles className="size-5" />
-                  </div>
-                  <AlertDialogTitle className="text-base sm:text-lg font-bold text-foreground">
-                    {language === "th" ? "ยืนยันให้ AI จัดระเบียบตารางเที่ยวทั้งทริป?" : "Optimize entire trip with AI?"}
-                  </AlertDialogTitle>
-                </div>
-                <AlertDialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed pt-1">
-                  {language === "th"
-                    ? "AI จะตรวจสอบและจัดระเบียบตามเกณฑ์งานวิจัยสากล (TTDP & OPTW): จัดกลุ่มสถานที่ใกล้เคียง, เรียงเส้นทางเป็นระเบียงราบรื่น (2-Opt Anti-Zigzag), ปรับเวลาอาหารเที่ยงและเย็น, ตรวจสอบงบประมาณ, ความเหมาะสมของกลุ่มผู้เดินทาง, และหลีกเลี่ยงความซ้ำซากจำเจของหมวดสถานที่"
-                    : "AI will review and optimize your itinerary based on TTDP & OPTW standards: clustering nearby POIs, 2-Opt anti-zigzag smooth routing, meal timings, budget pacing, and variety balance."}
-                  <span className="block mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] sm:text-xs font-medium text-amber-700 dark:text-amber-300">
-                    💡 <strong>{language === "th" ? "ข้อแนะนำ:" : "Tip:"}</strong> {language === "th" ? "ลำดับเวลาและสถานที่อาจถูกปรับแต่งให้สอดคล้องกับเส้นทางและเวลาเปิด-ปิดจริงอย่างมีประสิทธิภาพสูงสุด" : "Times and POI order may be refined to match actual opening hours and travel distances efficiently."}
-                  </span>
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter className="flex-row items-center justify-end gap-2 pt-3">
-                <AlertDialogCancel className="rounded-xl text-xs h-9 px-4 mt-0">
-                  {t("cancel")}
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={onAIRefine}
-                  className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-xs h-9 px-4 font-semibold"
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* AI Self-Review & Auto-Optimize Button with Confirmation Dialog */}
+          {onAIRefine && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={isAIRefining}
+                  className="flex items-center gap-2 px-3.5 sm:px-4 py-2 bg-primary text-primary-foreground text-xs sm:text-sm font-semibold rounded-2xl shadow-xs hover:bg-primary/90 active:scale-95 transition-all pdf-hidden disabled:opacity-50 cursor-pointer"
+                  title={language === "th" ? "ให้ AI ตรวจสอบกฎการเดินทาง เส้นทาง และจัดระเบียบตารางใหม่อัตโนมัติ" : "Let AI verify travel rules, routes, and auto-optimize schedule"}
                 >
-                  {language === "th" ? "เริ่มจัดระเบียบแผน ✨" : "Start Optimizing ✨"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
+                  {isAIRefining ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>{language === "th" ? "กำลังตรวจ & จัดระเบียบ..." : "Reviewing & Optimizing..."}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>{language === "th" ? "AI Review & จัดระเบียบ" : "AI Review & Auto-Optimize"}</span>
+                    </>
+                  )}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="max-w-md rounded-2xl p-6 bg-card border-border shadow-lg">
+                <AlertDialogHeader className="text-left space-y-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+                      <Sparkles className="size-5" />
+                    </div>
+                    <AlertDialogTitle className="text-base sm:text-lg font-bold text-foreground">
+                      {language === "th" ? "ยืนยันให้ AI จัดระเบียบตารางเที่ยวทั้งทริป?" : "Optimize entire trip with AI?"}
+                    </AlertDialogTitle>
+                  </div>
+                  <AlertDialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed pt-1">
+                    {language === "th"
+                      ? "AI จะตรวจสอบและจัดระเบียบตามเกณฑ์งานวิจัยสากล (TTDP & OPTW): จัดกลุ่มสถานที่ใกล้เคียง, เรียงเส้นทางเป็นระเบียงราบรื่น (2-Opt Anti-Zigzag), ปรับเวลาอาหารเที่ยงและเย็น, ตรวจสอบงบประมาณ, ความเหมาะสมของกลุ่มผู้เดินทาง, และหลีกเลี่ยงความซ้ำซากจำเจของหมวดสถานที่"
+                      : "AI will review and optimize your itinerary based on TTDP & OPTW standards: clustering nearby POIs, 2-Opt anti-zigzag smooth routing, meal timings, budget pacing, and variety balance."}
+                    <span className="block mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] sm:text-xs font-medium text-amber-700 dark:text-amber-300">
+                      💡 <strong>{language === "th" ? "ข้อแนะนำ:" : "Tip:"}</strong> {language === "th" ? "ลำดับเวลาและสถานที่อาจถูกปรับแต่งให้สอดคล้องกับเส้นทางและเวลาเปิด-ปิดจริงอย่างมีประสิทธิภาพสูงสุด" : "Times and POI order may be refined to match actual opening hours and travel distances efficiently."}
+                    </span>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter className="flex-row items-center justify-end gap-2 pt-3">
+                  <AlertDialogCancel className="rounded-xl text-xs h-9 px-4 mt-0">
+                    {t("cancel")}
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={onAIRefine}
+                    className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-xs h-9 px-4 font-semibold"
+                  >
+                    {language === "th" ? "เริ่มจัดระเบียบแผน ✨" : "Start Optimizing ✨"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 min-[1800px]:grid-cols-3 gap-5 items-start pdf-grid-cols-2">

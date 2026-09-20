@@ -57,13 +57,13 @@ function computeRobustHubCentroid(places: GeoVisionResult[]): { lat: number; lng
 
 /**
  * Detects and classifies outlier images from Vision AI results.
- * Supports geo-distance filtering with 50-70 km tolerance for neighboring province excursions.
+ * Supports geo-distance filtering with 45-55 km tolerance for neighboring province excursions.
  */
 export function detectVisionOutliers(
   results: GeoVisionResult[],
   useClip: boolean = true,
-  distanceThresholdKm: number = 70,
-  excursionThresholdKm: number = 35
+  distanceThresholdKm: number = 55,
+  excursionThresholdKm: number = 28
 ): { kept: GeoVisionResult[]; outliers: OutlierItem[] } {
   if (!results || results.length === 0) {
     return { kept: [], outliers: [] };

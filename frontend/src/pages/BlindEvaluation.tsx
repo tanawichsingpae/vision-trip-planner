@@ -35,7 +35,6 @@ import type { LocationData } from "@/components/LocationDisplay";
 import { DAY_COLORS, type Activity, typeConfig } from "@/components/TravelItinerary";
 import { getPlaceImage } from "@/utils/getPlaceImage";
 import EvaluationAnalytics from "@/components/EvaluationAnalytics";
-import { useLanguage } from "@/context/LanguageContext";
 import {
   Plane,
   Eye,
@@ -209,7 +208,6 @@ const DEFAULT_SCORES: DetailedDimensionScores = {
 
 export default function BlindEvaluation() {
   const { role, setRole, userEmail, userRolesList, updateUserRole, refreshUserRoles, isDev } = useAuth();
-  const { language, locPlace, locDesc } = useLanguage();
 
   // Active Main Tab (Dev only can switch tabs; Expert stays in 'eval')
   const [activeTab, setActiveTab] = useState<"eval" | "results" | "users">("eval");
@@ -1701,12 +1699,17 @@ export default function BlindEvaluation() {
 
                                 <div>
                                   <h4 className="text-xs sm:text-sm font-bold text-foreground leading-snug">
-                                    {locPlace(act) || act.title}
+                                    {act.title_th || act.title}
                                   </h4>
+                                  {act.title_en && act.title_en !== act.title && (
+                                    <span className="text-[11px] text-muted-foreground font-normal">
+                                      {act.title_en}
+                                    </span>
+                                  )}
                                 </div>
 
                                 <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                                  {locDesc(act) || act.description}
+                                  {act.description_th || act.description}
                                 </p>
 
                                 <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground/80 flex-wrap">

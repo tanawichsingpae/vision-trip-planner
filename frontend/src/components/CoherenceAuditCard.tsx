@@ -10,7 +10,9 @@ import {
   Compass,
   Palette,
   Timer,
-  Target
+  Target,
+  MapPin,
+  Layers,
 } from "lucide-react";
 import { type ItineraryCoherence } from "@/api/spatialPlanner";
 
@@ -56,6 +58,7 @@ export const CoherenceAuditCard: React.FC<CoherenceAuditCardProps> = ({
 
   const selectionScore = coherence.selectionScore ?? 95;
   const hasWarnings = coherence.warnings && coherence.warnings.length > 0;
+  const tripOverview = coherence.tripOverview;
 
   return (
     <div className="mb-6 rounded-2xl border border-border/80 bg-card/80 backdrop-blur-md shadow-xs p-4 sm:p-5 transition-all pdf-hidden">
@@ -122,6 +125,61 @@ export const CoherenceAuditCard: React.FC<CoherenceAuditCardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Trip Overview & Macro-Zones Bar */}
+      {tripOverview && tripOverview.dailyZones.length > 0 && (
+        <div className="mt-4 pt-3.5 border-t border-border/60">
+          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+              <Layers className="size-3.5 text-primary" />
+              <span>ภาพรวมการจัดโซนท่องเที่ยว (Trip Overview & Daily Zones)</span>
+            </div>
+            <span
+              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                tripOverview.isZoneSeparated
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20"
+                  : "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20"
+              }`}
+            >
+              {tripOverview.isZoneSeparated
+                ? "✨ แยกโซนชัดเจน ไม่ทับซ้อนข้ามวัน"
+                : `⚠️ ตรวจพบโซนทับซ้อน (${tripOverview.zoneIndependenceScore}%)`}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            {tripOverview.dailyZones.map((zone) => (
+              <div
+                key={zone.day}
+                className="p-2.5 rounded-xl bg-secondary/30 border border-border/40 flex items-start gap-2 text-xs"
+              >
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary font-bold text-[11px]">
+                  {zone.day}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-foreground truncate flex items-center gap-1">
+                    <MapPin className="size-3 text-muted-foreground shrink-0" />
+                    <span className="truncate">{zone.zoneName}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5">
+                    <span>{zone.activityCount} สถานที่</span>
+                    <span>·</span>
+                    <span
+                      className={
+                        zone.radiusKm <= 4.0
+                          ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                          : "text-amber-600 dark:text-amber-400 font-medium"
+                      }
+                    >
+                      รัศมี {zone.radiusKm} กม. ({zone.radiusKm <= 4.0 ? "เกาะกลุ่มดี" : "กระจายกว้าง"})
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 4 Core Pillars Sub-scores Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 mt-4 pt-4 border-t border-border/60">

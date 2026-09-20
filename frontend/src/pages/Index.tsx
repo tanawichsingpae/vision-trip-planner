@@ -67,7 +67,7 @@ import TravelItinerary, {
   DAY_COLORS,
 } from "@/components/TravelItinerary";
 import MapSection from "@/components/MapSection";
-import AISuggestedPlaces, { type SuggestedPlace, SuggestionDragOverlay } from "@/components/AISuggestedPlaces";
+import AISuggestedPlaces, { type SuggestedPlace, SuggestionDragOverlay, getFallbackSuggestions } from "@/components/AISuggestedPlaces";
 import AIAccommodations, { HotelDragOverlay } from "@/components/AIAccommodations";
 import FlightInfoDashboard from "@/components/FlightInfoDashboard";
 import ChatBot, { type Message as ChatMessage } from "@/components/ChatBot";
@@ -81,7 +81,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getCoordinates, distanceMetres } from "@/api/geocode";
 import { getNearbyAttractions, fetchPlaceDetails, fetchPlaceDetailsByPlaceId, getFallbackOpeningHours } from "@/api/places";
-import { gatherCandidatePOIs, kMeansCluster, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, rebalanceCrossDayPOIs, auditItineraryIssues, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
+import { gatherCandidatePOIs, kMeansCluster, partitionPoisIntoNonOverlappingSectors, calculateMasterHub, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, rebalanceCrossDayPOIs, scrubAndRelocateDayOutliers, enforceMaxHopDistance, auditItineraryIssues, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
 import { generateTravelPlan, refineItineraryWithAI, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, inferFallbackNonTravelContent, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
 import { fetchRecommendedAccommodations } from "@/services/hotelService";
 
@@ -178,13 +178,17 @@ const AttractionDragOverlay = ({ name, photo_url }: { name: string; photo_url?: 
 
 // Overlay for dragged itinerary card
 const ItineraryDragOverlay = ({ activity }: { activity: Activity }) => {
-  const config = typeConfig[activity.type];
+  const { locPlace, locDesc } = useLanguage();
+  const config = typeConfig[activity.type] || typeConfig.attraction;
+  const displayTitle = locPlace(activity) || activity.title;
+  const displayDesc = locDesc(activity) || activity.description;
+
   return (
     <div className="w-64 md:w-72 rounded-2xl overflow-hidden bg-card border shadow-2xl scale-105 rotate-1">
       <div className="relative h-40 overflow-hidden">
         <img
           src={getActivityImage(activity)}
-          alt={activity.title}
+          alt={displayTitle}
           className="w-full h-full object-cover"
           onError={(e) => {
             e.currentTarget.src = getCuratedFallbackPhoto(activity.type, activity.title);
@@ -196,8 +200,8 @@ const ItineraryDragOverlay = ({ activity }: { activity: Activity }) => {
         <Badge variant="outline" className={`text-[10px] mb-2 ${config.color}`}>
           {config.label}
         </Badge>
-        <h4 className="font-semibold text-foreground text-sm">{activity.title}</h4>
-        <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{activity.description}</p>
+        <h4 className="font-semibold text-foreground text-sm">{displayTitle}</h4>
+        <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{displayDesc}</p>
       </div>
     </div>
   );
@@ -886,8 +890,9 @@ const Index = () => {
         : itinerary;
 
       const rebalanced = rebalanceCrossDayPOIs(targetItinerary);
-      const optimized = rebalanced.map((day, dIdx) => {
-        const prevDayLastAct = dIdx > 0 ? rebalanced[dIdx - 1]?.activities.slice(-1)[0] : undefined;
+      const scrubbed = scrubAndRelocateDayOutliers(rebalanced, hotelLoc, 4.5);
+      const optimized = scrubbed.map((day, dIdx) => {
+        const prevDayLastAct = dIdx > 0 ? scrubbed[dIdx - 1]?.activities.slice(-1)[0] : undefined;
         const dayStart = (prefsWithModel.hasHotel === "yes" && prefsWithModel.hotelLat && prefsWithModel.hotelLng)
           ? hotelLoc
           : (dIdx === 0
@@ -898,7 +903,7 @@ const Index = () => {
         dayDate.setDate(dayDate.getDate() + dIdx);
         const dayOfWeek = dayDate.getDay();
 
-        const optActivities = optimizeDayActivities(day.activities, currentPace, dayStart, dayOfWeek);
+        const optActivities = enforceMaxHopDistance(optimizeDayActivities(day.activities, currentPace, dayStart, dayOfWeek), 4.0);
         return {
           ...day,
           activities: optActivities,
@@ -947,7 +952,7 @@ const Index = () => {
       dayDate.setDate(dayDate.getDate() + dayIndex);
       const dayOfWeek = dayDate.getDay();
 
-      const optActivities = optimizeDayActivities(targetDay.activities, currentPace, dayStart, dayOfWeek);
+      const optActivities = enforceMaxHopDistance(optimizeDayActivities(targetDay.activities, currentPace, dayStart, dayOfWeek), 4.0);
 
       const updated = itinerary.map((d, idx) =>
         idx === dayIndex ? { ...d, activities: optActivities } : d
@@ -1007,8 +1012,8 @@ const Index = () => {
       );
 
       setLoadingStep("Filtering & Checking Outliers...");
-      // Filter outliers (country mismatch, distance > 70 km, low confidence, non-travel, duplicates)
-      const { kept, outliers: detectedOutliers } = detectVisionOutliers(geoResults, useClip, 70, 35);
+      // Filter outliers (country mismatch, distance > 55 km, low confidence, non-travel, duplicates)
+      const { kept, outliers: detectedOutliers } = detectVisionOutliers(geoResults, useClip, 55, 28);
 
       setDetectedLocations(kept);
       setOutliers(detectedOutliers);
@@ -1099,16 +1104,29 @@ const Index = () => {
       let dayClusters: DayCluster[] = [];
 
       try {
-        const candidatePois = await gatherCandidatePOIs(mainLocation.place, coords, locationNames, prefsWithModel.activities);
+        const userSeeds = detectedLocations
+          .filter(l => typeof l.lat === "number" && typeof l.lng === "number" && l.lat !== 0 && l.lng !== 0)
+          .map(l => ({ lat: l.lat!, lng: l.lng! }));
+        const masterHub = calculateMasterHub(userSeeds, coords);
+
+        const candidatePois = await gatherCandidatePOIs(mainLocation.place, masterHub, locationNames, prefsWithModel.activities);
         if (candidatePois.length > 0) {
-          const scoredPois = scorePOIs(candidatePois, coords, prefsWithModel.activities);
+          const scoredPois = scorePOIs(candidatePois, masterHub, prefsWithModel.activities);
           const diversePois = selectDiversePOIs(scoredPois, Math.max(20, prefsWithModel.days * 5));
-          const rawClusters = kMeansCluster(diversePois, prefsWithModel.days);
+
+          // Polar Sector Partitioning around masterHub for strict non-overlapping daily zones
+          const rawClusters = partitionPoisIntoNonOverlappingSectors(
+            diversePois,
+            prefsWithModel.days,
+            masterHub,
+            userSeeds,
+            12.0
+          );
 
           // Macro-Cluster Sequencing: Sequence clusters 1..K in a contiguous progression from start location
           const startLocation = prefsWithModel.hasHotel === "yes" && prefsWithModel.hotelLat && prefsWithModel.hotelLng
             ? { lat: prefsWithModel.hotelLat, lng: prefsWithModel.hotelLng }
-            : coords;
+            : masterHub;
           const sequencedClusters = sequenceDayClusters(rawClusters, startLocation);
 
           // Micro-TSP Routing per day
@@ -1273,9 +1291,8 @@ const Index = () => {
           try {
             const result = await getCoordinates(candidate, coords, destinationCity);
             const dist = distanceMetres(result, coords);
-
-            // Valid coordinate if within destination boundary and not collapsed to generic center
-            if (dist >= 200 && dist <= 100_000) {
+            // Valid coordinate if within destination boundary (45 km ceiling to prevent distant province outliers)
+            if (dist <= 45_000) {
               return result;
             }
           } catch (_) {
@@ -1330,19 +1347,19 @@ const Index = () => {
             // Priority 1: Verified venue coordinates from Foursquare / Mapbox / Geoapify
             // Priority 2: Multi-alias geocoding (title, english_name, wiki_title)
             // Priority 3: Accurate AI / photo coordinates already present on activity
-            // Priority 4: City center default
-            let actLat = coords.lat;
-            let actLng = coords.lng;
+            // Priority 4: City center default with smart spatial jitter (prevent pin stacking)
+            let actLat: number | null = null;
+            let actLng: number | null = null;
 
             if (placeDetails.lat != null && placeDetails.lng != null) {
               const dist = distanceMetres({ lat: placeDetails.lat, lng: placeDetails.lng }, coords);
-              if (dist <= 100_000 && dist >= 50) {
+              if (dist <= 45_000) {
                 actLat = placeDetails.lat;
                 actLng = placeDetails.lng;
               }
             }
 
-            if (actLat === coords.lat && actLng === coords.lng) {
+            if (actLat == null || actLng == null) {
               const validated = await geocodeWithValidation(
                 activity.title,
                 activity.english_name,
@@ -1360,11 +1377,22 @@ const Index = () => {
                 activity.lng !== 0
               ) {
                 const aiDist = distanceMetres({ lat: activity.lat, lng: activity.lng }, coords);
-                if (aiDist <= 100_000) {
+                if (aiDist <= 45_000) {
                   actLat = activity.lat;
                   actLng = activity.lng;
                 }
               }
+            }
+
+            // Fallback 4: If all lookups exhausted, jitter deterministically so pins never stack on top of each other
+            if (actLat == null || actLng == null) {
+              const actIdx = day.activities.indexOf(activity);
+              const angle = ((actIdx * 72) * Math.PI) / 180;
+              const jitterDistKm = 0.35 + (actIdx % 4) * 0.15; // 350m - 800m
+              const latOffset = (jitterDistKm / 111) * Math.sin(angle);
+              const lngOffset = (jitterDistKm / (111 * Math.cos((coords.lat * Math.PI) / 180))) * Math.cos(angle);
+              actLat = coords.lat + latOffset;
+              actLng = coords.lng + lngOffset;
             }
 
             // 3. Verify opening hours against current day of the trip
@@ -1403,12 +1431,35 @@ const Index = () => {
             });
           } catch (e) {
             console.warn(`[enrichment] Fallback for "${activity.title}":`, e);
-            const fallbackValidated = await geocodeWithValidation(activity.title).catch(() => coords);
+            let fallbackLat = coords.lat;
+            let fallbackLng = coords.lng;
+            try {
+              const fallbackValidated = await geocodeWithValidation(activity.title);
+              if (fallbackValidated) {
+                fallbackLat = fallbackValidated.lat;
+                fallbackLng = fallbackValidated.lng;
+              } else if (activity.lat && activity.lng && activity.lat !== 0 && activity.lng !== 0) {
+                fallbackLat = activity.lat;
+                fallbackLng = activity.lng;
+              } else {
+                const actIdx = day.activities.indexOf(activity);
+                const angle = ((actIdx * 72) * Math.PI) / 180;
+                const jitterDistKm = 0.35 + (actIdx % 4) * 0.15;
+                fallbackLat = coords.lat + (jitterDistKm / 111) * Math.sin(angle);
+                fallbackLng = coords.lng + (jitterDistKm / (111 * Math.cos((coords.lat * Math.PI) / 180))) * Math.cos(angle);
+              }
+            } catch {
+              const actIdx = day.activities.indexOf(activity);
+              const angle = ((actIdx * 72) * Math.PI) / 180;
+              const jitterDistKm = 0.35 + (actIdx % 4) * 0.15;
+              fallbackLat = coords.lat + (jitterDistKm / 111) * Math.sin(angle);
+              fallbackLng = coords.lng + (jitterDistKm / (111 * Math.cos((coords.lat * Math.PI) / 180))) * Math.cos(angle);
+            }
             const finalPhoto = userUploadedPhoto || activity.photo_url || activity.image_url || null;
             enrichedActivities.push({
               ...activity,
-              lat: fallbackValidated.lat,
-              lng: fallbackValidated.lng,
+              lat: fallbackLat,
+              lng: fallbackLng,
               photo_url: finalPhoto,
               image_url: finalPhoto,
               isUserPhoto: isUserPhoto,
@@ -1490,13 +1541,16 @@ const Index = () => {
       // Apply Cross-Day Spatial Rebalancing (prevent visiting same neighborhood on multiple days)
       const rebalancedItinerary = rebalanceCrossDayPOIs(enrichedItinerary);
 
+      // Scrub and relocate any rogue outliers (> 4.5 km from day cluster) before final map rendering
+      const scrubbedItinerary = scrubAndRelocateDayOutliers(rebalancedItinerary, coords, 4.5);
+
       // Apply Neuro-Symbolic 2-Opt TSP, Opening Hours constraint, and Anti-Looping Route Optimization
       const hotelLoc = prefs.hasHotel === "yes" && prefs.hotelLat && prefs.hotelLng
         ? { lat: prefs.hotelLat, lng: prefs.hotelLng }
         : coords;
 
-      const sortedEnrichedItinerary = rebalancedItinerary.map((day, dIdx) => {
-        const prevDayLastAct = dIdx > 0 ? rebalancedItinerary[dIdx - 1]?.activities.slice(-1)[0] : undefined;
+      const sortedEnrichedItinerary = scrubbedItinerary.map((day, dIdx) => {
+        const prevDayLastAct = dIdx > 0 ? scrubbedItinerary[dIdx - 1]?.activities.slice(-1)[0] : undefined;
         const dayStart = (prefs.hasHotel === "yes" && prefs.hotelLat && prefs.hotelLng)
           ? hotelLoc
           : (dIdx === 0
@@ -1508,7 +1562,7 @@ const Index = () => {
         dayDate.setDate(dayDate.getDate() + dIdx);
         const dayOfWeek = dayDate.getDay();
 
-        const optimizedDay = optimizeDayActivities(day.activities, prefs.pace, dayStart, dayOfWeek);
+        const optimizedDay = enforceMaxHopDistance(optimizeDayActivities(day.activities, prefs.pace, dayStart, dayOfWeek), 4.0);
         return {
           ...day,
           activities: optimizedDay
@@ -1517,7 +1571,48 @@ const Index = () => {
 
       setItinerary(sortedEnrichedItinerary);
       setMapItinerary(sortedEnrichedItinerary);
-      setSuggestions(generatedSuggestions);
+      // Ensure at least 10 suggestions are provided
+      let finalSuggestions = [...generatedSuggestions];
+      if (finalSuggestions.length < 10) {
+        try {
+          const existingNames = [
+            ...finalSuggestions.map(s => s.name),
+            ...sortedEnrichedItinerary.flatMap(d => d.activities).map(a => a.title)
+          ];
+          const extraSuggestions = await generateMoreSuggestions(
+            mainLocation.place,
+            existingNames,
+            model
+          );
+          if (extraSuggestions.length > 0) {
+            const existingSet = new Set(finalSuggestions.map(s => s.name.toLowerCase().trim()));
+            for (const item of extraSuggestions) {
+              const key = item.name.toLowerCase().trim();
+              if (!existingSet.has(key)) {
+                finalSuggestions.push(item);
+                existingSet.add(key);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("[Suggestions] Could not fetch additional suggestions:", err);
+        }
+      }
+
+      // If still fewer than 10, backfill with curated fallback suggestions to unconditionally guarantee >= 10
+      if (finalSuggestions.length < 10) {
+        const fallbacks = getFallbackSuggestions(mainLocation.place);
+        const existingSet = new Set(finalSuggestions.map(s => s.name.toLowerCase().trim()));
+        for (const fb of fallbacks) {
+          const key = fb.name.toLowerCase().trim();
+          if (!existingSet.has(key)) {
+            finalSuggestions.push(fb);
+            existingSet.add(key);
+            if (finalSuggestions.length >= 10) break;
+          }
+        }
+      }
+      setSuggestions(finalSuggestions);
 
       // Ensure at least 5 accommodations are provided
       let finalAccommodations = [...generatedAccommodations];
@@ -1582,16 +1677,18 @@ const Index = () => {
     try {
       const newSuggestions = await generateMoreSuggestions(locationName, existingPlaces, model);
       if (newSuggestions.length > 0) {
-        setSuggestions(prev => [...prev, ...newSuggestions]);
-        toast.success("Added new suggestions!");
+        const existingSet = new Set(suggestions.map(s => s.name.toLowerCase().trim()));
+        const uniqueNew = newSuggestions.filter(s => !existingSet.has(s.name.toLowerCase().trim()));
+        setSuggestions(prev => [...prev, ...uniqueNew]);
+        toast.success(language === "th" ? `เพิ่มสถานที่แนะนำใหม่ ${uniqueNew.length} แห่ง!` : `Added ${uniqueNew.length} new suggestions!`);
       } else {
-        toast.info("No new suggestions found.");
+        toast.info(language === "th" ? "ไม่พบสถานที่แนะนำใหม่เพิ่มเติม" : "No new suggestions found.");
       }
     } catch (error) {
       console.error("Failed to fetch new suggestions:", error);
-      toast.error("Failed to fetch new suggestions");
+      toast.error(language === "th" ? "ไม่สามารถโหลดสถานที่แนะนำใหม่ได้" : "Failed to fetch new suggestions");
     }
-  }, [detectedLocations, suggestions, itinerary, model]);
+  }, [detectedLocations, suggestions, itinerary, model, language]);
 
   const handleRefreshAccommodations = useCallback(async () => {
     if (!detectedLocations.length) return;

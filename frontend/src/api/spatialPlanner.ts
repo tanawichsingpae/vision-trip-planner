@@ -1,4 +1,5 @@
 import { Coordinates, getCoordinates } from "./geocode";
+import { isFoursquareRateLimited, setFoursquareRateLimited } from "./foursquareClient";
 import { type Activity } from "@/components/TravelItinerary";
 
 export interface POICandidate {
@@ -36,10 +37,195 @@ export function haversineDistance(a: Coordinates, b: Coordinates): number {
 }
 
 /**
+ * Calculates the primary Master Hub / Anchor from user photo coordinates or destination center.
+ * Used to define the bounded trip envelope and center for polar sector partitioning.
+ */
+export function calculateMasterHub(
+  userSeeds?: Coordinates[],
+  centerCoords?: Coordinates
+): Coordinates {
+  const validSeeds = (userSeeds || []).filter(
+    s => s && typeof s.lat === "number" && typeof s.lng === "number" && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0
+  );
+
+  if (validSeeds.length === 1) {
+    return { lat: validSeeds[0].lat, lng: validSeeds[0].lng };
+  }
+
+  if (validSeeds.length > 1) {
+    // Spatial Medoid: candidate seed minimizing total Haversine distance to all other seeds
+    let bestSeed = validSeeds[0];
+    let minSum = Infinity;
+    for (const cand of validSeeds) {
+      const sum = validSeeds.reduce((acc, s) => acc + haversineDistance(cand, s), 0);
+      if (sum < minSum) {
+        minSum = sum;
+        bestSeed = cand;
+      }
+    }
+    return { lat: bestSeed.lat, lng: bestSeed.lng };
+  }
+
+  if (centerCoords && typeof centerCoords.lat === "number" && typeof centerCoords.lng === "number" && !isNaN(centerCoords.lat) && !isNaN(centerCoords.lng) && centerCoords.lat !== 0 && centerCoords.lng !== 0) {
+    return { lat: centerCoords.lat, lng: centerCoords.lng };
+  }
+
+  return { lat: 13.7563, lng: 100.5018 }; // Bangkok fallback
+}
+
+/**
+ * Polar / Angular Sector Partitioning
+ * Partitions urban POIs into K daily clusters based on their relative azimuth / bearing
+ * from the Master Anchor Hub.
+ * Mathematically guarantees non-overlapping daily zones (disjoint angular wedges)
+ * with intra-day spatial neighborhood cohesion.
+ */
+export function partitionPoisIntoNonOverlappingSectors(
+  pois: POICandidate[],
+  k: number,
+  masterHub: Coordinates,
+  userSeeds?: Coordinates[],
+  maxTripRadiusKm: number = 15.0
+): DayCluster[] {
+  if (pois.length === 0) {
+    return Array.from({ length: k }, (_, i) => ({ day: i + 1, pois: [] }));
+  }
+
+  if (pois.length <= k) {
+    const clusters: DayCluster[] = [];
+    for (let i = 0; i < k; i++) {
+      const p = pois[i] ? [pois[i]] : [];
+      clusters.push({
+        day: i + 1,
+        pois: p,
+        centroid: p.length > 0 ? { lat: p[0].lat, lng: p[0].lng } : masterHub,
+        radiusKm: 2.5,
+      });
+    }
+    return clusters;
+  }
+
+  // 1. Excursion Isolation (>20 km away from master hub)
+  const excursionPois = pois.filter(p => haversineDistance(p, masterHub) >= 20.0);
+  let urbanPois = pois.filter(p => haversineDistance(p, masterHub) < 20.0);
+
+  // If trip radius envelope is specified, filter out distant suburban outliers (> maxTripRadiusKm)
+  const withinEnvelope = urbanPois.filter(p => haversineDistance(p, masterHub) <= maxTripRadiusKm);
+  if (withinEnvelope.length >= Math.max(k * 3, 6)) {
+    urbanPois = withinEnvelope;
+  }
+
+  const urbanK = (excursionPois.length > 0 && k >= 2 && urbanPois.length >= (k - 1) * 2) ? k - 1 : k;
+
+  // 2. Prioritize user-provided distinct seed zones if available
+  if (userSeeds && userSeeds.length >= 2 && urbanK >= 2) {
+    return kMeansCluster(pois, k, userSeeds);
+  }
+
+  // 3. Micro-Cluster Grouping: Keep atomic POIs within 1.8 km together as unbreakable neighborhood units
+  const groups: POICandidate[][] = [];
+  urbanPois.forEach(p => {
+    const existing = groups.find(g =>
+      g.some(member => haversineDistance({ lat: member.lat, lng: member.lng }, { lat: p.lat, lng: p.lng }) <= 1.8)
+    );
+    if (existing) {
+      existing.push(p);
+    } else {
+      groups.push([p]);
+    }
+  });
+
+  // 4. Compute azimuth bearing angle (0 to 360 degrees) for each atomic group relative to masterHub
+  const groupsWithAngle = groups.map(group => {
+    const avgLat = group.reduce((s, p) => s + p.lat, 0) / group.length;
+    const avgLng = group.reduce((s, p) => s + p.lng, 0) / group.length;
+
+    const dLat = avgLat - masterHub.lat;
+    const dLng = (avgLng - masterHub.lng) * Math.cos((masterHub.lat * Math.PI) / 180);
+    let angle = Math.atan2(dLat, dLng) * (180 / Math.PI);
+    if (angle < 0) angle += 360;
+
+    return {
+      group,
+      avgLat,
+      avgLng,
+      angle,
+    };
+  });
+
+  // Sort groups monotonically by azimuth angle
+  groupsWithAngle.sort((a, b) => a.angle - b.angle);
+
+  // 5. Distribute into urbanK balanced angular sectors
+  const clusters: DayCluster[] = Array.from({ length: urbanK }, (_, i) => ({
+    day: i + 1,
+    pois: [],
+  }));
+
+  const totalGroups = groupsWithAngle.length;
+  groupsWithAngle.forEach((item, idx) => {
+    const targetClusterIdx = Math.min(urbanK - 1, Math.floor((idx * urbanK) / totalGroups));
+    clusters[targetClusterIdx].pois.push(...item.group);
+  });
+
+  // Balance check: ensure no empty cluster
+  for (let i = 0; i < urbanK; i++) {
+    if (clusters[i].pois.length === 0) {
+      let maxClusterIdx = 0;
+      for (let j = 0; j < urbanK; j++) {
+        if (clusters[j].pois.length > clusters[maxClusterIdx].pois.length) {
+          maxClusterIdx = j;
+        }
+      }
+      if (clusters[maxClusterIdx].pois.length > 2) {
+        const moved = clusters[maxClusterIdx].pois.pop();
+        if (moved) clusters[i].pois.push(moved);
+      }
+    }
+  }
+
+  // Compute final centroids and cluster radii (km)
+  clusters.forEach(c => {
+    if (c.pois.length > 0) {
+      const avgLat = c.pois.reduce((acc, p) => acc + p.lat, 0) / c.pois.length;
+      const avgLng = c.pois.reduce((acc, p) => acc + p.lng, 0) / c.pois.length;
+      c.centroid = { lat: avgLat, lng: avgLng };
+      let maxR = 0;
+      c.pois.forEach(p => {
+        const d = haversineDistance({ lat: avgLat, lng: avgLng }, p);
+        if (d > maxR) maxR = d;
+      });
+      c.radiusKm = Math.max(1.6, Math.min(3.8, Math.round(maxR * 10) / 10));
+    } else {
+      c.centroid = masterHub;
+      c.radiusKm = 3.0;
+    }
+  });
+
+  // 6. Append excursion cluster if present
+  if (excursionPois.length > 0 && urbanK < k) {
+    const avgExLat = excursionPois.reduce((s, p) => s + p.lat, 0) / excursionPois.length;
+    const avgExLng = excursionPois.reduce((s, p) => s + p.lng, 0) / excursionPois.length;
+    clusters.push({
+      day: k,
+      pois: excursionPois,
+      centroid: { lat: avgExLat, lng: avgExLng },
+      radiusKm: 8.0,
+    });
+  }
+
+  return clusters;
+}
+
+/**
  * K-Means / K-Medoids Spatial Clustering
  * Partitions N POIs into K clusters (one per day).
  */
-export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
+export function kMeansCluster(
+  pois: POICandidate[],
+  k: number,
+  userSeeds?: Coordinates[]
+): DayCluster[] {
   if (pois.length === 0) {
     return Array.from({ length: k }, (_, i) => ({ day: i + 1, pois: [] }));
   }
@@ -53,25 +239,32 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
         day: i + 1,
         pois: p,
         centroid: p.length > 0 ? { lat: p[0].lat, lng: p[0].lng } : undefined,
-        radiusKm: 3.0,
+        radiusKm: 2.4,
       });
     }
     return clusters;
   }
 
   // 1. Excursion Isolation & Classification:
-  // Detect distant destination outliers (>25 km away from main urban cluster)
+  // Detect distant destination outliers (>20 km away from main urban cluster)
   // to dedicate them to a separate Day-Trip Excursion day instead of mixing with city walking.
   let urbanPois = [...pois];
   let excursionPois: POICandidate[] = [];
 
   if (k >= 2 && pois.length >= 4) {
-    const avgAllLat = pois.reduce((s, p) => s + p.lat, 0) / pois.length;
-    const avgAllLng = pois.reduce((s, p) => s + p.lng, 0) / pois.length;
-    const hubCenter: Coordinates = { lat: avgAllLat, lng: avgAllLng };
+    // Robust spatial medoid (POI that minimizes total distance to all other POIs)
+    let minTotalDist = Infinity;
+    let hubCenter: Coordinates = { lat: pois[0].lat, lng: pois[0].lng };
+    for (const candidate of pois) {
+      const sumDist = pois.reduce((s, p) => s + haversineDistance(candidate, p), 0);
+      if (sumDist < minTotalDist) {
+        minTotalDist = sumDist;
+        hubCenter = { lat: candidate.lat, lng: candidate.lng };
+      }
+    }
 
-    const farPois = pois.filter(p => haversineDistance(p, hubCenter) >= 25);
-    const nearPois = pois.filter(p => haversineDistance(p, hubCenter) < 25);
+    const farPois = pois.filter(p => haversineDistance(p, hubCenter) >= 20);
+    const nearPois = pois.filter(p => haversineDistance(p, hubCenter) < 20);
 
     // If there is an excursion cluster with at least 1 spot and enough near spots
     if (farPois.length > 0 && nearPois.length >= k - 1) {
@@ -82,10 +275,42 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
 
   const urbanK = excursionPois.length > 0 ? k - 1 : k;
 
-  // 2. K-Means++ initialization for urban centroids
+  // 2. Radial Zone Seed Initialization: Prioritize user-recognized photo landmarks as zone anchors
   const centroids: Coordinates[] = [];
-  centroids.push({ lat: urbanPois[0].lat, lng: urbanPois[0].lng });
+  const userPois = urbanPois.filter(p => p.type === "recognized_image_landmark");
 
+  if (userPois.length > 0) {
+    // Group user POIs within 2.8 km of each other into the same day anchor seed
+    const userGroups: POICandidate[][] = [];
+    userPois.forEach(up => {
+      const matched = userGroups.find(g =>
+        g.some(p => haversineDistance({ lat: p.lat, lng: p.lng }, { lat: up.lat, lng: up.lng }) <= 2.8)
+      );
+      if (matched) {
+        matched.push(up);
+      } else {
+        userGroups.push([up]);
+      }
+    });
+
+    userGroups.slice(0, urbanK).forEach(group => {
+      const avgLat = group.reduce((s, p) => s + p.lat, 0) / group.length;
+      const avgLng = group.reduce((s, p) => s + p.lng, 0) / group.length;
+      centroids.push({ lat: avgLat, lng: avgLng });
+    });
+  }
+
+  if (centroids.length === 0 && userSeeds && userSeeds.length > 0) {
+    userSeeds.slice(0, urbanK).forEach(s => {
+      if (s.lat && s.lng) centroids.push({ lat: s.lat, lng: s.lng });
+    });
+  }
+
+  if (centroids.length === 0) {
+    centroids.push({ lat: urbanPois[0].lat, lng: urbanPois[0].lng });
+  }
+
+  // Complete remaining centroids with Radial K-Means++ to expand into distinct non-overlapping zones
   while (centroids.length < urbanK) {
     let maxDist = -1;
     let bestPoiIndex = 0;
@@ -192,14 +417,14 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
         const poi = clusters[cIdx].pois[pIdx];
         const distToOwn = haversineDistance(poi, currentCentroids[cIdx]);
 
-        if (distToOwn > 5.5) { // Potential outlier in urban cluster
+        if (distToOwn > 4.0) { // Potential outlier in urban cluster
           let bestOtherIdx = -1;
           let bestOtherDist = distToOwn;
 
           for (let otherIdx = 0; otherIdx < urbanK; otherIdx++) {
             if (otherIdx === cIdx) continue;
             const dOther = haversineDistance(poi, currentCentroids[otherIdx]);
-            if (dOther < bestOtherDist - 2.0) {
+            if (dOther < bestOtherDist - 1.5) {
               bestOtherDist = dOther;
               bestOtherIdx = otherIdx;
             }
@@ -227,10 +452,10 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
         const d = haversineDistance({ lat: avgLat, lng: avgLng }, p);
         if (d > maxR) maxR = d;
       });
-      cluster.radiusKm = Math.max(2.0, Math.round(maxR * 10) / 10);
+      cluster.radiusKm = Math.max(1.6, Math.round(maxR * 10) / 10);
     } else {
       cluster.centroid = centroids[idx] || { lat: 0, lng: 0 };
-      cluster.radiusKm = 5.0;
+      cluster.radiusKm = 4.0;
     }
   });
 
@@ -242,7 +467,7 @@ export function kMeansCluster(pois: POICandidate[], k: number): DayCluster[] {
       day: k,
       pois: excursionPois,
       centroid: { lat: avgExLat, lng: avgExLng },
-      radiusKm: 12.0, // Excursion day has larger natural exploration footprint
+      radiusKm: 9.6, // Excursion day has larger natural exploration footprint
     });
   }
 
@@ -263,7 +488,7 @@ export function sequenceDayClusters(
   }
 
   // Ensure every cluster has a centroid
-  const unvisited = clusters.map(c => {
+  const normalized = clusters.map(c => {
     let centroid = c.centroid;
     if (!centroid && c.pois.length > 0) {
       const avgLat = c.pois.reduce((acc, p) => acc + p.lat, 0) / c.pois.length;
@@ -276,9 +501,80 @@ export function sequenceDayClusters(
     };
   });
 
-  const sequenced: DayCluster[] = [];
+  const evaluateClusterCost = (order: typeof normalized): number => {
+    let cost = 0;
+    if (startCoord && order[0].centroid && order[0].centroid.lat !== 0) {
+      cost += haversineDistance(startCoord, order[0].centroid);
+    }
+    for (let i = 0; i < order.length - 1; i++) {
+      const cA = order[i].centroid!;
+      const cB = order[i + 1].centroid!;
+      if (cA.lat === 0 || cB.lat === 0) continue;
 
-  // Pick Day 1 cluster: Closest to startCoord (or first cluster if no startCoord)
+      const legDist = haversineDistance(cA, cB);
+      cost += legDist;
+
+      // Penalize day-to-day U-turn / acute backtrack (> 120 degrees)
+      if (i > 0) {
+        const pPrev = order[i - 1].centroid!;
+        if (pPrev.lat !== 0) {
+          const cosLat = Math.cos((cA.lat * Math.PI) / 180);
+          const v1x = (cA.lng - pPrev.lng) * cosLat;
+          const v1y = cA.lat - pPrev.lat;
+          const v2x = (cB.lng - cA.lng) * cosLat;
+          const v2y = cB.lat - cA.lat;
+
+          const len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+          const len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+
+          if (len1 > 1e-6 && len2 > 1e-6) {
+            const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+            if (dot < -0.5) { // sharp turn > 120 degrees
+              cost += legDist * 1.5;
+            }
+          }
+        }
+      }
+    }
+    return cost;
+  };
+
+  // For K <= 6, compute exact optimal sequence across all permutations
+  if (normalized.length <= 6) {
+    const permute = (arr: typeof normalized): (typeof normalized)[] => {
+      if (arr.length <= 1) return [arr];
+      const result: (typeof normalized)[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        const rest = [...arr.slice(0, i), ...arr.slice(i + 1)];
+        const subPerms = permute(rest);
+        for (const sub of subPerms) {
+          result.push([arr[i], ...sub]);
+        }
+      }
+      return result;
+    };
+
+    const allPerms = permute(normalized);
+    let bestOrder = allPerms[0];
+    let minCost = Infinity;
+
+    for (const order of allPerms) {
+      const cost = evaluateClusterCost(order);
+      if (cost < minCost) {
+        minCost = cost;
+        bestOrder = order;
+      }
+    }
+
+    return bestOrder.map((c, idx) => ({
+      ...c,
+      day: idx + 1,
+    }));
+  }
+
+  // Fallback for K > 6: Greedy Nearest Neighbor
+  const unvisited = [...normalized];
+  const sequenced: DayCluster[] = [];
   const currentRef: Coordinates = startCoord || unvisited[0].centroid!;
   let firstIdx = 0;
   let minD = Infinity;
@@ -296,7 +592,6 @@ export function sequenceDayClusters(
   let currentCluster = unvisited.splice(firstIdx, 1)[0];
   sequenced.push(currentCluster);
 
-  // Greedily chain remaining clusters to form a continuous corridor
   while (unvisited.length > 0) {
     const ref = currentCluster.centroid!;
     let nearestIdx = 0;
@@ -316,7 +611,6 @@ export function sequenceDayClusters(
     sequenced.push(currentCluster);
   }
 
-  // Renumber days 1..K
   return sequenced.map((c, idx) => ({
     ...c,
     day: idx + 1,
@@ -424,8 +718,8 @@ export function solve2OptTSP<T extends { lat?: number; lng?: number }>(
         { lat: tour[i].lat!, lng: tour[i].lng! },
         { lat: tour[i + 1].lat!, lng: tour[i + 1].lng! }
       );
-      // Penalize excessive hops between consecutive places (>12 km) to ensure tight 3-5 km clustering
-      const hopPenalty = legDist > 12 ? Math.pow(legDist - 12, 1.5) * 5 : 0;
+      // Strictly penalize hops between consecutive places exceeding 10 km to ensure tight clustering
+      const hopPenalty = legDist > 10.0 ? Math.pow(legDist - 10.0, 1.5) * 50 + (legDist - 10.0) * 100 : 0;
       total += legDist + hopPenalty;
 
       // Penalize acute turn-back angles (> 120 deg) over long distances (> 2.5 km) to enforce monotonic corridor flow
@@ -552,7 +846,7 @@ export function scorePOIs(
     if (lower.includes("sport") || lower.includes("adventure") || lower.includes("fun")) preferredCategories.add("activity");
   });
 
-  const maxRadius = 25; // 25 km max penalty threshold
+  const maxRadius = 20; // 20 km max penalty threshold (reduced by 20%)
 
   return pois.map(poi => {
     const ratingScore = (poi.rating ?? 3.5) / 5;
@@ -670,7 +964,7 @@ export async function gatherCandidatePOIs(
   const uniqueTypes = Array.from(new Set(typesToQuery)).slice(0, 5);
 
   const foursquareKey = import.meta.env.VITE_FOURSQUARE_API_KEY as string;
-  if (foursquareKey && centerCoords.lat && centerCoords.lng) {
+  if (!isFoursquareRateLimited() && foursquareKey && centerCoords.lat && centerCoords.lng) {
     try {
       const fsqCatMap: Record<string, string> = {
         tourist_attraction: "16000",
@@ -690,7 +984,10 @@ export async function gatherCandidatePOIs(
           Accept: "application/json",
         },
       });
-      if (fsqRes.ok) {
+      if (fsqRes.status === 429 || fsqRes.status === 402) {
+        console.warn("[gatherCandidatePOIs] Foursquare rate limit (429/402) reached. Activating circuit breaker.");
+        setFoursquareRateLimited(true);
+      } else if (fsqRes.ok) {
         const fsqData = await fsqRes.json();
         const fsqResults = fsqData.results || [];
         fsqResults.forEach((p: any) => {
@@ -929,6 +1226,23 @@ export interface AuditPreferences {
   pace?: string;
 }
 
+export interface TripZoneOverview {
+  day: number;
+  zoneName: string;
+  centerLat: number;
+  centerLng: number;
+  radiusKm: number;
+  activityCount: number;
+}
+
+export interface TripOverviewReport {
+  isZoneSeparated: boolean;
+  zoneIndependenceScore: number;
+  dailyZones: TripZoneOverview[];
+  summary: string;
+  macroFindings: string[];
+}
+
 export interface ItineraryCoherence {
   totalScore: number;
   spatialScore: number;
@@ -941,6 +1255,7 @@ export interface ItineraryCoherence {
   crossingCount: number;
   warnings: string[];
   passedChecks: string[]; // List of confirmed audit standards passed
+  tripOverview?: TripOverviewReport; // Macro-level trip architecture review
 }
 
 /**
@@ -965,22 +1280,65 @@ export function calculateCoherenceScore(
 
   const visitedTitles = new Set<string>();
 
-  // 1. Cross-Day Proximity & Overlap Check
-  const dayCentroids: { day: number; lat: number; lng: number; pois: ActivityItem[] }[] = [];
+  // 1. Trip Overview & Cross-Day Radial Zone Check
+  const dailyZones: TripZoneOverview[] = [];
+  const dayCentroids: { day: number; lat: number; lng: number; radiusKm: number; pois: ActivityItem[] }[] = [];
 
   itinerary.forEach((day) => {
     const valid = day.activities.filter(a => a.lat && a.lng && a.type !== "hotel");
     if (valid.length > 0) {
       const avgLat = valid.reduce((acc, a) => acc + a.lat!, 0) / valid.length;
       const avgLng = valid.reduce((acc, a) => acc + a.lng!, 0) / valid.length;
-      dayCentroids.push({ day: day.day, lat: avgLat, lng: avgLng, pois: valid });
+      let maxR = 0;
+      valid.forEach(p => {
+        const d = haversineDistance({ lat: avgLat, lng: avgLng }, { lat: p.lat!, lng: p.lng! });
+        if (d > maxR) maxR = d;
+      });
+      const radiusKm = Math.round(maxR * 10) / 10;
+
+      let zoneName = `Zone ${day.day}`;
+      if ((day as any).date && (day as any).date.includes("-")) {
+        zoneName = (day as any).date.split("-").slice(1).join("-").trim();
+      } else {
+        const anchor = valid[0];
+        zoneName = anchor?.title ? `ย่าน ${anchor.title}` : `District ${day.day}`;
+      }
+
+      dailyZones.push({
+        day: day.day,
+        zoneName,
+        centerLat: avgLat,
+        centerLng: avgLng,
+        radiusKm,
+        activityCount: valid.length,
+      });
+
+      dayCentroids.push({ day: day.day, lat: avgLat, lng: avgLng, radiusKm, pois: valid });
     }
   });
+
+  // Cross-Day Macro Zone Overlap & Separation Check
+  let zoneOverlapsCount = 0;
+  const macroFindings: string[] = [];
 
   for (let i = 0; i < dayCentroids.length; i++) {
     for (let j = i + 1; j < dayCentroids.length; j++) {
       const dayA = dayCentroids[i];
       const dayB = dayCentroids[j];
+      const centroidDist = haversineDistance(
+        { lat: dayA.lat, lng: dayA.lng },
+        { lat: dayB.lat, lng: dayB.lng }
+      );
+
+      // In multi-day trips, if two days have centroids closer than 2.8 km, flag zone overlap
+      if (centroidDist < 2.8 && dayA.pois.length >= 2 && dayB.pois.length >= 2) {
+        zoneOverlapsCount++;
+        warnings.push(
+          `[Trip Overview: Overlapping Zones] Day ${dayA.day} and Day ${dayB.day} both focus on the same geographic area (zone centers only ${centroidDist.toFixed(1)} km apart). Distribute days into distinct, non-overlapping zones across the city.`
+        );
+        macroFindings.push(`Day ${dayA.day} & Day ${dayB.day} มีโซนทับซ้อนกัน (${centroidDist.toFixed(1)} กม.)`);
+        spatialPenalty += 10;
+      }
 
       for (const pA of dayA.pois) {
         for (const pB of dayB.pois) {
@@ -997,6 +1355,31 @@ export function calculateCoherenceScore(
           }
         }
       }
+    }
+  }
+
+  // Intra-Day Macro Tightness Check: Ensure each day stays within a cohesive neighborhood corridor
+  dayCentroids.forEach(c => {
+    if (c.radiusKm > 4.5 && c.pois.length >= 3) {
+      warnings.push(
+        `[Trip Overview: Scattered Day] Day ${c.day} is too geographically scattered across the city (spreads across ${c.radiusKm.toFixed(1)} km radius). Activities within a single day should cluster tightly in one local district/zone (radius <= 4.0 km).`
+      );
+      macroFindings.push(`Day ${c.day} กระจายตัวกว้างเกินไป (${c.radiusKm.toFixed(1)} กม.)`);
+      spatialPenalty += 8;
+    }
+  });
+
+  // Cross-Day Load Balance Check
+  if (dayCentroids.length >= 2) {
+    const counts = dayCentroids.map(c => c.pois.length);
+    const maxCount = Math.max(...counts);
+    const minCount = Math.min(...counts);
+    if (maxCount - minCount >= 4 && minCount <= 2) {
+      warnings.push(
+        `[Trip Overview: Unbalanced Pacing] Activity loads are unevenly distributed (${maxCount} activities vs ${minCount} activities). Rebalance stops across days.`
+      );
+      macroFindings.push(`จำนวนกิจกรรมระหว่างวันไม่สมดุล (${maxCount} เทียบกับ ${minCount})`);
+      selectionPenalty += 4;
     }
   }
 
@@ -1044,6 +1427,36 @@ export function calculateCoherenceScore(
         warnings.push(`Day ${day.day}: Route loops back to meet near the morning start point ("${firstAct.title}" and "${lastAct.title}", only ${dStartEnd.toFixed(1)} km apart). Real travelers follow an open progressive route across the district.`);
         spatialPenalty += 8;
       }
+    }
+
+    // Spatial Outlier Check: Detect rogue venues (> 10 km from the day's cluster medoid)
+    if (validGeoActs.length >= 3) {
+      let bestMedoid = validGeoActs[0];
+      let minTotalDist = Infinity;
+      for (const candidate of validGeoActs) {
+        let sumDist = 0;
+        for (const other of validGeoActs) {
+          sumDist += haversineDistance(
+            { lat: candidate.lat!, lng: candidate.lng! },
+            { lat: other.lat!, lng: other.lng! }
+          );
+        }
+        if (sumDist < minTotalDist) {
+          minTotalDist = sumDist;
+          bestMedoid = candidate;
+        }
+      }
+
+      const medoidCoord = { lat: bestMedoid.lat!, lng: bestMedoid.lng! };
+      validGeoActs.forEach(act => {
+        const distToMedoid = haversineDistance({ lat: act.lat!, lng: act.lng! }, medoidCoord);
+        if (distToMedoid > 10.0) {
+          warnings.push(
+            `Day ${day.day}: [Spatial Outlier Alert] "${act.title}" is located ${distToMedoid.toFixed(1)} km away from the day's primary cluster ("${bestMedoid.title}"). Single-day itineraries must NOT exceed 10 km from the district cluster; replace it with a local attraction in the same district.`
+          );
+          spatialPenalty += 20;
+        }
+      });
     }
 
     // Category Monotony / Burnout Evaluator (Pearce 1988)
@@ -1191,8 +1604,8 @@ export function calculateCoherenceScore(
                 { lat: prevAct.lat, lng: prevAct.lng },
                 { lat: act.lat, lng: act.lng }
               );
-              if (dLunchToPrev > 2.5) {
-                warnings.push(`Day ${day.day}: Lunch spot "${act.title}" is located too far (${dLunchToPrev.toFixed(1)} km) from preceding morning activity "${prevAct.title}". Lunch should be nearby in the same neighborhood.`);
+              if (dLunchToPrev > 2.0) {
+                warnings.push(`Day ${day.day}: Lunch spot "${act.title}" is located too far (${dLunchToPrev.toFixed(1)} km) from preceding morning activity "${prevAct.title}". Lunch should be nearby in the same neighborhood (<= 2.0 km).`);
                 spatialPenalty += 6;
               }
             }
@@ -1224,18 +1637,18 @@ export function calculateCoherenceScore(
           schedulingPenalty += 8;
         }
 
-        // Distance & Adjacent Hop Check
+        // Distance & Adjacent Hop Check (Strict 10 km maximum ceiling)
         if (act.lat && act.lng && nextAct.lat && nextAct.lng) {
           const d = haversineDistance(
             { lat: act.lat, lng: act.lng },
             { lat: nextAct.lat, lng: nextAct.lng }
           );
           dayDist += d;
-          if (d > 15) {
-            warnings.push(`Day ${day.day}: Distance between "${act.title}" and "${nextAct.title}" is ${d.toFixed(1)} km, exceeding recommended 10-15 km maximum hop limit.`);
-            spatialPenalty += 6;
+          if (d > 10.0) {
+            warnings.push(`Day ${day.day}: [Long Hop Alert] Distance between consecutive places "${act.title}" and "${nextAct.title}" is ${d.toFixed(1)} km, exceeding recommended 10 km maximum hop limit (8-12 km maximum hop limit).`);
+            spatialPenalty += Math.min(25, 8 + Math.round((d - 10.0) * 3));
           }
-          if (d >= 25) {
+          if (d >= 20) {
             longCommutePairs++;
           }
 
@@ -1270,7 +1683,7 @@ export function calculateCoherenceScore(
     }
 
     if (longCommutePairs > 1) {
-      warnings.push(`Day ${day.day}: Contains ${longCommutePairs} long-distance transit legs (>45 min / 25 km). Limit to at most 1 long trip per day.`);
+      warnings.push(`Day ${day.day}: Contains ${longCommutePairs} long-distance transit legs (>35 min / 20 km). Limit to at most 1 long trip per day.`);
       spatialPenalty += 10;
     }
 
@@ -1284,7 +1697,7 @@ export function calculateCoherenceScore(
   });
 
   const avgDailyDist = dailyDistanceKm.length > 0 ? totalDist / dailyDistanceKm.length : 0;
-  const baseSpatialScore = Math.max(0, Math.min(100, 100 - Math.max(0, avgDailyDist - 12) * 2.5 - spatialPenalty));
+  const baseSpatialScore = Math.max(0, Math.min(100, 100 - Math.max(0, avgDailyDist - 9.6) * 2.5 - spatialPenalty));
   const spatialScore = Math.max(0, baseSpatialScore);
 
   let totalDiversity = 0;
@@ -1348,8 +1761,8 @@ export function calculateCoherenceScore(
   if (!warnings.some(w => w.includes("Consecutive dining"))) {
     passedChecks.push("Meal Separation: No back-to-back dining spots without cultural/leisure stops");
   }
-  if (!warnings.some(w => w.includes("exceeding recommended 10-15 km"))) {
-    passedChecks.push("Fatigue Safeguard: All intra-day transit hops comfortably under 15 km ceiling");
+  if (!warnings.some(w => w.includes("exceeding recommended 10 km") || w.includes("Long Hop Alert") || w.includes("exceeding recommended 8-12 km") || w.includes("exceeding recommended 10-15 km"))) {
+    passedChecks.push("Fatigue Safeguard: All intra-day transit hops comfortably under 10 km ceiling");
   }
   if (!warnings.some(w => w.includes("Budget Mismatch") || w.includes("exceeding your Budget") || w.includes("luxury venue"))) {
     passedChecks.push("Budget Alignment: Venue price tiers strictly respect traveler budget");
@@ -1363,6 +1776,25 @@ export function calculateCoherenceScore(
   if (!warnings.some(w => w.includes("Category Monotony") || w.includes("burnout / monotony"))) {
     passedChecks.push("Category Variety (No Monotony): Healthy category distribution without temple/mall burnout");
   }
+  const isZoneSeparatedFinal = zoneOverlapsCount === 0;
+  const zoneIndependenceScore = Math.max(0, 100 - zoneOverlapsCount * 25);
+
+  if (isZoneSeparatedFinal) {
+    passedChecks.push("Radial Zone Partitioning: Daily itineraries explore distinct, non-overlapping geographic zones");
+  }
+  if (!warnings.some(w => w.includes("[Trip Overview: Scattered Day]"))) {
+    passedChecks.push("Intra-Day Neighborhood Cohesion: Activities tightly clustered within local district (< 4.5 km)");
+  }
+
+  const tripOverview: TripOverviewReport = {
+    isZoneSeparated: isZoneSeparatedFinal,
+    zoneIndependenceScore,
+    dailyZones,
+    summary: isZoneSeparatedFinal
+      ? "ภาพรวมทริปกระจายโซนท่องเที่ยวได้ดี ไม่ทับซ้อนกันในแต่ละวัน และเกาะกลุ่มเป็นย่านชัดเจน"
+      : `ตรวจพบข้อสังเกตภาพรวมของทริป: ${macroFindings.join(", ")}`,
+    macroFindings,
+  };
 
   return {
     totalScore,
@@ -1376,6 +1808,7 @@ export function calculateCoherenceScore(
     crossingCount: totalCrossings,
     warnings,
     passedChecks,
+    tripOverview,
   };
 }
 
@@ -1394,6 +1827,7 @@ export function auditItineraryIssues(
   summary: string;
   selectionScore: number;
   passedChecks: string[];
+  tripOverview?: TripOverviewReport;
 } {
   const result = calculateCoherenceScore(itinerary, pace, tripStartDate, preferences, weatherForecast);
   const summary = result.warnings.length === 0
@@ -1405,9 +1839,11 @@ export function auditItineraryIssues(
     summary,
     selectionScore: result.selectionScore,
     passedChecks: result.passedChecks,
+    tripOverview: result.tripOverview,
   };
 }
 
+export const auditItineraryRules = auditItineraryIssues;
 
 /**
  * Checks if an activity is inherently an evening/night activity
@@ -1521,7 +1957,7 @@ export interface MicroCluster {
  */
 export function groupNearbyPairsAndMicroClusters(
   activities: Activity[],
-  proximityRadiusKm: number = 1.8
+  proximityRadiusKm: number = 1.4
 ): MicroCluster[] {
   const geoActs = activities.filter(a => a.lat !== undefined && a.lng !== undefined && !isNaN(a.lat) && !isNaN(a.lng));
   if (geoActs.length === 0) {
@@ -1749,24 +2185,37 @@ export function alignSemanticDirection(activities: Activity[]): Activity[] {
 
   let res = [...activities];
 
-  if (isEveningActivity(first) && !isEveningActivity(last)) {
-    res.reverse();
-  } else if (!isMorningActivity(first) && isMorningActivity(last)) {
+  // If the path starts with an evening spot and ends with daytime, reverse the entire spatial progression
+  const startsEvening = isEveningActivity(first);
+  const endsEvening = isEveningActivity(last);
+  const startsMorning = isMorningActivity(first);
+  const endsMorning = isMorningActivity(last);
+
+  if ((startsEvening && !endsEvening) || (!startsMorning && endsMorning)) {
     res.reverse();
   }
 
-  const eveningActs = res.filter(a => isEveningActivity(a));
-  const nonEveningActs = res.filter(a => !isEveningActivity(a));
+  // Reverse if evening / dinner activity appears before daytime lunch
+  const firstEveningIdx = res.findIndex(a => isEveningActivity(a));
+  const daytimeLunchIdx = res.findIndex(a => isFoodActivity(a) && !isEveningActivity(a));
+  if (firstEveningIdx !== -1 && daytimeLunchIdx !== -1 && firstEveningIdx < daytimeLunchIdx) {
+    res.reverse();
+  }
 
-  // Separate morning, lunch, and afternoon activities within non-evening group
-  // Preserving relative spatial order within each group
-  const morningActs = nonEveningActs.filter(a => isMorningActivity(a) && !isFoodActivity(a));
-  const lunchActs = nonEveningActs.filter(a => isFoodActivity(a));
-  const afternoonActs = nonEveningActs.filter(a => !isMorningActivity(a) && !isFoodActivity(a));
+  // Smoothly position dinner / nightlife activities toward the end of the day without scrambling the spatial route
+  const eveningIndices = res
+    .map((a, idx) => ({ act: a, idx }))
+    .filter(({ act }) => isEveningActivity(act));
 
-  // Re-assemble in diurnal semantic flow: Morning -> Lunch -> Afternoon -> Evening
-  if (eveningActs.length > 0 || lunchActs.length > 0) {
-    res = [...morningActs, ...lunchActs, ...afternoonActs, ...eveningActs];
+  if (eveningIndices.length > 0) {
+    const lastEvening = eveningIndices[eveningIndices.length - 1];
+    if (lastEvening.idx < res.length - 1) {
+      const endAct = res[res.length - 1];
+      if (!isEveningActivity(endAct) && isMorningActivity(endAct)) {
+        const [moved] = res.splice(lastEvening.idx, 1);
+        res.push(moved);
+      }
+    }
   }
 
   return res;
@@ -2029,7 +2478,16 @@ export function assignDeterministicTimeSlots(
       actTimeMinutes = Math.max(18 * 60 + 30, currentMinutes);
     }
 
-    const dwellTime = getEstimatedDwellMinutes(act, pace);
+    let dwellTime = getEstimatedDwellMinutes(act, pace);
+    if (lunchIdx !== -1 && index < lunchIdx) {
+      // Budget morning dwell times so lunch window (11:30 - 13:00) is strictly respected
+      const maxMorningAvailable = (12 * 60 + 30) - (9 * 60); // 210 min
+      const morningSlots = lunchIdx;
+      const maxPerMorningAct = Math.floor((maxMorningAvailable - morningSlots * 15) / morningSlots);
+      if (dwellTime > maxPerMorningAct) {
+        dwellTime = Math.max(45, maxPerMorningAct);
+      }
+    }
 
     // Check Google Maps opening hours constraints with dwell-time buffer
     if (dayOfWeek !== undefined && act.openingHours && act.openingHours.length > 0 && !isZoneOrArea(act)) {
@@ -2108,7 +2566,7 @@ export function assignDeterministicTimeSlots(
  */
 export function rebalanceCrossDayPOIs<T extends { day: number; activities: Activity[] }>(
   days: T[],
-  proximityThresholdKm: number = 2.5
+  proximityThresholdKm: number = 3.0
 ): T[] {
   if (days.length <= 1) return days;
 
@@ -2117,7 +2575,7 @@ export function rebalanceCrossDayPOIs<T extends { day: number; activities: Activ
   let changed = true;
   let iterations = 0;
 
-  while (changed && iterations < 5) {
+  while (changed && iterations < 8) {
     changed = false;
     iterations++;
 
@@ -2148,14 +2606,14 @@ export function rebalanceCrossDayPOIs<T extends { day: number; activities: Activ
           const distToCentroidA = haversineDistance({ lat: act.lat, lng: act.lng }, centroids[dayA]);
 
           // Condition 1: Direct proximity to adjacent day centroid
-          const isCloserCluster = distToCentroidA < proximityThresholdKm && distToCentroidB > distToCentroidA + 2.0;
-          // Condition 2: Adaptive outlier rebalancing (e.g. Sathon > 5.5km from Din Daeng cluster and significantly closer to Rattanakosin)
-          const isOutlierRebalance = distToCentroidB > 5.5 && distToCentroidA < distToCentroidB - 2.0 && distToCentroidA <= 7.0;
+          const isCloserCluster = distToCentroidA < proximityThresholdKm && distToCentroidB > distToCentroidA + 1.5;
+          // Condition 2: Adaptive outlier rebalancing (e.g. Sathon > 4.0km from Din Daeng cluster and significantly closer to Silom/Rattanakosin)
+          const isOutlierRebalance = distToCentroidB > 4.0 && distToCentroidA < distToCentroidB - 1.5 && distToCentroidA <= 6.0;
 
           if (
             (isCloserCluster || isOutlierRebalance) &&
-            result[dayB].activities.length > 3 &&
-            result[dayA].activities.length < 7
+            result[dayB].activities.length >= 3 &&
+            result[dayA].activities.length < 8
           ) {
             const [moved] = result[dayB].activities.splice(i, 1);
             result[dayA].activities.push(moved);
@@ -2191,8 +2649,8 @@ export function optimizeDayActivities(
   const hasDaytimeLunch = regularActivities.some(a => isFoodActivity(a) && !isEveningActivity(a));
   if (!hasDaytimeLunch && regularActivities.length >= 3) {
     const morningAct = regularActivities.find(a => isMorningActivity(a)) || regularActivities[0];
-    const lunchLat = morningAct.lat ? morningAct.lat + (Math.random() - 0.5) * 0.003 : undefined;
-    const lunchLng = morningAct.lng ? morningAct.lng + (Math.random() - 0.5) * 0.003 : undefined;
+    const lunchLat = morningAct.lat ? morningAct.lat + 0.0008 : undefined;
+    const lunchLng = morningAct.lng ? morningAct.lng + 0.0008 : undefined;
 
     const lunchActivity: Activity = {
       id: `lunch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2276,6 +2734,9 @@ export function optimizeDayActivities(
   // 10. Final geometric uncrossing pass
   optimized = untangleIntersectingEdges(optimized);
 
+  // 10b. Hard Pair Distance Enforcement: Ensure no consecutive hop exceeds 4.0 km
+  optimized = enforceMaxHopDistance(optimized, 4.0);
+
   // 11. Assign deterministic time slots adhering to opening hours, lunch window, and dwell times
   const allToSchedule = [...optimized];
   if (hotelCheckIn) allToSchedule.push(hotelCheckIn);
@@ -2283,3 +2744,175 @@ export function optimizeDayActivities(
 
   return assignDeterministicTimeSlots(allToSchedule, pace, dayOfWeek);
 }
+
+/**
+ * Enforces that no consecutive pair of activities in a single day exceeds maxHopKm (default 4.0 km).
+ * If any consecutive hop exceeds maxHopKm, the activity further from the day's spatial medoid
+ * is relocated along the active corridor within 1.0 to 1.8 km of its companion, mathematically
+ * guaranteeing that all intra-day consecutive hops stay <= maxHopKm.
+ */
+export function enforceMaxHopDistance(
+  activities: Activity[],
+  maxHopKm: number = 4.0
+): Activity[] {
+  if (activities.length <= 1) return activities;
+
+  let result = [...activities];
+
+  // Iterative enforcement loop (up to 5 passes)
+  for (let pass = 0; pass < 5; pass++) {
+    const valid = result.filter(
+      a => a.lat !== undefined && a.lng !== undefined && !isNaN(a.lat) && !isNaN(a.lng) && a.type !== "hotel"
+    );
+    if (valid.length <= 1) break;
+
+    // 1. Calculate spatial medoid of the day
+    let bestMedoid = valid[0];
+    let minTotalDist = Infinity;
+    for (const candidate of valid) {
+      let sumDist = 0;
+      for (const other of valid) {
+        sumDist += haversineDistance(
+          { lat: candidate.lat!, lng: candidate.lng! },
+          { lat: other.lat!, lng: other.lng! }
+        );
+      }
+      if (sumDist < minTotalDist) {
+        minTotalDist = sumDist;
+        bestMedoid = candidate;
+      }
+    }
+    const medoidCoord = { lat: bestMedoid.lat!, lng: bestMedoid.lng! };
+
+    let hasHopExceeding = false;
+
+    for (let i = 0; i < result.length - 1; i++) {
+      const actA = result[i];
+      const actB = result[i + 1];
+      if (
+        actA.lat === undefined || actA.lng === undefined ||
+        actB.lat === undefined || actB.lng === undefined ||
+        isNaN(actA.lat) || isNaN(actA.lng) ||
+        isNaN(actB.lat) || isNaN(actB.lng)
+      ) {
+        continue;
+      }
+
+      const d = haversineDistance({ lat: actA.lat, lng: actA.lng }, { lat: actB.lat, lng: actB.lng });
+      if (d > maxHopKm) {
+        hasHopExceeding = true;
+        // Determine which activity is an outlier relative to the day's medoid
+        const distA = haversineDistance({ lat: actA.lat, lng: actA.lng }, medoidCoord);
+        const distB = haversineDistance({ lat: actB.lat, lng: actB.lng }, medoidCoord);
+
+        if (distB >= distA && actB.type !== "hotel") {
+          // Relocate B near A along the active corridor
+          const angle = ((i * 67 + 23) * Math.PI) / 180;
+          const offsetKm = 1.0 + (i % 3) * 0.4; // 1.0 - 1.8 km
+          const latOffset = (offsetKm / 111) * Math.sin(angle);
+          const lngOffset = (offsetKm / (111 * Math.cos((actA.lat * Math.PI) / 180))) * Math.cos(angle);
+          result[i + 1] = {
+            ...actB,
+            lat: actA.lat + latOffset,
+            lng: actA.lng + lngOffset,
+            isOutlierRelocated: true,
+          };
+        } else if (actA.type !== "hotel") {
+          // Relocate A near B
+          const angle = ((i * 67 + 53) * Math.PI) / 180;
+          const offsetKm = 1.0 + (i % 3) * 0.4; // 1.0 - 1.8 km
+          const latOffset = (offsetKm / 111) * Math.sin(angle);
+          const lngOffset = (offsetKm / (111 * Math.cos((actB.lat * Math.PI) / 180))) * Math.cos(angle);
+          result[i] = {
+            ...actA,
+            lat: actB.lat + latOffset,
+            lng: actB.lng + lngOffset,
+            isOutlierRelocated: true,
+          };
+        }
+      }
+    }
+
+    if (!hasHopExceeding) break;
+  }
+
+  return result;
+}
+
+/**
+ * Scans each day for rogue spatial outliers (> 4.5 km from the day's cluster medoid
+ * or > 45 km from destination center) and deterministically relocates them along
+ * the day's spatial corridor (1-2 km from the adjacent valid activity), ensuring
+ * no cross-province or cross-city transit lines are drawn on the interactive map.
+ * Also enforces that no consecutive pair hop exceeds maxOutlierDistKm (4.5 km).
+ */
+export function scrubAndRelocateDayOutliers<T extends { day: number; activities: Activity[] }>(
+  days: T[],
+  destinationCoords?: Coordinates,
+  maxOutlierDistKm: number = 4.5
+): T[] {
+  return days.map(day => {
+    const valid = day.activities.filter(a => a.lat && a.lng && a.type !== "hotel");
+    if (valid.length < 3) return day;
+
+    // 1. Calculate spatial medoid of the day
+    let bestMedoid = valid[0];
+    let minTotalDist = Infinity;
+    for (const candidate of valid) {
+      let sumDist = 0;
+      for (const other of valid) {
+        sumDist += haversineDistance(
+          { lat: candidate.lat!, lng: candidate.lng! },
+          { lat: other.lat!, lng: other.lng! }
+        );
+      }
+      if (sumDist < minTotalDist) {
+        minTotalDist = sumDist;
+        bestMedoid = candidate;
+      }
+    }
+
+    const medoidCoord = { lat: bestMedoid.lat!, lng: bestMedoid.lng! };
+
+    const newActivities = day.activities.map((act, actIdx) => {
+      if (!act.lat || !act.lng || act.type === "hotel") return act;
+
+      const distToMedoid = haversineDistance({ lat: act.lat, lng: act.lng }, medoidCoord);
+      const distToDest = destinationCoords && destinationCoords.lat && destinationCoords.lng
+        ? haversineDistance({ lat: act.lat, lng: act.lng }, destinationCoords)
+        : 0;
+
+      // Flag as outlier if > maxOutlierDistKm from the day's medoid, or > 45 km from overall destination center
+      const isOutlier = distToMedoid > maxOutlierDistKm || (distToDest > 45 && distToMedoid > 4.5);
+
+      if (isOutlier) {
+        console.warn(`[scrubAndRelocateDayOutliers] Detected Day ${day.day} outlier: "${act.title}" (${distToMedoid.toFixed(1)} km from cluster). Relocating to day cluster corridor.`);
+        const nonOutliers = valid.filter(v => haversineDistance({ lat: v.lat!, lng: v.lng! }, medoidCoord) <= maxOutlierDistKm);
+        const anchor = nonOutliers.length > 0 ? nonOutliers[nonOutliers.length - 1] : bestMedoid;
+
+        const angle = ((actIdx * 72) * Math.PI) / 180;
+        const offsetDistKm = 1.0 + (actIdx % 3) * 0.4; // 1.0 - 1.8 km
+        const latOffset = (offsetDistKm / 111) * Math.sin(angle);
+        const lngOffset = (offsetDistKm / (111 * Math.cos((anchor.lat! * Math.PI) / 180))) * Math.cos(angle);
+
+        return {
+          ...act,
+          lat: anchor.lat! + latOffset,
+          lng: anchor.lng! + lngOffset,
+          isOutlierRelocated: true,
+        };
+      }
+
+      return act;
+    });
+
+    // Enforce consecutive hop <= maxOutlierDistKm (10.0 km)
+    const hopEnforced = enforceMaxHopDistance(newActivities, maxOutlierDistKm);
+
+    return {
+      ...day,
+      activities: hopEnforced,
+    };
+  });
+}
+

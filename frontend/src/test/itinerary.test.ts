@@ -433,20 +433,20 @@ describe("Plan Coherence Score & Rule Violations Evaluator", () => {
     expect(isZoneOrArea({ title: "Bangkok Art Museum", type: "culture" })).toBe(false);
   });
 
-  it("should detect and warn when consecutive activities exceed 10-15 km hop limit", () => {
+  it("should detect and warn when consecutive activities exceed 8-12 km hop limit", () => {
     const farHopItinerary = [
       {
         day: 1,
         activities: [
           { id: "1", title: "Bangkok Central", type: "culture" as const, lat: 13.75, lng: 100.50, time: "09:00" },
-          // 18.2 km north: exceeds 10-15 km recommended limit
+          // 18.2 km north: exceeds 8-12 km recommended limit
           { id: "2", title: "Far North Suburb", type: "culture" as const, lat: 13.91, lng: 100.52, time: "11:30" }
         ]
       }
     ];
 
     const result = calculateCoherenceScore(farHopItinerary, "Moderate");
-    expect(result.warnings.some(w => w.includes("10-15 km maximum hop limit"))).toBe(true);
+    expect(result.warnings.some(w => w.includes("8-12 km maximum hop limit"))).toBe(true);
   });
 
   it("should warn when activity start time leaves insufficient dwell time before venue closes", () => {

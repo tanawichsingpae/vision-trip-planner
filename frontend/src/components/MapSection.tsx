@@ -4,6 +4,7 @@ import { Map as MapIcon, Navigation, Calendar, Layers, Globe } from "lucide-reac
 import type { LocationData } from "@/components/LocationDisplay";
 import { type DayPlan, type Activity } from "./TravelItinerary";
 import { fetchPlaceDetails } from "@/api/places";
+import { haversineDistance } from "@/api/spatialPlanner";
 import { useLanguage } from "@/context/LanguageContext";
 
 interface MapSectionProps {
@@ -37,7 +38,7 @@ const MapSection = ({
   hoveredActivityId,
   onSelectActivity,
 }: MapSectionProps) => {
-  const { language, locPlace, locDesc, t } = useLanguage();
+  const { language, toggleLanguage, locPlace, locDesc, t } = useLanguage();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
 
@@ -289,11 +290,22 @@ const MapSection = ({
     });
 
     // ── STEP B: Spiderfy Micro-Offset Algorithm for Overlapping Pins ──
-    const coordClusters = new Map<string, typeof allProcessedActivities>();
+    const coordClusters: Array<typeof allProcessedActivities> = [];
     allProcessedActivities.forEach((item) => {
-      const key = `${item.activity.lat!.toFixed(4)}_${item.activity.lng!.toFixed(4)}`;
-      if (!coordClusters.has(key)) coordClusters.set(key, []);
-      coordClusters.get(key)!.push(item);
+      const match = coordClusters.find((cluster) => {
+        const first = cluster[0];
+        return (
+          haversineDistance(
+            { lat: first.activity.lat!, lng: first.activity.lng! },
+            { lat: item.activity.lat!, lng: item.activity.lng! }
+          ) <= 0.05 // Group pins within 50 meters
+        );
+      });
+      if (match) {
+        match.push(item);
+      } else {
+        coordClusters.push([item]);
+      }
     });
 
     const processedMarkers: ProcessedMarkerData[] = [];
@@ -308,7 +320,8 @@ const MapSection = ({
 
         if (clusterSize > 1) {
           const angle = (2 * Math.PI * i) / clusterSize;
-          const radiusKm = 0.012; // 12 meters micro-offset (keeps pins on venue footprint without overlapping)
+          // 80 to 120 meters visible spiderfy dispersal radius (prevents pin clumping)
+          const radiusKm = Math.min(0.12, 0.08 + (clusterSize - 2) * 0.015);
           const latOffset = (radiusKm / 111) * Math.sin(angle);
           const lngOffset =
             (radiusKm / (111 * Math.cos((origLat * Math.PI) / 180))) * Math.cos(angle);
@@ -793,11 +806,22 @@ const MapSection = ({
 
       {/* Itinerary Overview (Compact & Responsive) */}
       <div className="flex flex-col gap-3 pt-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-            {t("itineraryOverview", "Itinerary Overview")} (
-            {selectedDayFilter === "all" ? t("allDays", "All Days") : (language === "th" ? `วันที่ ${selectedDayFilter + 1}` : `Day ${selectedDayFilter + 1}`)})
-          </h3>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              {t("itineraryOverview", "Itinerary Overview")} (
+              {selectedDayFilter === "all" ? t("allDays", "All Days") : (language === "th" ? `วันที่ ${selectedDayFilter + 1}` : `Day ${selectedDayFilter + 1}`)})
+            </h3>
+            <button
+              type="button"
+              onClick={toggleLanguage}
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-full bg-secondary/80 hover:bg-secondary text-primary border border-border/60 transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+              title={language === "th" ? "Switch to English" : "เปลี่ยนเป็นภาษาไทย"}
+            >
+              <Globe className="size-2.5" />
+              <span>{language === "th" ? "TH / EN" : "EN / TH"}</span>
+            </button>
+          </div>
           <span className="text-[11px] text-muted-foreground font-medium">
             {language === "th"
               ? `${t("totalSpots", "สถานที่ท่องเที่ยวทั้งหมด")} ${itinerary.reduce((acc, d) => acc + d.activities.length, 0)} ${t("spotsCount", "แห่ง")}`
@@ -833,29 +857,24 @@ const MapSection = ({
                     <li
                       key={activity.id || `activity-${dayIndex}-${i}`}
                       onClick={() => onSelectActivity?.(activity)}
-                      className="flex items-start gap-2.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors p-2 -mx-1 rounded-xl hover:bg-background/80 group border border-transparent hover:border-border/60"
+                      className="flex items-start gap-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors p-1 -mx-1 rounded-lg hover:bg-background/60"
                       title={language === "th" ? "คลิกเพื่อดูหมุดบนแผนที่" : "Click to focus pin on map"}
                     >
-                      <span className="font-bold text-primary/80 shrink-0 mt-0.5 w-4 text-center">
+                      <span className="font-bold text-primary/70 shrink-0 mt-0.5 w-4">
                         {i + 1}.
                       </span>
-                      <div className="flex-1 min-w-0 leading-snug">
+                      <div className="flex-1 leading-snug min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-semibold text-foreground text-xs sm:text-sm group-hover:text-primary transition-colors">
+                          <span className="font-medium text-foreground">
                             {activity.type === "hotel" && "🏨 "}
                             {locPlace(activity) || activity.title}
                           </span>
                           {activity.time && (
-                            <span className="text-[10px] text-muted-foreground font-mono px-1.5 py-0.5 rounded-md bg-secondary/80">
+                            <span className="text-[10px] text-muted-foreground font-mono px-1.5 py-0.5 rounded-md bg-secondary/80 shrink-0">
                               {activity.time}
                             </span>
                           )}
                         </div>
-                        {locDesc(activity) && (
-                          <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">
-                            {locDesc(activity)}
-                          </p>
-                        )}
                       </div>
                     </li>
                   ))}

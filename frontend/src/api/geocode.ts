@@ -1,3 +1,5 @@
+import { isFoursquareRateLimited, setFoursquareRateLimited } from "./foursquareClient";
+
 export interface Coordinates {
   lat: number;
   lng: number;
@@ -14,6 +16,12 @@ export interface GeocodePlaceResult extends Coordinates {
 const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY as string;
 const MAPBOX_ACCESS_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string;
 const FOURSQUARE_API_KEY = import.meta.env.VITE_FOURSQUARE_API_KEY as string;
+
+// Rate limit circuit breakers to prevent HTTP 429 console flood
+let isNominatimExhausted = false;
+
+// Fast in-memory geocoding cache across the session
+const geocodeCache = new Map<string, GeocodePlaceResult>();
 
 // ---------------------------------------------------------------------------
 // Haversine distance (metres) between two coordinates
@@ -228,6 +236,7 @@ async function geocodeWithMapbox(query: string, bias?: Coordinates): Promise<Geo
 // Foursquare Places Geocoding (High POI Precision for Venues / Eateries)
 // ---------------------------------------------------------------------------
 async function geocodeWithFoursquare(query: string, bias?: Coordinates): Promise<GeocodePlaceResult | null> {
+  if (isFoursquareRateLimited()) return null;
   if (!FOURSQUARE_API_KEY || !FOURSQUARE_API_KEY.startsWith("fsq3")) return null;
 
   try {
@@ -245,6 +254,12 @@ async function geocodeWithFoursquare(query: string, bias?: Coordinates): Promise
         Accept: "application/json",
       },
     });
+
+    if (res.status === 429 || res.status === 402) {
+      console.warn("[geocodeWithFoursquare] Rate limit reached (429/402). Activating circuit breaker.");
+      setFoursquareRateLimited(true);
+      return null;
+    }
 
     if (!res.ok) return null;
 
@@ -346,6 +361,7 @@ async function geocodeWithGeoapify(query: string, bias?: Coordinates): Promise<G
 // OpenStreetMap Nominatim Fallback (100% Free)
 // ---------------------------------------------------------------------------
 async function geocodeWithNominatim(query: string, bias?: Coordinates): Promise<GeocodePlaceResult | null> {
+  if (isNominatimExhausted) return null;
   try {
     let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5`;
     if (bias && bias.lat && bias.lng) {
@@ -356,6 +372,11 @@ async function geocodeWithNominatim(query: string, bias?: Coordinates): Promise<
     const res = await fetch(url, {
       headers: { "User-Agent": "PixineraryApp/1.0" },
     });
+    if (res.status === 429) {
+      console.warn("[geocodeWithNominatim] Nominatim rate limit (429) reached. Activating circuit breaker.");
+      isNominatimExhausted = true;
+      return null;
+    }
     if (!res.ok) return null;
 
     const results = await res.json();
@@ -402,6 +423,16 @@ export async function getCoordinates(
   bias?: Coordinates,
   cityName?: string
 ): Promise<GeocodePlaceResult> {
+  const cacheKey = `${placeName.toLowerCase().trim()}|${cityName || ""}|${bias ? `${bias.lat.toFixed(3)},${bias.lng.toFixed(3)}` : ""}`;
+  if (geocodeCache.has(cacheKey)) {
+    return geocodeCache.get(cacheKey)!;
+  }
+
+  const saveCache = (res: GeocodePlaceResult): GeocodePlaceResult => {
+    geocodeCache.set(cacheKey, res);
+    return res;
+  };
+
   const cleaned = cleanPlaceName(placeName);
   const keyword = extractKeyword(cleaned || placeName);
   const city = cityName ? `, ${cityName}` : "";
@@ -413,7 +444,7 @@ export async function getCoordinates(
   for (const [knownName, disambig] of Object.entries(FAMOUS_LANDMARK_DISAMBIGUATION)) {
     if (rawKey === knownName || cleanedKey === knownName || rawKey.includes(knownName) || knownName.includes(rawKey)) {
       if (!bias || distanceMetres(disambig, bias) <= 150_000) {
-        return {
+        return saveCache({
           lat: disambig.lat,
           lng: disambig.lng,
           formattedAddress: disambig.formattedAddress,
@@ -421,7 +452,7 @@ export async function getCoordinates(
           photoUrl: null,
           rating: 4.9,
           userRatingsTotal: 1000,
-        };
+        });
       }
     }
   }
@@ -444,7 +475,7 @@ export async function getCoordinates(
     for (const q of uniqueCandidates) {
       const res = await geocodeWithGeoapify(q, bias);
       if (res) {
-        return res;
+        return saveCache(res);
       }
     }
   }
@@ -453,7 +484,7 @@ export async function getCoordinates(
   for (const q of uniqueCandidates) {
     const res = await geocodeWithMapbox(q, bias);
     if (res) {
-      return res;
+      return saveCache(res);
     }
   }
 
@@ -461,7 +492,7 @@ export async function getCoordinates(
   for (const q of uniqueCandidates) {
     const res = await geocodeWithFoursquare(q, bias);
     if (res) {
-      return res;
+      return saveCache(res);
     }
   }
 
@@ -469,7 +500,7 @@ export async function getCoordinates(
   for (const q of uniqueCandidates) {
     const res = await geocodeWithGeoapify(q, bias);
     if (res) {
-      return res;
+      return saveCache(res);
     }
   }
 
@@ -477,7 +508,7 @@ export async function getCoordinates(
   for (const q of uniqueCandidates) {
     const res = await geocodeWithNominatim(q, bias);
     if (res) {
-      return res;
+      return saveCache(res);
     }
   }
 
@@ -494,7 +525,7 @@ export async function getCoordinates(
     const latOffset = (distanceKm / 111) * Math.sin(angle);
     const lngOffset = (distanceKm / (111 * Math.cos((bias.lat * Math.PI) / 180))) * Math.cos(angle);
 
-    return {
+    return saveCache({
       lat: bias.lat + latOffset,
       lng: bias.lng + lngOffset,
       formattedAddress: cityName || placeName,
@@ -502,7 +533,7 @@ export async function getCoordinates(
       photoUrl: null,
       rating: 4.5,
       userRatingsTotal: 25,
-    };
+    });
   }
 
   throw new Error(`All geocoding strategies exhausted for: "${placeName}"`);

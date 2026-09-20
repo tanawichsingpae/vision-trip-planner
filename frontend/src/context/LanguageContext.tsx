@@ -1,11 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback } from "react";
 import {
   hasThaiScript,
   DICTIONARY_EN_TO_TH,
   DICTIONARY_TH_TO_EN,
+  extractBilingualText,
   translateTextSync,
-  queueAsyncTranslation,
-  subscribeTranslationUpdates,
+  translateTextAsync,
 } from "@/services/translatorService";
 
 export type Language = "th" | "en";
@@ -178,138 +178,254 @@ export const UI_STRINGS = {
 
 export function getLocalizedPlace(
   item: LocalizablePlace | null | undefined,
-  language: Language
+  language: Language,
+  onAsyncResolve?: () => void
 ): string {
   if (!item) return "";
 
   if (language === "th") {
-    // 1. Explicit Thai fields
-    const explicitTh = item.title_th || item.name_th || item.place_th;
-    if (explicitTh && explicitTh.trim()) {
-      if (hasThaiScript(explicitTh)) return explicitTh.trim();
-      const translated = translateTextSync(explicitTh.trim(), "th");
-      if (hasThaiScript(translated)) return translated;
+    // 1. Explicit Thai fields (must have Thai script or bilingual th)
+    const explicitTh = (item.title_th || item.name_th || item.place_th || "").trim();
+    if (explicitTh) {
+      const bilingual = extractBilingualText(explicitTh);
+      if (bilingual?.th) return bilingual.th;
+      if (hasThaiScript(explicitTh)) return explicitTh;
     }
 
-    // 2. Check if general title/name/place is already Thai
+    // 2. Check general title/name/place
     const rawCandidate = (item.title || item.name || item.place || "").trim();
-    if (rawCandidate && hasThaiScript(rawCandidate)) {
-      return rawCandidate;
-    }
-
-    // 3. Synchronous dictionary & rule translation
     if (rawCandidate) {
-      const translated = translateTextSync(rawCandidate, "th");
-      if (hasThaiScript(translated)) return translated;
-      queueAsyncTranslation(rawCandidate, "th");
-      if (translated !== rawCandidate) return translated;
+      const bilingual = extractBilingualText(rawCandidate);
+      if (bilingual?.th) return bilingual.th;
+
+      // Hotel Check-in / Check-out patterns
+      if (/^check\s*in:?\s*(.*)$/i.test(rawCandidate)) {
+        const match = rawCandidate.match(/^check\s*in:?\s*(.*)$/i);
+        const place = match?.[1]?.trim() || "";
+        const placeTh = place ? (DICTIONARY_EN_TO_TH[place.toLowerCase()] || extractBilingualText(place)?.th || getLocalizedPlace({ title: place }, "th", onAsyncResolve) || place) : "";
+        return placeTh ? `เช็คอิน: ${placeTh}` : "เช็คอินเข้าที่พัก";
+      }
+      if (/^check\s*out:?\s*(.*)$/i.test(rawCandidate)) {
+        const match = rawCandidate.match(/^check\s*out:?\s*(.*)$/i);
+        const place = match?.[1]?.trim() || "";
+        const placeTh = place ? (DICTIONARY_EN_TO_TH[place.toLowerCase()] || extractBilingualText(place)?.th || getLocalizedPlace({ title: place }, "th", onAsyncResolve) || place) : "";
+        return placeTh ? `เช็คเอาต์: ${placeTh}` : "เช็คเอาต์จากที่พัก";
+      }
+
+      // Check if already purely Thai
+      if (hasThaiScript(rawCandidate) && !/[a-zA-Z]/.test(rawCandidate)) {
+        return rawCandidate;
+      }
+      if (hasThaiScript(rawCandidate)) {
+        return rawCandidate;
+      }
+
+      // Direct full dictionary match
+      const lowerKey = rawCandidate.toLowerCase();
+      if (DICTIONARY_EN_TO_TH[lowerKey]) {
+        return DICTIONARY_EN_TO_TH[lowerKey];
+      }
+
+      // Synchronous translateTextSync
+      const syncResult = translateTextSync(rawCandidate, "th");
+      if (syncResult !== rawCandidate && hasThaiScript(syncResult)) {
+        return syncResult;
+      }
+
+      // Check cache
+      const cached = typeof window !== "undefined" ? localStorage.getItem(`trans_th:${rawCandidate}`) : null;
+      if (cached && hasThaiScript(cached)) return cached;
+
+      // Trigger async AI translation
+      if (onAsyncResolve && !hasThaiScript(rawCandidate)) {
+        translateTextAsync(rawCandidate, "th").then((res) => {
+          if (res && res !== rawCandidate) onAsyncResolve();
+        }).catch(() => {});
+      }
     }
 
-    // 4. Try English fields through translator
-    const secondary = (item.english_name || item.title_en || item.name_en || item.place_en || "").trim();
-    if (secondary) {
-      const transSecondary = translateTextSync(secondary, "th");
-      if (hasThaiScript(transSecondary)) return transSecondary;
-      queueAsyncTranslation(secondary, "th");
-    }
+    // 3. Fallback
+    const sourceText = (hasThaiScript(explicitTh) ? explicitTh : "") || rawCandidate || item.english_name || item.title_en || item.name_en || item.place_en || "";
+    const cachedSource = typeof window !== "undefined" && sourceText ? localStorage.getItem(`trans_th:${sourceText}`) : null;
+    if (cachedSource && hasThaiScript(cachedSource)) return cachedSource;
 
-    return rawCandidate || secondary || "";
+    return (hasThaiScript(explicitTh) ? explicitTh : "") || (hasThaiScript(rawCandidate) ? rawCandidate : "") || sourceText;
   }
 
   // English
-  // 1. Explicit English fields (ensure no Thai characters)
-  const explicitEn = item.title_en || item.name_en || item.place_en || item.english_name;
-  if (explicitEn && explicitEn.trim() && !hasThaiScript(explicitEn)) {
-    return explicitEn.trim();
+  // 1. Explicit English fields (must have Latin/English letters)
+  const explicitEn = (item.title_en || item.name_en || item.place_en || item.english_name || "").trim();
+  if (explicitEn) {
+    const bilingual = extractBilingualText(explicitEn);
+    if (bilingual?.en) return bilingual.en;
+    if (/[a-zA-Z]/.test(explicitEn) && !hasThaiScript(explicitEn)) return explicitEn;
+    if (/[a-zA-Z]/.test(explicitEn)) return explicitEn;
   }
 
-  // 2. Check if general title/name/place is already Latin/English
+  // 2. Check general title/name/place
   const rawCandidate = (item.title || item.name || item.place || "").trim();
-  if (rawCandidate && !hasThaiScript(rawCandidate)) {
-    return rawCandidate;
-  }
-
-  // 3. Synchronous dictionary & rule translation
   if (rawCandidate) {
-    const translated = translateTextSync(rawCandidate, "en");
-    if (!hasThaiScript(translated)) return translated;
-    queueAsyncTranslation(rawCandidate, "en");
-    if (translated !== rawCandidate) return translated;
+    const bilingual = extractBilingualText(rawCandidate);
+    if (bilingual?.en) return bilingual.en;
+
+    // Thai Check-in / Check-out patterns
+    if (/^(เช็คอิน|เช็คอินเข้าที่พัก):?\s*(.*)$/i.test(rawCandidate)) {
+      const match = rawCandidate.match(/^(เช็คอิน|เช็คอินเข้าที่พัก):?\s*(.*)$/i);
+      const place = match?.[2]?.trim() || "";
+      const placeEn = place ? (DICTIONARY_TH_TO_EN[place.toLowerCase()] || extractBilingualText(place)?.en || getLocalizedPlace({ title: place }, "en", onAsyncResolve) || place) : "";
+      return placeEn ? `Check in: ${placeEn}` : "Check in to hotel";
+    }
+    if (/^(เช็คเอาท์|เช็คเอาต์|เช็คเอาต์จากที่พัก):?\s*(.*)$/i.test(rawCandidate)) {
+      const match = rawCandidate.match(/^(เช็คเอาท์|เช็คเอาต์|เช็คเอาต์จากที่พัก):?\s*(.*)$/i);
+      const place = match?.[2]?.trim() || "";
+      const placeEn = place ? (DICTIONARY_TH_TO_EN[place.toLowerCase()] || extractBilingualText(place)?.en || getLocalizedPlace({ title: place }, "en", onAsyncResolve) || place) : "";
+      return placeEn ? `Check out: ${placeEn}` : "Check out from hotel";
+    }
+    if (/^check\s*in:?\s*(.*)$/i.test(rawCandidate)) {
+      const match = rawCandidate.match(/^check\s*in:?\s*(.*)$/i);
+      const place = match?.[1]?.trim() || "";
+      return place ? `Check in: ${place}` : "Check in to hotel";
+    }
+    if (/^check\s*out:?\s*(.*)$/i.test(rawCandidate)) {
+      const match = rawCandidate.match(/^check\s*out:?\s*(.*)$/i);
+      const place = match?.[1]?.trim() || "";
+      return place ? `Check out: ${place}` : "Check out from hotel";
+    }
+
+    // Check if already purely Latin/English
+    if (!hasThaiScript(rawCandidate) && /[a-zA-Z]/.test(rawCandidate)) {
+      return rawCandidate;
+    }
+
+    // Direct full dictionary match
+    const lowerKey = rawCandidate.toLowerCase();
+    if (DICTIONARY_TH_TO_EN[lowerKey]) {
+      return DICTIONARY_TH_TO_EN[lowerKey];
+    }
+
+    // Synchronous translateTextSync
+    const syncResult = translateTextSync(rawCandidate, "en");
+    if (syncResult !== rawCandidate && !hasThaiScript(syncResult)) {
+      return syncResult;
+    }
+
+    // Check cache
+    const cached = typeof window !== "undefined" ? localStorage.getItem(`trans_en:${rawCandidate}`) : null;
+    if (cached && !hasThaiScript(cached)) return cached;
+
+    // Trigger async AI translation
+    if (onAsyncResolve && hasThaiScript(rawCandidate)) {
+      translateTextAsync(rawCandidate, "en").then((res) => {
+        if (res && res !== rawCandidate) onAsyncResolve();
+      }).catch(() => {});
+    }
   }
 
-  // 4. Try Thai fields through translator
-  const secondary = (item.title_th || item.name_th || item.place_th || "").trim();
-  if (secondary) {
-    const transSecondary = translateTextSync(secondary, "en");
-    if (!hasThaiScript(transSecondary)) return transSecondary;
-    queueAsyncTranslation(secondary, "en");
-  }
+  // 3. Fallback
+  const sourceText = (/[a-zA-Z]/.test(explicitEn) ? explicitEn : "") || rawCandidate || item.title_th || item.name_th || item.place_th || "";
+  const cachedSource = typeof window !== "undefined" && sourceText ? localStorage.getItem(`trans_en:${sourceText}`) : null;
+  if (cachedSource && !hasThaiScript(cachedSource)) return cachedSource;
 
-  return rawCandidate || explicitEn || secondary || "";
+  return (/[a-zA-Z]/.test(explicitEn) ? explicitEn : "") || (!hasThaiScript(rawCandidate) && rawCandidate ? rawCandidate : "") || sourceText;
 }
 
 export function getLocalizedDescription(
   item: LocalizableDescription | null | undefined,
-  language: Language
+  language: Language,
+  onAsyncResolve?: () => void
 ): string {
   if (!item) return "";
 
   if (language === "th") {
-    // 1. Explicit Thai description
-    if (item.description_th && item.description_th.trim()) {
-      if (hasThaiScript(item.description_th)) return item.description_th.trim();
-      const translated = translateTextSync(item.description_th.trim(), "th");
-      if (hasThaiScript(translated)) return translated;
+    // 1. Explicit Thai description (must contain Thai script)
+    const explicitTh = (item.description_th || "").trim();
+    if (explicitTh) {
+      const bilingual = extractBilingualText(explicitTh);
+      if (bilingual?.th) return bilingual.th;
+      if (hasThaiScript(explicitTh)) return explicitTh;
     }
 
+    // 2. Check general description if it is already Thai
     const raw = (item.description || "").trim();
-    if (raw && hasThaiScript(raw)) {
-      return raw;
-    }
-
     if (raw) {
-      const translated = translateTextSync(raw, "th");
-      if (hasThaiScript(translated)) return translated;
-      queueAsyncTranslation(raw, "th");
-      if (translated !== raw) return translated;
+      const bilingual = extractBilingualText(raw);
+      if (bilingual?.th) return bilingual.th;
+
+      if (hasThaiScript(raw) && !/[a-zA-Z]/.test(raw)) {
+        return raw;
+      }
+      if (hasThaiScript(raw)) {
+        return raw;
+      }
     }
 
-    const enDesc = (item.description_en || "").trim();
-    if (enDesc) {
-      const translated = translateTextSync(enDesc, "th");
-      if (hasThaiScript(translated)) return translated;
-      queueAsyncTranslation(enDesc, "th");
+    // 3. Needs translation from English -> Thai
+    const textToTranslate = raw || explicitTh || (item.description_en || "").trim();
+    if (textToTranslate) {
+      // Check cache
+      const cached = typeof window !== "undefined" ? localStorage.getItem(`trans_th:${textToTranslate}`) : null;
+      if (cached && hasThaiScript(cached)) return cached;
+
+      // Exact dictionary / sync
+      const syncResult = translateTextSync(textToTranslate, "th");
+      if (syncResult !== textToTranslate && hasThaiScript(syncResult)) {
+        return syncResult;
+      }
+
+      // Trigger AI translation asynchronously
+      if (onAsyncResolve && !hasThaiScript(textToTranslate)) {
+        translateTextAsync(textToTranslate, "th").then((res) => {
+          if (res && res !== textToTranslate) onAsyncResolve();
+        }).catch(() => {});
+      }
     }
 
-    return raw || enDesc || "";
+    return (hasThaiScript(explicitTh) ? explicitTh : "") || (hasThaiScript(raw) ? raw : "") || textToTranslate;
   }
 
   // English
-  // 1. Explicit English description
-  if (item.description_en && item.description_en.trim() && !hasThaiScript(item.description_en)) {
-    return item.description_en.trim();
+  // 1. Explicit English description (must contain English letters)
+  const explicitEn = (item.description_en || "").trim();
+  if (explicitEn) {
+    const bilingual = extractBilingualText(explicitEn);
+    if (bilingual?.en) return bilingual.en;
+    if (/[a-zA-Z]/.test(explicitEn) && !hasThaiScript(explicitEn)) return explicitEn;
+    if (/[a-zA-Z]/.test(explicitEn)) return explicitEn;
   }
 
+  // 2. Check general description if already English
   const raw = (item.description || "").trim();
-  if (raw && !hasThaiScript(raw)) {
-    return raw;
-  }
-
   if (raw) {
-    const translated = translateTextSync(raw, "en");
-    if (!hasThaiScript(translated)) return translated;
-    queueAsyncTranslation(raw, "en");
-    if (translated !== raw) return translated;
+    const bilingual = extractBilingualText(raw);
+    if (bilingual?.en) return bilingual.en;
+
+    if (!hasThaiScript(raw) && /[a-zA-Z]/.test(raw)) {
+      return raw;
+    }
   }
 
-  const thDesc = (item.description_th || "").trim();
-  if (thDesc) {
-    const translated = translateTextSync(thDesc, "en");
-    if (!hasThaiScript(translated)) return translated;
-    queueAsyncTranslation(thDesc, "en");
+  // 3. Needs translation from Thai -> English
+  const textToTranslate = raw || (item.description_th || "").trim() || explicitEn;
+  if (textToTranslate) {
+    // Check cache
+    const cached = typeof window !== "undefined" ? localStorage.getItem(`trans_en:${textToTranslate}`) : null;
+    if (cached && !hasThaiScript(cached)) return cached;
+
+    // Exact dictionary / sync
+    const syncResult = translateTextSync(textToTranslate, "en");
+    if (syncResult !== textToTranslate && !hasThaiScript(syncResult)) {
+      return syncResult;
+    }
+
+    // Trigger AI translation asynchronously
+    if (onAsyncResolve && hasThaiScript(textToTranslate)) {
+      translateTextAsync(textToTranslate, "en").then((res) => {
+        if (res && res !== textToTranslate) onAsyncResolve();
+      }).catch(() => {});
+    }
   }
 
-  return raw || item.description_en || thDesc || "";
+  return (!hasThaiScript(explicitEn) && explicitEn ? explicitEn : "") || (!hasThaiScript(raw) && raw ? raw : "") || textToTranslate;
 }
 
 interface LanguageContextType {
@@ -326,28 +442,28 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {
-    const saved = localStorage.getItem("pixinerary_language");
+    const saved = typeof window !== "undefined" ? localStorage.getItem("pixinerary_language") : null;
     return saved === "en" || saved === "th" ? saved : "th";
   });
-  const [, setTick] = useState(0);
+  const [, setAsyncVersion] = useState(0);
 
-  useEffect(() => {
-    // Re-render when background translations resolve
-    const unsubscribe = subscribeTranslationUpdates(() => {
-      setTick((prev) => prev + 1);
-    });
-    return unsubscribe;
+  const triggerAsyncUpdate = useCallback(() => {
+    setAsyncVersion((v) => v + 1);
   }, []);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
-    localStorage.setItem("pixinerary_language", lang);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("pixinerary_language", lang);
+    }
   };
 
   const toggleLanguage = () => {
     const nextLang = language === "th" ? "en" : "th";
     setLanguageState(nextLang);
-    localStorage.setItem("pixinerary_language", nextLang);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("pixinerary_language", nextLang);
+    }
   };
 
   const isThai = language === "th";
@@ -363,13 +479,19 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return keyOrTh;
   };
 
-  const locPlace = (item: LocalizablePlace | null | undefined): string => {
-    return getLocalizedPlace(item, language);
-  };
+  const locPlace = useCallback(
+    (item: LocalizablePlace | null | undefined): string => {
+      return getLocalizedPlace(item, language, triggerAsyncUpdate);
+    },
+    [language, triggerAsyncUpdate]
+  );
 
-  const locDesc = (item: LocalizableDescription | null | undefined): string => {
-    return getLocalizedDescription(item, language);
-  };
+  const locDesc = useCallback(
+    (item: LocalizableDescription | null | undefined): string => {
+      return getLocalizedDescription(item, language, triggerAsyncUpdate);
+    },
+    [language, triggerAsyncUpdate]
+  );
 
   return (
     <LanguageContext.Provider

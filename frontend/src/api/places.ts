@@ -1,7 +1,7 @@
 import { validateApiKey } from "@/utils/apiUtils";
 import { fetchWikimediaPhoto, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres } from "./geocode";
 import { getCuratedFallbackPhoto, fetchSmartPhoto } from "@/services/photoService";
-import { foursquareSearch, foursquareGetPhotos } from "./foursquareClient";
+import { foursquareSearch, foursquareGetPhotos, isFoursquareRateLimited, setFoursquareRateLimited } from "./foursquareClient";
 
 const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY as string;
 const FOURSQUARE_API_KEY = import.meta.env.VITE_FOURSQUARE_API_KEY as string;
@@ -506,7 +506,7 @@ export async function getNearbyAttractions(
   lng: number
 ): Promise<Attraction[]> {
   // Strategy 1: Foursquare Places API (High-quality tourist spots, real photos & ratings)
-  if (FOURSQUARE_API_KEY && FOURSQUARE_API_KEY.startsWith("fsq3")) {
+  if (!isFoursquareRateLimited() && FOURSQUARE_API_KEY && FOURSQUARE_API_KEY.startsWith("fsq3")) {
     try {
       const url = `https://api.foursquare.com/v3/places/search?ll=${lat},${lng}&radius=10000&categories=16000,10000,13000&sort=RATING&limit=10&fields=fsq_id,name,geocodes,categories,rating,photos`;
       const res = await fetch(url, {
@@ -516,7 +516,10 @@ export async function getNearbyAttractions(
         },
       });
 
-      if (res.ok) {
+      if (res.status === 429 || res.status === 402) {
+        console.warn("[getNearbyAttractions] Foursquare rate limit reached (429/402). Activating circuit breaker.");
+        setFoursquareRateLimited(true);
+      } else if (res.ok) {
         const data = await res.json();
         const results = data.results || [];
         if (results.length > 0) {
