@@ -19,7 +19,7 @@ export interface PhotoSearchOptions {
   indexOffset?: number;
 }
 
-import { foursquareSearch, foursquareGetPhotos } from "@/api/foursquareClient";
+import { foursquareSearch, foursquareGetPhotos, isFoursquareRateLimited } from "@/api/foursquareClient";
 
 export interface PhotoSearchResult {
   url: string;
@@ -838,7 +838,7 @@ export async function fetchSmartPhoto(
   }
 
   // 8. Try Foursquare Places Real Photo (ideal for venues, eateries, modern spots)
-  if (FOURSQUARE_API_KEY && FOURSQUARE_API_KEY.trim().length > 5) {
+  if (FOURSQUARE_API_KEY && FOURSQUARE_API_KEY.trim().length > 5 && !isFoursquareRateLimited()) {
     const fsqPhoto = await fetchFromFoursquarePhoto(placeName, city);
     if (fsqPhoto) {
       photoCache.set(cacheKey, fsqPhoto);
@@ -867,6 +867,7 @@ export async function fetchFromOpenverse(_query: string): Promise<string | null>
  * Real venue / restaurant / cafe / attraction photos from Foursquare Places API (CORS-safe)
  */
 export async function fetchFromFoursquarePhoto(placeName: string, cityName?: string): Promise<string | null> {
+  if (isFoursquareRateLimited()) return null;
   try {
     const q = cityName ? `${placeName} ${cityName}` : placeName;
     const data = await foursquareSearch(q, { limit: 1 });
@@ -876,7 +877,7 @@ export async function fetchFromFoursquarePhoto(placeName: string, cityName?: str
         return `${place.photos[0].prefix}original${place.photos[0].suffix}`;
       }
       const placeId = place.fsq_place_id || place.fsq_id;
-      if (placeId) {
+      if (placeId && !isFoursquareRateLimited()) {
         try {
           const photos = await foursquareGetPhotos(placeId, 1);
           if (photos.length > 0) {
@@ -914,38 +915,40 @@ export async function searchPhotosOnline(
 
   try {
     // 0. Fetch authentic photos from Foursquare (via CORS-safe proxy)
-    try {
-      const q = cityName ? `${query} ${cityName}` : query;
-      const fsqData = await foursquareSearch(q, { limit: 3 });
-      for (const venue of fsqData?.results || []) {
-        if (venue.photos && venue.photos.length > 0) {
-          venue.photos.forEach((photo: any) => {
-            addResult({
-              url: `${photo.prefix}original${photo.suffix}`,
-              title: venue.name ? `${venue.name} (Foursquare)` : "Foursquare User Photo",
-              source: "foursquare",
-            });
-          });
-        } else {
-          const placeId = venue.fsq_place_id || venue.fsq_id;
-          if (placeId) {
-            try {
-              const photos = await foursquareGetPhotos(placeId, 2);
-              photos.forEach((photo) => {
-                addResult({
-                  url: photo.url,
-                  title: venue.name ? `${venue.name} (Foursquare)` : "Foursquare User Photo",
-                  source: "foursquare",
-                });
+    if (!isFoursquareRateLimited() && FOURSQUARE_API_KEY && FOURSQUARE_API_KEY.trim().length > 5) {
+      try {
+        const q = cityName ? `${query} ${cityName}` : query;
+        const fsqData = await foursquareSearch(q, { limit: 3 });
+        for (const venue of fsqData?.results || []) {
+          if (venue.photos && venue.photos.length > 0) {
+            venue.photos.forEach((photo: any) => {
+              addResult({
+                url: `${photo.prefix}original${photo.suffix}`,
+                title: venue.name ? `${venue.name} (Foursquare)` : "Foursquare User Photo",
+                source: "foursquare",
               });
-            } catch {
-              // ignore
+            });
+          } else {
+            const placeId = venue.fsq_place_id || venue.fsq_id;
+            if (placeId && !isFoursquareRateLimited()) {
+              try {
+                const photos = await foursquareGetPhotos(placeId, 2);
+                photos.forEach((photo) => {
+                  addResult({
+                    url: photo.url,
+                    title: venue.name ? `${venue.name} (Foursquare)` : "Foursquare User Photo",
+                    source: "foursquare",
+                  });
+                });
+              } catch {
+                // ignore
+              }
             }
           }
         }
+      } catch (fsqErr) {
+        console.warn("[searchPhotosOnline] Foursquare search failed:", fsqErr);
       }
-    } catch (fsqErr) {
-      console.warn("[searchPhotosOnline] Foursquare search failed:", fsqErr);
     }
 
     // 1. Fetch from Wikipedia Exact & Search

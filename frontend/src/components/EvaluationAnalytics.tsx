@@ -56,11 +56,12 @@ import {
   MapPin,
   AlertCircle,
 } from "lucide-react";
-import type {
-  BlindTrip,
-  EvaluationRecord,
-  ModelSummaryStat,
-  ScenarioComparisonRecord,
+import {
+  resolveEvaluatorName,
+  type BlindTrip,
+  type EvaluationRecord,
+  type ModelSummaryStat,
+  type ScenarioComparisonRecord,
 } from "@/api/blindEvalApi";
 
 // Predefined model colors for visual distinction
@@ -292,7 +293,7 @@ export default function EvaluationAnalytics({
       if (ev.feedback && typeof ev.feedback === "string" && ev.feedback.trim()) {
         if (!st.strengths.includes(ev.feedback.trim()) && !st.weaknesses.includes(ev.feedback.trim())) {
           st.general_comments.push({
-            expert: ev.expert_name || "ผู้เชี่ยวชาญ",
+            expert: resolveEvaluatorName(ev.expert_name, ev.expert_id, resultsData.evaluations),
             comment: ev.feedback.trim(),
             date: ev.submitted_at || "",
           });
@@ -558,7 +559,7 @@ export default function EvaluationAnalytics({
         escapeCsv(ev.blind_label),
         escapeCsv(ev.actual_model),
         escapeCsv(ev.expert_id),
-        escapeCsv(ev.expert_name),
+        escapeCsv(resolveEvaluatorName(ev.expert_name, ev.expert_id, resultsData.evaluations)),
         escapeCsv(ev.expert_profile?.role || ""),
         escapeCsv(ev.expert_profile?.experience || ""),
         escapeCsv(ev.expert_profile?.ai_familiarity || ""),
@@ -637,7 +638,7 @@ export default function EvaluationAnalytics({
         escapeCsv(cmp.scenario_id),
         escapeCsv(scTitle),
         escapeCsv(cmp.expert_id),
-        escapeCsv(cmp.expert_name),
+        escapeCsv(resolveEvaluatorName(cmp.expert_name, cmp.expert_id, resultsData.comparisons)),
         escapeCsv(cmp.expert_profile?.role || ""),
         escapeCsv(cmp.expert_profile?.experience || ""),
         escapeCsv(cmp.best_for_practical_use?.trip_id || ""),
@@ -1867,7 +1868,7 @@ export default function EvaluationAnalytics({
               <div key={cmp.id} className="p-4 rounded-2xl bg-secondary/20 border border-border/40 space-y-2.5 text-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                   <span className="font-bold text-foreground">
-                    ผู้ประเมิน: {cmp.expert_name || "ผู้เชี่ยวชาญ"} ({cmp.expert_profile?.role || "ผู้เชี่ยวชาญ"} • ประสบการณ์ {cmp.expert_profile?.experience || "-"})
+                    ผู้ประเมิน: {resolveEvaluatorName(cmp.expert_name, cmp.expert_id, resultsData.comparisons)} ({cmp.expert_profile?.role || "ผู้เชี่ยวชาญ"} • ประสบการณ์ {cmp.expert_profile?.experience || "-"})
                   </span>
                   <span className="text-[11px] text-muted-foreground">{cmp.submitted_at}</span>
                 </div>

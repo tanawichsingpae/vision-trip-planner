@@ -44,6 +44,89 @@ export interface ExpertProfile {
   saved_at?: string;
 }
 
+const EXPERT_EMAIL_REGISTRY_KEY = "pixinerary_expert_email_registry";
+
+/**
+ * Maps an email to a unique, consistent default identifier: "Expert 1", "Expert 2", ...
+ * Avoids duplicate evaluator names across different accounts when exporting data.
+ */
+export function getExpertDefaultName(
+  email?: string | null,
+  existingList?: Array<string | { email?: string; expert_id?: string }>
+): string {
+  if (!email || !email.trim()) {
+    return "Expert 1";
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+
+  let mapping: Record<string, number> = {};
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem(EXPERT_EMAIL_REGISTRY_KEY) : null;
+    if (raw) {
+      mapping = JSON.parse(raw);
+    }
+  } catch {}
+
+  // If existingList is provided, ensure known emails are registered in consistent sequence
+  if (existingList && Array.isArray(existingList)) {
+    // First pass: register any items that already have an explicit "Expert N" name
+    existingList.forEach((item: any) => {
+      if (typeof item === "object" && item) {
+        const em = (item.email || item.expert_id || "").trim().toLowerCase();
+        const match = typeof item.expert_name === "string" ? item.expert_name.match(/^Expert\s+(\d+)$/i) : null;
+        if (em && match && !mapping[em]) {
+          mapping[em] = parseInt(match[1], 10);
+        }
+      }
+    });
+
+    // Second pass: register remaining emails sequentially
+    existingList.forEach((item: any) => {
+      const em = (typeof item === "string" ? item : item?.email || item?.expert_id || "").trim().toLowerCase();
+      if (em && !mapping[em]) {
+        const nextIdx = Object.keys(mapping).length > 0 ? Math.max(...Object.values(mapping)) + 1 : 1;
+        mapping[em] = nextIdx;
+      }
+    });
+  }
+
+  // If this email not yet in mapping, assign next sequential index
+  if (!mapping[cleanEmail]) {
+    const currentMax = Object.keys(mapping).length > 0 ? Math.max(...Object.values(mapping)) : 0;
+    mapping[cleanEmail] = currentMax + 1;
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(EXPERT_EMAIL_REGISTRY_KEY, JSON.stringify(mapping));
+      }
+    } catch {}
+  }
+
+  return `Expert ${mapping[cleanEmail]}`;
+}
+
+/**
+ * Resolves the evaluator's display name:
+ * If a custom name was set and is not the old mock default ("ดร. สมชาย"), return the custom name.
+ * Otherwise, return the unique default "Expert 1", "Expert 2", ... derived from email.
+ */
+export function resolveEvaluatorName(
+  name?: string | null,
+  email?: string | null,
+  existingList?: Array<string | { email?: string; expert_id?: string }>
+): string {
+  const trimmed = name?.trim();
+  if (
+    trimmed &&
+    trimmed !== "ดร. สมชาย" &&
+    trimmed !== "ดร. สมชาย (ผู้เชี่ยวชาญการท่องเที่ยว)" &&
+    !trimmed.startsWith("ผู้ประเมินผู้เชี่ยวชาญ")
+  ) {
+    return trimmed;
+  }
+  return getExpertDefaultName(email, existingList);
+}
+
 export interface DetailedDimensionScores {
   // ด้านที่ 1: ความถูกต้องของข้อมูล (Factual Accuracy: FA1-FA5)
   fa1: number;

@@ -11,7 +11,7 @@
 
 import { fetchSmartPhoto, getCuratedFallbackPhoto } from "@/services/photoService";
 import { type SuggestedPlace } from "@/components/AISuggestedPlaces";
-import { foursquareSearch } from "@/api/foursquareClient";
+import { foursquareSearch, isFoursquareRateLimited } from "@/api/foursquareClient";
 import { hasThaiScript, translateTextSync } from "@/services/translatorService";
 
 const MAPBOX_ACCESS_TOKEN = (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string) || "";
@@ -280,7 +280,7 @@ export async function searchHotels(
   }
 
   // ── Tier 3: Foursquare Places API Proxy (Strict Accommodations Only) ────────
-  if (candidates.length === 0) {
+  if (candidates.length === 0 && !isFoursquareRateLimited()) {
     try {
       const searchTarget = translatedEnglish || cleaned;
       const fsqRes = await foursquareSearch(searchTarget, {

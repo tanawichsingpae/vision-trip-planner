@@ -74,8 +74,9 @@ export interface FoursquareSearchResponse {
 
 // Circuit breaker: If Foursquare reports 429 (Requires paid credits / rate limited),
 // we silence further requests for the rest of the session to avoid spamming the console.
-let isSearchApiExhausted = false;
-let isPhotoApiExhausted = false;
+const IS_CLIENT = typeof window !== "undefined";
+let isSearchApiExhausted = IS_CLIENT && window.sessionStorage?.getItem("fsq_exhausted") === "1";
+let isPhotoApiExhausted = isSearchApiExhausted;
 
 export function isFoursquareRateLimited(): boolean {
   return isSearchApiExhausted || isPhotoApiExhausted;
@@ -84,6 +85,17 @@ export function isFoursquareRateLimited(): boolean {
 export function setFoursquareRateLimited(limited: boolean = true) {
   isSearchApiExhausted = limited;
   isPhotoApiExhausted = limited;
+  if (IS_CLIENT) {
+    try {
+      if (limited) {
+        window.sessionStorage?.setItem("fsq_exhausted", "1");
+      } else {
+        window.sessionStorage?.removeItem("fsq_exhausted");
+      }
+    } catch {
+      // Ignore sessionStorage issues
+    }
+  }
 }
 
 /**
@@ -99,7 +111,7 @@ export async function foursquareSearch(
   }
 ): Promise<FoursquareSearchResponse | null> {
   const cleanQ = query.trim();
-  if (!cleanQ || isSearchApiExhausted) return null;
+  if (!cleanQ || isFoursquareRateLimited()) return null;
 
   const limit = options?.limit ?? 1;
   const radius = options?.radius ?? 50000;
@@ -116,20 +128,26 @@ export async function foursquareSearch(
         url += `&ll=${llParam}&radius=${radius}`;
       }
       const res = await fetch(url);
-      if (res.status === 429 || res.status === 402) {
-        console.warn("[foursquareSearch] Foursquare rate limit (429/402) reached. Circuit breaker activated.");
-        isSearchApiExhausted = true;
+      if (res.status === 429 || res.status === 402 || res.headers.get("x-foursquare-exhausted") === "true") {
+        setFoursquareRateLimited(true);
         return null;
       }
       if (res.ok) {
-        return (await res.json()) as FoursquareSearchResponse;
+        const data = await res.json();
+        if (data?.exhausted || data?.message?.includes("credits")) {
+          setFoursquareRateLimited(true);
+          return null;
+        }
+        if (Array.isArray(data?.results)) {
+          return data as FoursquareSearchResponse;
+        }
       }
     } catch (err) {
       console.warn("[foursquareSearch] Vite proxy attempt failed, trying backend proxy...", err);
     }
   }
 
-  if (isSearchApiExhausted) return null;
+  if (isFoursquareRateLimited()) return null;
 
   // 2. Production or fallback: Backend server proxy
   try {
@@ -139,12 +157,18 @@ export async function foursquareSearch(
     }
     const res = await fetch(url);
     if (res.status === 429 || res.status === 402) {
-      console.warn("[foursquareSearch] Foursquare backend proxy rate limit (429/402) reached. Circuit breaker activated.");
-      isSearchApiExhausted = true;
+      setFoursquareRateLimited(true);
       return null;
     }
     if (res.ok) {
-      return (await res.json()) as FoursquareSearchResponse;
+      const data = await res.json();
+      if (data?.exhausted || data?.message?.includes("credits")) {
+        setFoursquareRateLimited(true);
+        return null;
+      }
+      if (Array.isArray(data?.results)) {
+        return data as FoursquareSearchResponse;
+      }
     }
   } catch (err) {
     console.warn("[foursquareSearch] Backend proxy failed:", err);
@@ -160,14 +184,14 @@ export async function foursquareGetPhotos(
   placeId: string,
   limit: number = 10
 ): Promise<Array<{ prefix: string; suffix: string; url: string }>> {
-  if (!placeId || isPhotoApiExhausted) return [];
+  if (!placeId || isFoursquareRateLimited()) return [];
 
   // 1. In development, prefer Vite same-origin proxy
   if (IS_DEV) {
     try {
       const res = await fetch(`/fsq-api/places/${placeId}/photos?limit=${limit}`);
-      if (res.status === 429 || res.status === 402) {
-        isPhotoApiExhausted = true;
+      if (res.status === 429 || res.status === 402 || res.headers.get("x-foursquare-exhausted") === "true") {
+        setFoursquareRateLimited(true);
         return [];
       }
       if (res.ok) {
@@ -179,19 +203,23 @@ export async function foursquareGetPhotos(
             url: `${p.prefix}original${p.suffix}`,
           }));
         }
+        if (data?.exhausted || data?.message?.includes("credits")) {
+          setFoursquareRateLimited(true);
+          return [];
+        }
       }
     } catch {
       // Ignore credit limit / network errors
     }
   }
 
-  if (isPhotoApiExhausted) return [];
+  if (isFoursquareRateLimited()) return [];
 
   // 2. Production or fallback: Backend server proxy
   try {
     const res = await fetch(`${BACKEND_URL}/foursquare/photos/${placeId}?limit=${limit}`);
     if (res.status === 429 || res.status === 402) {
-      isPhotoApiExhausted = true;
+      setFoursquareRateLimited(true);
       return [];
     }
     if (res.ok) {
@@ -202,6 +230,10 @@ export async function foursquareGetPhotos(
           suffix: p.suffix,
           url: `${p.prefix}original${p.suffix}`,
         }));
+      }
+      if (data?.exhausted || data?.message?.includes("credits")) {
+        setFoursquareRateLimited(true);
+        return [];
       }
     }
   } catch {

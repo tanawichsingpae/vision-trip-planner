@@ -140,6 +140,8 @@ async function fetchFoursquarePlaceDetails(
   placeName: string,
   bias?: { lat: number; lng: number }
 ): Promise<PlaceDetails | null> {
+  if (isFoursquareRateLimited()) return null;
+
   const query = cleanVenueSearchQuery(placeName);
 
   try {
@@ -161,7 +163,7 @@ async function fetchFoursquarePlaceDetails(
     if (result.photos && result.photos.length > 0) {
       const p = result.photos[0];
       photoUrl = `${p.prefix}original${p.suffix}`;
-    } else if (placeId) {
+    } else if (placeId && !isFoursquareRateLimited()) {
       try {
         const photos = await foursquareGetPhotos(placeId, 1);
         if (photos.length > 0) {
@@ -276,8 +278,8 @@ export async function fetchPlaceDetails(
       }
     }
 
-    // 2. Fetch high-quality place info from Foursquare (if key available)
-    if (FOURSQUARE_API_KEY) {
+    // 2. Fetch high-quality place info from Foursquare (if key available and not rate limited)
+    if (FOURSQUARE_API_KEY && !isFoursquareRateLimited()) {
       const fsqData = await fetchFoursquarePlaceDetails(placeName, bias);
       if (fsqData && fsqData.lat !== null && fsqData.lng !== null) {
         const resolvedPhoto = await smartPhotoPromise;

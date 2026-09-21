@@ -34,6 +34,12 @@ export default defineConfig(({ mode }) => {
               proxyReq.setHeader("X-Places-Api-Version", "2025-06-17");
               proxyReq.setHeader("Accept", "application/json");
             });
+            proxy.on("proxyRes", (proxyRes) => {
+              if (proxyRes.statusCode === 429 || proxyRes.statusCode === 402) {
+                proxyRes.statusCode = 200;
+                proxyRes.headers["x-foursquare-exhausted"] = "true";
+              }
+            });
           },
         },
       },

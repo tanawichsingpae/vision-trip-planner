@@ -9,6 +9,8 @@ import {
   deleteBlindTrip,
   checkDatabaseConnection,
   syncLocalToSupabase,
+  getExpertDefaultName,
+  resolveEvaluatorName,
   type DatabaseStatus,
   type BlindTrip,
   type EvaluationRecord,
@@ -237,13 +239,24 @@ export default function BlindEvaluation() {
   // -------------------------------------------------------------
   const PROFILE_STORAGE_KEY = `pixinerary_expert_profile_${(userEmail || "default").toLowerCase()}`;
 
+  const defaultExpertName = useMemo(() => {
+    return getExpertDefaultName(userEmail, userRolesList);
+  }, [userEmail, userRolesList]);
+
   const [expertProfile, setExpertProfile] = useState<ExpertProfile>(() => {
     try {
       const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
       if (cached) {
         const parsed = JSON.parse(cached);
+        const rawName = (parsed.name || "").trim();
+        const cleanedName =
+          rawName === "ดร. สมชาย" ||
+          rawName === "ดร. สมชาย (ผู้เชี่ยวชาญการท่องเที่ยว)" ||
+          rawName.startsWith("ผู้ประเมินผู้เชี่ยวชาญ")
+            ? ""
+            : rawName;
         return {
-          name: parsed.name || "",
+          name: cleanedName,
           role: parsed.role || "อาจารย์/นักวิชาการด้านการท่องเที่ยว",
           role_other: parsed.role_other || "",
           experience: parsed.experience || "3–5 ปี",
@@ -263,12 +276,16 @@ export default function BlindEvaluation() {
     };
   });
 
+  const effectiveExpertName = useMemo(() => {
+    return resolveEvaluatorName(expertProfile.name, userEmail, userRolesList);
+  }, [expertProfile.name, userEmail, userRolesList]);
+
   const [isProfileSaved, setIsProfileSaved] = useState<boolean>(() => {
     try {
       const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
       if (cached) {
         const parsed = JSON.parse(cached);
-        return !!(parsed && parsed.name && parsed.name.trim());
+        return !!(parsed && (parsed.saved_at || parsed.role));
       }
     } catch {
       // ignore
@@ -280,22 +297,40 @@ export default function BlindEvaluation() {
       const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
       if (cached) {
         const parsed = JSON.parse(cached);
-        return !(parsed && parsed.name && parsed.name.trim());
+        return !(parsed && (parsed.saved_at || parsed.role));
       }
     } catch {
       // ignore
     }
     return true;
   });
+  const [showOptionalName, setShowOptionalName] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem(PROFILE_STORAGE_KEY) || localStorage.getItem("pixinerary_expert_profile");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const rawName = (parsed.name || "").trim();
+        const hasCustom =
+          rawName &&
+          rawName !== "ดร. สมชาย" &&
+          rawName !== "ดร. สมชาย (ผู้เชี่ยวชาญการท่องเที่ยว)" &&
+          !rawName.startsWith("ผู้ประเมินผู้เชี่ยวชาญ");
+        return !!hasCustom;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  });
 
   const handleSaveProfile = () => {
-    if (!expertProfile.name || !expertProfile.name.trim()) {
-      toast.error("กรุณากรอกชื่อ-นามสกุล หรือชื่อของผู้ประเมิน");
+    if (expertProfile.role === "อื่นๆ" && !expertProfile.role_other?.trim()) {
+      toast.error("กรุณาระบุตำแหน่งหรือบทบาทของท่านในช่อง 'อื่นๆ'");
       return;
     }
     const updated = {
       ...expertProfile,
-      name: expertProfile.name.trim(),
+      name: expertProfile.name?.trim() || "",
       saved_at: new Date().toISOString(),
     };
     setExpertProfile(updated);
@@ -582,7 +617,7 @@ export default function BlindEvaluation() {
         trip_id: activeTrip.id,
         blind_label: activeTrip.blind_label,
         expert_id: userEmail || "expert",
-        expert_name: expertProfile.name?.trim() || userEmail.split("@")[0] || "Tourism Expert",
+        expert_name: effectiveExpertName,
         expert_profile: expertProfile,
         scores: {
           spatial_feasibility: Math.round(currentTripScores.sr_avg),
@@ -637,7 +672,7 @@ export default function BlindEvaluation() {
       await submitScenarioComparison({
         scenario_id: selectedScenarioId,
         expert_id: userEmail || "expert",
-        expert_name: expertProfile.name?.trim() || userEmail.split("@")[0] || "Tourism Expert",
+        expert_name: effectiveExpertName,
         expert_profile: expertProfile,
         rankings: formattedRankings,
         best_for_practical_use: {
@@ -980,14 +1015,7 @@ export default function BlindEvaluation() {
               isProfileSaved ? (
                 /* Verified Compact Summary View */
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-900/60">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs flex-1">
-                    <div>
-                      <span className="text-[10px] text-muted-foreground block font-medium">ชื่อ-นามสกุล / ผู้ประเมิน</span>
-                      <span className="font-semibold text-foreground flex items-center gap-1.5 mt-0.5">
-                        <User className="size-3 text-purple-600 shrink-0" />
-                        <span className="truncate">{expertProfile.name || "(ยังไม่ระบุชื่อ)"}</span>
-                      </span>
-                    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs flex-1">
                     <div>
                       <span className="text-[10px] text-muted-foreground block">ตำแหน่ง/บทบาทหลัก</span>
                       <span className="font-semibold text-foreground block mt-0.5 truncate">
@@ -1004,9 +1032,16 @@ export default function BlindEvaluation() {
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1 font-medium shrink-0">
-                    <CheckCircle2 className="size-3.5" />
-                    <span>ใช้ข้อมูลนี้กับทุกการประเมิน</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/70 border border-border/60">
+                      <User className="size-3 text-purple-600 shrink-0" />
+                      <span className="font-medium text-foreground truncate max-w-[150px]">{effectiveExpertName}</span>
+                    </div>
+
+                    <div className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1 font-medium">
+                      <CheckCircle2 className="size-3.5" />
+                      <span>ใช้ข้อมูลนี้กับทุกการประเมิน</span>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1015,7 +1050,7 @@ export default function BlindEvaluation() {
                   <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
                     <AlertCircle className="size-4 text-amber-600 shrink-0" />
                     <span>
-                      <strong>ข้อมูลผู้เชี่ยวชาญยังไม่ได้บันทึก</strong> — กรุณากรอกชื่อและข้อมูลก่อนส่งผลการประเมิน (ระบบจะจดจำไว้ตลอดการใช้งาน)
+                      <strong>ข้อมูลผู้เชี่ยวชาญยังไม่ได้บันทึก</strong> — กรุณาเลือกข้อมูลตำแหน่งและประสบการณ์ก่อนส่งผลการประเมิน (ระบบจะจดจำไว้ตลอดการใช้งาน)
                     </span>
                   </div>
                   <Button
@@ -1036,27 +1071,6 @@ export default function BlindEvaluation() {
                   <span>
                     ข้อมูลส่วนนี้กรอกเพียงครั้งเดียว ระบบจะบันทึกไว้ในเบราว์เซอร์อัตโนมัติ และจะนำไปเชื่อมต่อกับทุกการประเมินของท่าน
                   </span>
-                </div>
-
-                {/* 0. Expert Full Name */}
-                <div className="p-2.5 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/70 dark:border-purple-900/50 space-y-1">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                    <Label htmlFor="expert-name-input" className="text-xs font-bold text-foreground flex items-center gap-1">
-                      <User className="size-3 text-purple-600" />
-                      <span>ชื่อ-นามสกุล / ชื่อผู้ประเมิน:</span>
-                      <span className="text-red-500 font-bold">*</span>
-                    </Label>
-                    <span className="text-[10px] text-muted-foreground">
-                      (ใช้แสดงผลในรายงานและการบันทึกผลการประเมิน)
-                    </span>
-                  </div>
-                  <Input
-                    id="expert-name-input"
-                    placeholder="เช่น ดร. สมชาย ใจดี, อ. วิภาวี เก่งการท่องเที่ยว, คุณกานต์ ทราเวลเลอร์"
-                    value={expertProfile.name || ""}
-                    onChange={(e) => setExpertProfile((p) => ({ ...p, name: e.target.value }))}
-                    className="text-xs h-8 rounded-xl bg-background border-border/80"
-                  />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1150,6 +1164,46 @@ export default function BlindEvaluation() {
                       ))}
                     </div>
                   </div>
+                </div>
+
+                {/* Optional Evaluator Name (Hidden/Subtle toggle by default) */}
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowOptionalName((v) => !v)}
+                    className="text-[11px] text-muted-foreground/75 hover:text-muted-foreground flex items-center gap-1.5 transition-colors py-1 px-1.5 rounded-lg hover:bg-secondary/40"
+                  >
+                    <User className="size-3 opacity-60 text-purple-600" />
+                    <span>
+                      {showOptionalName || (expertProfile.name && expertProfile.name.trim().length > 0)
+                        ? "ซ่อนช่องระบุชื่อผู้ประเมิน"
+                        : `+ ระบุชื่อ-นามสกุล / นามแฝง (ค่าเริ่มต้น: ${defaultExpertName} — ไม่บังคับกรอก)`}
+                    </span>
+                    {showOptionalName || (expertProfile.name && expertProfile.name.trim().length > 0) ? (
+                      <ChevronUp className="size-3 opacity-60" />
+                    ) : (
+                      <ChevronDown className="size-3 opacity-60" />
+                    )}
+                  </button>
+
+                  {(showOptionalName || (expertProfile.name && expertProfile.name.trim().length > 0)) && (
+                    <div className="mt-2 p-3 rounded-2xl bg-secondary/30 border border-border/50 space-y-1.5 max-w-md animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="expert-name-input" className="text-xs font-medium text-foreground flex items-center gap-1">
+                          <User className="size-3 text-purple-600" />
+                          <span>ชื่อ-นามสกุล / นามแฝงผู้ประเมิน:</span>
+                          <span className="text-[10px] text-muted-foreground font-normal">(ไม่บังคับกรอก)</span>
+                        </Label>
+                      </div>
+                      <Input
+                        id="expert-name-input"
+                        placeholder={`ระบุชื่อหรือไม่ระบุก็ได้ (เช่น ${defaultExpertName}, คุณกานต์ หรือเว้นว่างไว้เพื่อใช้ชื่อ ${defaultExpertName})`}
+                        value={expertProfile.name || ""}
+                        onChange={(e) => setExpertProfile((p) => ({ ...p, name: e.target.value }))}
+                        className="text-xs h-8 rounded-xl bg-background border-border/80"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between pt-2 border-t border-border/40 flex-wrap gap-2">

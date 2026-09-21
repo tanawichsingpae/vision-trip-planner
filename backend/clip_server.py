@@ -9,6 +9,11 @@ from flask_cors import CORS
 
 import torch
 from PIL import Image
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except Exception:
+    pass
 import open_clip
 import requests
 
@@ -189,15 +194,33 @@ def get_embedding_url():
         return jsonify({"error": "No URL provided"}), 400
 
     try:
+        raw_url = data["url"]
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+            "Accept": "image/jpeg,image/png,image/webp,*/*;q=0.8"
         }
-        response = requests.get(data["url"], headers=headers, timeout=10)
 
+        # Normalize Unsplash / CDN image URLs to explicitly request standard JPEG format (avoids unsupported AVIF)
+        fetch_url = raw_url
+        if "images.unsplash.com" in fetch_url:
+            if "auto=format" in fetch_url:
+                fetch_url = fetch_url.replace("auto=format", "fm=jpg")
+            elif "fm=" not in fetch_url:
+                fetch_url += ("&" if "?" in fetch_url else "?") + "fm=jpg"
+
+        response = requests.get(fetch_url, headers=headers, timeout=10)
         response.raise_for_status()
 
-        img = Image.open(BytesIO(response.content)).convert("RGB")
+        try:
+            img = Image.open(BytesIO(response.content)).convert("RGB")
+        except Exception as img_err:
+            if "images.unsplash.com" in raw_url:
+                fallback_url = raw_url.split("?")[0] + "?w=1000&q=80&fm=jpg"
+                fb_res = requests.get(fallback_url, headers=headers, timeout=10)
+                fb_res.raise_for_status()
+                img = Image.open(BytesIO(fb_res.content)).convert("RGB")
+            else:
+                raise img_err
 
         img_preprocessed = preprocess(img).unsqueeze(0).to(device)
 
@@ -217,7 +240,7 @@ def get_embedding_url():
         return jsonify(embedding_list)
 
     except Exception as e:
-        print("Error:", e)
+        print("Error in /embedding_url:", e)
         return jsonify({"error": str(e)}), 500
 
 
@@ -257,10 +280,12 @@ def foursquare_search():
             params=params,
             timeout=10
         )
+        if res.status_code in (429, 402):
+            return jsonify({"results": [], "exhausted": True}), 200
         return jsonify(res.json()), res.status_code
     except Exception as e:
         print("Foursquare search error:", e)
-        return jsonify({"error": str(e), "results": []}), 500
+        return jsonify({"error": str(e), "results": []}), 200
 
 
 @app.route("/foursquare/photos/<place_id>", methods=["GET"])
