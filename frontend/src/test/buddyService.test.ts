@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   getPixMascotUrl,
   evaluateDayBuddyAlerts,
@@ -6,14 +6,17 @@ import {
   isCashDominantVenue,
   isOutdoorActivity,
   type PixPose,
+  evaluateSmartReroute,
+  calculateHaversineDistance,
+  fetchLiveBuddyInsights,
+  type LiveTransitStatus,
 } from "../services/buddyService";
 import { type DayPlan } from "../components/TravelItinerary";
 import { type ForecastHour } from "../services/environmentService";
 
-describe("Pix Travel Buddy Service", () => {
-  it("should map all 13 Pix mascot poses to their corresponding image paths", () => {
-    const poses: PixPose[] = [
-      "warning",
+describe("Pixo Travel Buddy Service", () => {
+  it("should map all Pixo mascot poses to their corresponding image paths in /pixo_carton/", () => {
+    const standardPoses: PixPose[] = [
       "rainy",
       "sunny",
       "transit",
@@ -26,15 +29,28 @@ describe("Pix Travel Buddy Service", () => {
       "celebrate",
       "camera",
       "search",
+      "chat",
+      "route_planer",
+      "confident",
+      "confused",
+      "insight",
+      "goodbye",
+      "surprised",
     ];
 
-    poses.forEach((pose) => {
+    standardPoses.forEach((pose) => {
       const url = getPixMascotUrl(pose);
-      expect(url).toBe(`/logos/pix_${pose}.jpg`);
+      expect(url).toBe(`/pixo_carton/pixo_${pose}.jpg`);
     });
+
+    // Special cases
+    expect(getPixMascotUrl("warning")).toBe("/pixo_carton/pixo_warning_temple.jpg");
+    expect(getPixMascotUrl("happy")).toBe("/pixo_carton/pixo_celebrate.jpg");
+    expect(getPixMascotUrl("chatbot_profile")).toBe("/pixo_carton/pixo_chatbot_profile.jpg");
+    expect(getPixMascotUrl("unknown_pose")).toBe("/pixo_carton/pixo_tip.jpg");
   });
 
-  it("should detect temples and trigger Dress Code Warning with pix_warning.jpg", () => {
+  it("should detect temples and trigger Dress Code Warning with pixo_warning_temple.jpg", () => {
     expect(isTempleOrSacredSite("Wat Phra Kaew (Temple of the Emerald Buddha)")).toBe(true);
     expect(isTempleOrSacredSite("วัดอรุณราชวราราม")).toBe(true);
     expect(isTempleOrSacredSite("Grand Palace & Temple Grounds")).toBe(true);
@@ -178,5 +194,329 @@ describe("Pix Travel Buddy Service", () => {
     expect(flightAlert).toBeDefined();
     expect(flightAlert?.pose).toBe("flight");
     expect(flightAlert?.message).toContain("สนามบิน");
+  });
+
+  describe("evaluateSmartReroute (Smart Reroute & Dynamic Swap)", () => {
+    it("should calculate Haversine distance correctly", () => {
+      // Same point distance is 0
+      const d0 = calculateHaversineDistance({ lat: 13.7563, lng: 100.5018 }, { lat: 13.7563, lng: 100.5018 });
+      expect(d0).toBe(0);
+
+      // Bangkok to Pattaya is approximately 95 - 120 km
+      const bkk = { lat: 13.7563, lng: 100.5018 };
+      const pattaya = { lat: 12.9276, lng: 100.8771 };
+      const dKm = calculateHaversineDistance(bkk, pattaya);
+      expect(dKm).toBeGreaterThan(90);
+      expect(dKm).toBeLessThan(120);
+    });
+
+    it("Test Case 1: should propose Smart Swap when traffic delay is >= 20 mins and next place is close", () => {
+      const mockDay: DayPlan = {
+        day: 1,
+        date: "Day 1",
+        activities: [
+          {
+            id: "act-1",
+            time: "09:00",
+            title: "Grand Palace (พระบรมมหาราชวัง)",
+            description: "Historical landmark",
+            type: "landmark",
+            lat: 13.7500,
+            lng: 100.4914,
+          },
+          {
+            id: "act-2",
+            time: "11:00",
+            title: "Wat Arun (วัดอรุณ)",
+            description: "Temple of Dawn",
+            type: "culture",
+            lat: 13.7437,
+            lng: 100.4889,
+          },
+          {
+            id: "act-3",
+            time: "13:30",
+            title: "Museum Siam (มิวเซียมสยาม)",
+            description: "Discovery museum",
+            type: "culture",
+            lat: 13.7441,
+            lng: 100.4941,
+            openNow: true,
+          },
+        ],
+      };
+
+      const segments = [
+        { durationText: "45 min", distanceText: "3.5 km", status: "ok" },
+        { durationText: "10 min", distanceText: "1.2 km", status: "ok" },
+      ];
+
+      const proposal = evaluateSmartReroute(mockDay, 0, segments, null, "Bangkok", "th");
+      expect(proposal).not.toBeNull();
+      expect(proposal?.type).toBe("SWAP");
+      expect(proposal?.fromActivityIndex).toBe(1);
+      expect(proposal?.toActivityIndex).toBe(2);
+      expect(proposal?.fromActivityTitle).toBe("Wat Arun (วัดอรุณ)");
+      expect(proposal?.toActivityTitle).toBe("Museum Siam (มิวเซียมสยาม)");
+      expect(proposal?.timeSavedMinutes).toBeGreaterThanOrEqual(15);
+      expect(proposal?.pixMessage).toContain("ประหยัดเวลา");
+    });
+
+    it("Test Case 2: Opening Hours Guard - should NOT propose swap if destination activity is closed", () => {
+      const mockDay: DayPlan = {
+        day: 1,
+        date: "Day 1",
+        activities: [
+          {
+            id: "act-1",
+            time: "09:00",
+            title: "Grand Palace",
+            description: "Palace",
+            type: "landmark",
+            lat: 13.7500,
+            lng: 100.4914,
+          },
+          {
+            id: "act-2",
+            time: "11:00",
+            title: "Wat Arun",
+            description: "Temple",
+            type: "culture",
+            lat: 13.7437,
+            lng: 100.4889,
+          },
+          {
+            id: "act-3",
+            time: "13:30",
+            title: "Museum Siam",
+            description: "Museum",
+            type: "culture",
+            lat: 13.7441,
+            lng: 100.4941,
+            openNow: false, // Closed!
+          },
+        ],
+      };
+
+      const segments = [
+        { durationText: "45 min", distanceText: "3.5 km", status: "ok" },
+        { durationText: "10 min", distanceText: "1.2 km", status: "ok" },
+      ];
+
+      const proposal = evaluateSmartReroute(mockDay, 0, segments, null, "Bangkok", "th");
+      // Must not propose swapping with a closed museum
+      if (proposal) {
+        expect(proposal.type).not.toBe("SWAP");
+      } else {
+        expect(proposal).toBeNull();
+      }
+    });
+
+    it("Test Case 3: Haversine Detour Guard - should NOT swap if next place causes excessive backtracking (>1.5x)", () => {
+      const mockDay: DayPlan = {
+        day: 1,
+        date: "Day 1",
+        activities: [
+          {
+            id: "act-1",
+            time: "09:00",
+            title: "Siam Paragon",
+            description: "Shopping",
+            type: "shopping",
+            lat: 13.7460,
+            lng: 100.5349,
+          },
+          {
+            id: "act-2",
+            time: "11:00",
+            title: "CentralWorld",
+            description: "Shopping",
+            type: "shopping",
+            lat: 13.7469,
+            lng: 100.5398, // Close to Siam Paragon (~0.5 km)
+          },
+          {
+            id: "act-3",
+            time: "14:00",
+            title: "Pattaya Floating Market",
+            description: "Far excursion",
+            type: "attraction",
+            lat: 12.8714,
+            lng: 100.9069, // 100+ km away in Pattaya
+            openNow: true,
+          },
+        ],
+      };
+
+      const segments = [
+        { durationText: "40 min", distanceText: "0.5 km", status: "ok" }, // Traffic jam between Siam and CentralWorld
+        { durationText: "2h", distanceText: "110 km", status: "ok" },
+      ];
+
+      const proposal = evaluateSmartReroute(mockDay, 0, segments, null, "Bangkok", "th");
+      expect(proposal).not.toBeNull();
+      // Should NOT propose SWAP (going to Pattaya and back to CentralWorld is a massive detour)
+      expect(proposal?.type).toBe("ADVICE");
+      expect(proposal?.pixMessage).toContain("ย้อนศร");
+    });
+
+    it("Test Case 4: Smart Substitute - should propose nearby alternatives when place is closed due to disruption", () => {
+      const mockDay: DayPlan = {
+        day: 1,
+        date: "Day 1",
+        activities: [
+          {
+            id: "act-1",
+            time: "09:00",
+            title: "Wat Phra Kaew",
+            description: "Grand Palace complex",
+            type: "culture",
+            lat: 13.7516,
+            lng: 100.4927,
+          },
+          {
+            id: "act-2",
+            time: "13:00",
+            title: "Iconsiam",
+            description: "Riverside mall",
+            type: "shopping",
+            lat: 13.7267,
+            lng: 100.5108,
+          },
+        ],
+      };
+
+      const liveStatus: LiveTransitStatus = {
+        hasDisruption: true,
+        attractionAlerts: [
+          {
+            placeName: "Wat Phra Kaew",
+            status: "closed",
+            note: "มีพิธีการทางราชการ ปิดทำการชั่วคราว",
+          },
+        ],
+      };
+
+      const proposal = evaluateSmartReroute(mockDay, 0, [], liveStatus, "กรุงเทพมหานคร", "th");
+      expect(proposal).not.toBeNull();
+      expect(proposal?.type).toBe("SUBSTITUTE");
+      expect(proposal?.fromActivityIndex).toBe(0);
+      expect(proposal?.fromActivityTitle).toBe("Wat Phra Kaew");
+      expect(proposal?.alternatives).toBeDefined();
+      expect(proposal?.alternatives?.length).toBeGreaterThanOrEqual(2);
+      expect(proposal?.pixMessage).toContain("ปิดให้บริการชั่วคราว");
+    });
+  });
+
+  describe("Day-Specific Temporal Scoping & Multi-Modal Transit Advice", () => {
+    it("should include multi-modal transit (BTS, MRT, ARL, Red Line) and ride-hailing (Grab/Bolt) in rush hour warnings (TH)", () => {
+      const mockDay: DayPlan = {
+        day: 2,
+        date: "Day 2",
+        activities: [
+          {
+            id: "act-evening-commute",
+            time: "18:00",
+            title: "Commute to Chinatown (เยาวราช)",
+            description: "Transit during peak hours",
+            type: "transport",
+            lat: 13.74,
+            lng: 100.51,
+          },
+        ],
+      };
+
+      const briefing = evaluateDayBuddyAlerts(mockDay, 1, 3, [], undefined, "Bangkok", "th");
+      const transitAlert = briefing.allAlerts.find((a) => a.triggerType === "traffic_rush");
+      expect(transitAlert).toBeDefined();
+      expect(transitAlert?.message).toContain("BTS");
+      expect(transitAlert?.message).toContain("MRT");
+      expect(transitAlert?.message).toContain("Grab");
+      expect(transitAlert?.message).toContain("Bolt");
+      expect(briefing.trafficSummary).toContain("Grab/Bolt");
+    });
+
+    it("should include rapid transit and ride-hailing (Grab/Bolt) in rush hour warnings (EN)", () => {
+      const mockDay: DayPlan = {
+        day: 2,
+        date: "Day 2",
+        activities: [
+          {
+            id: "act-evening-commute-en",
+            time: "18:00",
+            title: "Commute to Chinatown",
+            description: "Transit during peak hours",
+            type: "transport",
+            lat: 13.74,
+            lng: 100.51,
+          },
+        ],
+      };
+
+      const briefing = evaluateDayBuddyAlerts(mockDay, 1, 3, [], undefined, "Bangkok", "en");
+      const transitAlert = briefing.allAlerts.find((a) => a.triggerType === "traffic_rush");
+      expect(transitAlert).toBeDefined();
+      expect(transitAlert?.message).toContain("rapid transit");
+      expect(transitAlert?.message).toContain("Grab or Bolt");
+      expect(briefing.trafficSummary).toContain("Grab/Bolt");
+    });
+
+    it("should forward accurate targetDate to /ai/buddy-live-check in fetchLiveBuddyInsights", async () => {
+      const originalFetch = global.fetch;
+      let capturedBody: any = null;
+
+      global.fetch = vi.fn().mockImplementation((_url: string, init: any) => {
+        capturedBody = JSON.parse(init.body);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              has_disruption: false,
+              transit_status: "normal",
+              title: "ข้อมูลการเดินทาง",
+              summary: "การเดินทางปกติ",
+            }),
+        });
+      }) as any;
+
+      try {
+        const testDate = new Date("2026-09-25T10:00:00Z");
+        await fetchLiveBuddyInsights("Bangkok", ["เยาวราช", "วัดมังกร"], testDate);
+
+        expect(capturedBody).not.toBeNull();
+        expect(capturedBody.city).toBe("Bangkok");
+        expect(capturedBody.places).toEqual(["เยาวราช", "วัดมังกร"]);
+        expect(capturedBody.date).toBe("2026-09-25");
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("should correctly receive and parse noticeType for scheduled maintenance and live incidents", async () => {
+      const originalFetch = global.fetch;
+
+      global.fetch = vi.fn().mockImplementation(() => {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              has_disruption: true,
+              transit_status: "warning",
+              notice_type: "scheduled_maintenance",
+              title: "แจ้งเตือนการบูรณะซ่อมแซม",
+              summary: "ปิดปรับปรุงสะพานข้ามแยกตามกำหนดการ",
+            }),
+        });
+      }) as any;
+
+      try {
+        const res = await fetchLiveBuddyInsights("Bangkok", ["สะพานพระราม 8"], "2026-09-26");
+        expect(res.hasDisruption).toBe(true);
+        expect(res.noticeType).toBe("scheduled_maintenance");
+        expect(res.title).toContain("แจ้งเตือนการบูรณะซ่อมแซม");
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
   });
 });

@@ -269,8 +269,8 @@ export const SavedTripsModal = ({
                 </h4>
                 <p className="text-xs text-muted-foreground mt-1">
                   {language === "th"
-                    ? "เมื่อคุณสร้างแผนการท่องเที่ยวหรือคุยกับบอทพิกซ์ คุณสามารถกด \"Save trip\" เพื่อเก็บไว้ดูย้อนหลังได้ตลอดเวลา"
-                    : "When you create an itinerary or chat with Pix, click \"Save trip\" to keep it for later."}
+                    ? "เมื่อคุณสร้างแผนการท่องเที่ยวหรือคุยกับบอทพิกโซ่ (Pixo) คุณสามารถกด \"Save trip\" เพื่อเก็บไว้ดูย้อนหลังได้ตลอดเวลา"
+                    : "When you create an itinerary or chat with Pixo, click \"Save trip\" to keep it for later."}
                 </p>
               </div>
               <Button

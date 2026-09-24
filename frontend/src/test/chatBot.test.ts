@@ -7,7 +7,7 @@ describe("ChatBot Bilingual Support", () => {
       const msg = getInitialWelcomeMessage("โตเกียว", "th", "Gemini 2.5 Flash");
       expect(msg.id).toBe("welcome-th");
       expect(msg.role).toBe("assistant");
-      expect(msg.content).toContain("สวัสดีครับ! พิกซ์ (Pix) เองครับ");
+      expect(msg.content).toContain("สวัสดีครับ! พิกโซ่ (Pixo) เองครับ");
       expect(msg.content).toContain("โตเกียว");
       expect(msg.suggestedQuickActions).toBeDefined();
       expect(msg.suggestedQuickActions?.length).toBeGreaterThan(0);
@@ -18,7 +18,7 @@ describe("ChatBot Bilingual Support", () => {
       const msg = getInitialWelcomeMessage("Tokyo", "en", "Gemini 2.5 Flash");
       expect(msg.id).toBe("welcome-en");
       expect(msg.role).toBe("assistant");
-      expect(msg.content).toContain("Hello! I'm Pix");
+      expect(msg.content).toContain("Hello! I'm Pixo");
       expect(msg.content).toContain("Tokyo");
       expect(msg.suggestedQuickActions).toBeDefined();
       expect(msg.suggestedQuickActions?.length).toBeGreaterThan(0);

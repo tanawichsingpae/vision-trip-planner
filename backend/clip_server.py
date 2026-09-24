@@ -189,63 +189,122 @@ def get_embedding():
 
 @app.route("/embedding_url", methods=["POST"])
 def get_embedding_url():
-
     load_model()
 
-    data = request.get_json()
-
+    data = request.get_json(silent=True)
     if not data or "url" not in data:
         return jsonify({"error": "No URL provided"}), 400
 
+    raw_url = str(data["url"]).strip()
+    if not raw_url:
+        return jsonify({"error": "Empty URL provided"}), 400
+
+    img = None
     try:
-        raw_url = data["url"]
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "image/jpeg,image/png,image/webp,*/*;q=0.8"
-        }
-
-        # Normalize Unsplash / CDN image URLs to explicitly request standard JPEG format (avoids unsupported AVIF)
-        fetch_url = raw_url
-        if "images.unsplash.com" in fetch_url:
-            if "auto=format" in fetch_url:
-                fetch_url = fetch_url.replace("auto=format", "fm=jpg")
-            elif "fm=" not in fetch_url:
-                fetch_url += ("&" if "?" in fetch_url else "?") + "fm=jpg"
-
-        response = requests.get(fetch_url, headers=headers, timeout=10)
-        response.raise_for_status()
-
-        try:
-            img = Image.open(BytesIO(response.content)).convert("RGB")
-        except Exception as img_err:
-            if "images.unsplash.com" in raw_url:
-                fallback_url = raw_url.split("?")[0] + "?w=1000&q=80&fm=jpg"
-                fb_res = requests.get(fallback_url, headers=headers, timeout=10)
-                fb_res.raise_for_status()
-                img = Image.open(BytesIO(fb_res.content)).convert("RGB")
+        # Case A: Base64 data URL
+        if raw_url.startswith("data:image/"):
+            import base64
+            if "," in raw_url:
+                _, b64_data = raw_url.split(",", 1)
             else:
-                raise img_err
+                b64_data = raw_url
+            img_bytes = base64.b64decode(b64_data)
+            img = Image.open(BytesIO(img_bytes)).convert("RGB")
+
+        # Case B: Local relative path or internal URL (e.g. /images/...)
+        elif not raw_url.startswith("http://") and not raw_url.startswith("https://"):
+            clean_path = raw_url.lstrip("/\\")
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            candidates = [
+                os.path.join(base_dir, "frontend", "public", clean_path),
+                os.path.join(base_dir, "frontend", "dist", clean_path),
+                os.path.join(base_dir, "backend", clean_path),
+                os.path.join(base_dir, clean_path),
+            ]
+            for c in candidates:
+                if os.path.exists(c) and os.path.isfile(c):
+                    try:
+                        img = Image.open(c).convert("RGB")
+                        break
+                    except Exception:
+                        pass
+
+            if img is None:
+                # Try fetching from local Vite dev server
+                dev_url = f"http://127.0.0.1:5173/{clean_path}"
+                try:
+                    dev_res = requests.get(dev_url, timeout=3)
+                    if dev_res.ok:
+                        img = Image.open(BytesIO(dev_res.content)).convert("RGB")
+                except Exception:
+                    pass
+
+            if img is None:
+                print(f"[Warning /embedding_url] Local asset not found: '{raw_url}'")
+                return jsonify({"error": f"Local image not found: {raw_url}"}), 404
+
+        # Case C: Remote HTTP / HTTPS URL
+        else:
+            fetch_url = raw_url
+            headers = {
+                "User-Agent": "PixineraryBot/1.0 (https://vision-trip-planner.vercel.app; info@pixinerary.app) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "image/jpeg,image/png,image/webp,image/*,*/*;q=0.8",
+                "Referer": "https://www.google.com/"
+            }
+
+            # Normalize Unsplash CDN image URLs
+            if "images.unsplash.com" in fetch_url:
+                if "auto=format" in fetch_url:
+                    fetch_url = fetch_url.replace("auto=format", "fm=jpg")
+                elif "fm=" not in fetch_url:
+                    fetch_url += ("&" if "?" in fetch_url else "?") + "fm=jpg"
+
+            try:
+                response = requests.get(fetch_url, headers=headers, timeout=8)
+                response.raise_for_status()
+                img = Image.open(BytesIO(response.content)).convert("RGB")
+            except Exception as first_err:
+                # Fallback 1: Wikimedia thumbnail error -> fetch original full image without /thumb/
+                if "upload.wikimedia.org" in fetch_url and "/thumb/" in fetch_url:
+                    try:
+                        parts = fetch_url.split("/thumb/")
+                        if len(parts) == 2:
+                            orig_url = parts[0] + "/" + "/".join(parts[1].split("/")[:-1])
+                            fb_res = requests.get(orig_url, headers=headers, timeout=8)
+                            if fb_res.ok:
+                                img = Image.open(BytesIO(fb_res.content)).convert("RGB")
+                    except Exception:
+                        pass
+
+                # Fallback 2: Unsplash fallback URL
+                if img is None and "images.unsplash.com" in raw_url:
+                    try:
+                        fallback_url = raw_url.split("?")[0] + "?w=800&q=80&fm=jpg"
+                        fb_res = requests.get(fallback_url, headers=headers, timeout=8)
+                        if fb_res.ok:
+                            img = Image.open(BytesIO(fb_res.content)).convert("RGB")
+                    except Exception:
+                        pass
+
+                if img is None:
+                    print(f"[Warning /embedding_url] Could not download image from '{raw_url}': {first_err}")
+                    return jsonify({"error": f"Failed to download image: {first_err}"}), 422
+
+        if img is None:
+            return jsonify({"error": "Unable to process image data"}), 422
 
         img_preprocessed = preprocess(img).unsqueeze(0).to(device)
 
         with torch.no_grad():
-
             image_features = model.encode_image(img_preprocessed)
-
             image_features /= image_features.norm(dim=-1, keepdim=True)
-
-            embedding_list = (
-                image_features.cpu()
-                .numpy()
-                .flatten()
-                .tolist()
-            )
+            embedding_list = image_features.cpu().numpy().flatten().tolist()
 
         return jsonify(embedding_list)
 
     except Exception as e:
-        print("Error in /embedding_url:", e)
-        return jsonify({"error": str(e)}), 500
+        print("[Error in /embedding_url]:", e)
+        return jsonify({"error": str(e)}), 422
 
 
 # --------------------
@@ -465,7 +524,9 @@ LEGACY_MODEL_MAP = {
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "gpt-4o": "openai/gpt-4o",
     "claude-sonnet": "anthropic/claude-sonnet-5",
-    "qwen-vl": "qwen/qwen-2.5-vl-72b-instruct:free",
+    "qwen-vl": "qwen/qwen3.8-flash",
+    "qwen-vl-32b": "qwen/qwen3.8-flash",
+    "qwen-38-flash": "qwen/qwen3.8-flash",
     "llama4": "meta-llama/llama-3.3-70b-instruct",
 }
 
@@ -572,7 +633,7 @@ def call_ai():
 
             today_str = datetime.date.today().isoformat()
             date_anchor = (
-                f"\n[กฎเหล็กและข้อบังคับสูงสุดในการตอบสำหรับ ChatBot พิกซ์]:\n"
+                f"\n[กฎเหล็กและข้อบังคับสูงสุดในการตอบสำหรับ ChatBot พิกโซ่]:\n"
                 f"- วันที่ปัจจุบันคือ {today_str} ให้ใช้ข้อมูลข่าวสารสดและเหตุการณ์ล่าสุดบนอินเทอร์เน็ตในการตอบ\n"
                 f"{link_rule}\n"
                 f"- 🚫 ห้ามใช้เครื่องหมายดอกจัน '**' หรือ '*' ในข้อความตอบรับเด็ดขาด (ห้ามทำตัวหนาด้วย ** หรือทำ bullet ด้วย *)!\n"
@@ -639,8 +700,8 @@ def call_ai():
                             "Use the up-to-date web search results below to inform your response if relevant. "
                             "Cite or refer to current details when answering questions about live events, weather, news, or places.\n"
                             "IMPORTANT PERSONA & FORMATTING RULES:\n"
-                            "- You are 'พิกซ์ (Pix) - Your AI Travel Companion' — a polite, warm, smart, friendly Korean-inspired travel buddy.\n"
-                            "- Always speak with polite Thai ending particles (ครับ), refer to yourself as 'ผม' or 'พิกซ์', and STRICTLY address the user ONLY as 'คุณ' (NEVER use 'คุณลูกค้า', 'ท่าน', 'เธอ', 'นาย', 'พี่', 'น้อง', 'เพื่อน', 'ยู' or any other pronoun; ALWAYS address the user ONLY as 'คุณ').\n"
+                            "- You are 'พิกโซ่ (Pixo) - Your AI Travel Companion' — a polite, warm, smart, friendly travel buddy scout.\n"
+                            "- Always speak with polite Thai ending particles (ครับ), refer to yourself as 'ผม' or 'พิกโซ่', and STRICTLY address the user ONLY as 'คุณ' (NEVER use 'คุณลูกค้า', 'ท่าน', 'เธอ', 'นาย', 'พี่', 'น้อง', 'เพื่อน', 'ยู' or any other pronoun; ALWAYS address the user ONLY as 'คุณ').\n"
                             "- Explain reasons clearly and concisely. Do NOT dump huge unrequested lists.\n"
                             "- 🚫 NEVER use markdown asterisks '*' or '**' for bold or bullet points in your response. Write clean, natural prose using line breaks and tasteful emojis instead.\n"
                             "- 🚫 DO NOT attach markdown link citations like [Site](url) unless explicitly requested.\n\n"
@@ -780,11 +841,221 @@ def set_cached_live_check(cache_key: str, data: dict, ttl_seconds: int = 300):
     _live_check_cache[cache_key] = (data, time.time() + ttl_seconds)
 
 
+UNIVERSAL_SEASONAL_RULES = [
+    {
+        "name": "ตรุษจีน (Chinese New Year)",
+        "keywords": ["ตรุษจีน", "chinese new year", "spring festival", "วันตรุษจีน"],
+        "valid_months": [1, 2],
+        "substitutes": [
+            ("ช่วงเทศกาลตรุษจีน", "ช่วงเวลาปกติ"),
+            ("ช่วงตรุษจีน", "ช่วงเย็น"),
+            ("เทศกาลตรุษจีน", "ย่านการค้าและวัฒนธรรม"),
+            ("บรรยากาศตรุษจีน", "บรรยากาศสตรีทฟู้ด"),
+            ("งานตรุษจีน", "แหล่งรวมสตรีทฟู้ด"),
+            ("ตรุษจีน", "เยาวราช"),
+            ("Chinese New Year", "Chinatown"),
+        ]
+    },
+    {
+        "name": "สงกรานต์ (Songkran)",
+        "keywords": ["สงกรานต์", "songkran", "สาดน้ำ", "ปีใหม่ไทย"],
+        "valid_months": [4],
+        "substitutes": [
+            ("ช่วงเทศกาลสงกรานต์", "ช่วงเวลาปกติ"),
+            ("เทศกาลสงกรานต์", "แหล่งท่องเที่ยวยอดนิยม"),
+            ("เล่นน้ำสงกรานต์", "ท่องเที่ยวทั่วไป"),
+            ("สงกรานต์", "เมืองเก่า"),
+            ("Songkran", "Old Town"),
+        ]
+    },
+    {
+        "name": "เทศกาลกินเจ (Vegetarian Festival)",
+        "keywords": ["กินเจ", "เทศกาลกินเจ", "vegetarian festival", "ถือศีลกินผัก"],
+        "valid_months": [9, 10],
+        "substitutes": [
+            ("เทศกาลกินเจ", "แหล่งอาหารสตรีทฟู้ด"),
+            ("กินเจ", "อาหารทั่วไป"),
+        ]
+    },
+    {
+        "name": "ลอยกระทง (Loy Krathong)",
+        "keywords": ["ลอยกระทง", "loy krathong", "วันลอยกระทง", "ยี่เป็ง", "yi peng"],
+        "valid_months": [11],
+        "substitutes": [
+            ("เทศกาลลอยกระทง", "จุดชมวิวริมแม่น้ำ"),
+            ("ลอยกระทง", "ริมแม่น้ำ"),
+            ("Loy Krathong", "Riverside"),
+        ]
+    },
+    {
+        "name": "ฤดูหนาว & ดอกไม้เมืองหนาว",
+        "keywords": ["นางพญาเสือโคร่ง", "ซากุระเมืองไทย", "ดอกบัวตอง", "ทะเลหมอกหนาวจัด"],
+        "valid_months": [11, 12, 1],
+        "substitutes": [
+            ("ดอกนางพญาเสือโคร่งบาน", "ธรรมชาติขุนเขา"),
+            ("อากาศหนาวจัด", "สภาพอากาศบนดอย"),
+        ]
+    },
+    {
+        "name": "มรสุมปิดเกาะอุทยานแห่งชาติทางทะเล (Andaman Sea Closures)",
+        "keywords": ["ปิดเกาะสิมิลัน", "ปิดเกาะสุรินทร์", "มรสุมอันดามัน"],
+        "valid_months": [5, 6, 7, 8, 9, 10],
+        "substitutes": []
+    }
+]
+
+
+def build_buddy_search_query(target_term: str, places: list, target_date: datetime.date, is_today: bool) -> str:
+    thai_months = [
+        "", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+        "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+    ]
+    month_name = thai_months[target_date.month] if 1 <= target_date.month <= 12 else ""
+    year_be = target_date.year + 543
+    places_subset = " ".join([p.strip() for p in places[:3] if p.strip()]) if places else target_term
+
+    if is_today:
+        return f"{target_term} {places_subset} สภาพการจราจร รถไฟฟ้า รถติด น้ำท่วม ข่าวด่วนวันนี้ {target_date.day} {month_name} {year_be}"
+    else:
+        return f"{target_term} {places_subset} ประกาศปิดปรับปรุง ซ่อมแซม ตารางเวลา {month_name} {year_be}"
+
+
+def strip_raw_markdown_noise(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    # 1. Convert markdown link [text](url) -> text
+    text = re.sub(r'\[([^\]]+)\]\((?:https?://[^\)]+|[^\)]+)\)', r'\1', text)
+    # 2. Strip bracketed domain citations or lists like [lemon8-app.com], [a.com, b.com], [th.trip.com]
+    text = re.sub(r'\[[^\]]*\.[a-zA-Z]{2,}[^\]]*\]', '', text)
+    # 3. Strip raw URLs (http://... or https://...)
+    text = re.sub(r'https?://[^\s\)\]]+', '', text)
+    # 4. Clean empty parentheses or brackets left behind like () or []
+    text = re.sub(r'\(\s*\)', '', text)
+    text = re.sub(r'\[\s*\]', '', text)
+    # 5. Clean excessive spaces
+    text = re.sub(r'[ \t]+', ' ', text)
+    return text.strip()
+
+
+def sanitize_buddy_live_data(live_data: dict, target_date: datetime.date, is_today: bool, target_term: str) -> dict:
+    """
+    Universal Deterministic Post-Processing Guardrail:
+    1. Enforces Universal Seasonal Matrix across all nationwide festivals.
+    2. Implements Event vs Advance Notice Scoping:
+       - Transient breaking incidents (e.g. today short circuits, today sudden storms) are purged for future dates.
+       - Legitimate scheduled maintenance / renovations spanning target date are preserved with notice_type="scheduled_maintenance".
+    3. Enriches advice with multi-modal rapid transit and ride-hailing options (Grab/Bolt).
+    4. Strips raw markdown link noise and domain citations from text fields for clean, glanceable display.
+    """
+    month_num = target_date.month
+
+    # 1. Universal Seasonal Matrix Enforcement
+    for rule in UNIVERSAL_SEASONAL_RULES:
+        if month_num not in rule["valid_months"]:
+            filtered_events = []
+            for evt in live_data.get("special_events", []):
+                if isinstance(evt, dict):
+                    name = (evt.get("event_name") or "").lower()
+                    hl = (evt.get("highlight") or "").lower()
+                    loc = (evt.get("location") or "").lower()
+                    if any(kw in name or kw in hl or kw in loc for kw in rule["keywords"]):
+                        continue
+                filtered_events.append(evt)
+            live_data["special_events"] = filtered_events
+
+            for old_s, new_s in rule["substitutes"]:
+                for key in ["title", "summary", "weather_traffic_alert", "advice_for_travelers", "local_tips_and_rules"]:
+                    val = live_data.get(key)
+                    if isinstance(val, str) and old_s in val:
+                        live_data[key] = val.replace(old_s, new_s)
+
+    # 2. Advance Scoping & Event Classification Guard:
+    if not is_today:
+        transient_keywords = [
+            "ไฟฟ้าลัดวงจร", "ขัดข้องเมื่อ", "หยุดให้บริการชั่วคราว", "หยุดให้บริการบางส่วน",
+            "เมื่อวานนี้", "วันนี้", "เช้านี้", "บ่ายนี้", "สักครู่", "กะทันหัน", "สดวันนี้"
+        ]
+        disruptions = live_data.get("disruptions", [])
+        has_real_scheduled_disruption = False
+        for d in disruptions:
+            if isinstance(d, dict):
+                detail = d.get("detail", "")
+                if any(kw in detail for kw in transient_keywords):
+                    d["status"] = "normal"
+                    d["detail"] = "ให้บริการตามปกติ (ตรวจสอบตารางเดินรถตามช่วงเวลา)"
+                if d.get("status") in ["disrupted", "delayed"]:
+                    has_real_scheduled_disruption = True
+
+        attractions = live_data.get("attraction_alerts", [])
+        has_real_scheduled_attraction_closure = False
+        for a in attractions:
+            if isinstance(a, dict):
+                note = a.get("note", "")
+                status = a.get("status", "normal")
+                if any(kw in note for kw in ["วันนี้", "บ่ายนี้", "เช้านี้", "ชั่วคราว 1 ชั่วโมง"]):
+                    if not any(lt in note for lt in ["ถึงวันที่", "ระหว่างวันที่", "บูรณะ", "ซ่อมแซมใหญ่", "ปิดปรับปรุง"]):
+                        a["status"] = "normal"
+                        a["note"] = "เปิดทำการตามปกติ"
+                if a.get("status") in ["closed", "restricted"]:
+                    has_real_scheduled_attraction_closure = True
+
+        if not has_real_scheduled_disruption and not has_real_scheduled_attraction_closure:
+            live_data["has_disruption"] = False
+            live_data["transit_status"] = "normal"
+            live_data["notice_type"] = "regular_advisory"
+            title = live_data.get("title", "")
+            if any(w in title for w in ["หยุดให้บริการ", "ขัดข้อง", "ไฟฟ้าลัดวงจร", "เตือนด่วน", "สดวันนี้"]):
+                live_data["title"] = f"แนะนำการเดินทางและระบบขนส่ง {target_term}"
+        else:
+            live_data["has_disruption"] = True
+            live_data["notice_type"] = "scheduled_maintenance"
+    else:
+        # Today
+        if live_data.get("has_disruption"):
+            live_data["notice_type"] = "live_incident"
+        else:
+            live_data["notice_type"] = "regular_advisory"
+
+    # 3. Ride-hailing suggestion enrichment
+    adv = live_data.get("advice_for_travelers", "")
+    if adv and not any(rh in adv.lower() for rh in ["grab", "bolt", "line man", "เรียกรถ", "แอป"]):
+        live_data["advice_for_travelers"] = adv.rstrip(" .") + " | หากการจราจรติดขัดหรือไม่มีรถไฟฟ้าผ่านโดยตรง แนะนำเรียกรถผ่านแอป Grab หรือ Bolt เพื่อความสะดวกรวดเร็วครับ"
+
+    # 4. Clean raw markdown noise, URLs, and citations from text fields
+    for field in ["title", "summary", "weather_traffic_alert", "advice_for_travelers", "local_tips_and_rules"]:
+        val = live_data.get(field)
+        if isinstance(val, str):
+            live_data[field] = strip_raw_markdown_noise(val)
+
+    for d in live_data.get("disruptions", []):
+        if isinstance(d, dict):
+            if "detail" in d:
+                d["detail"] = strip_raw_markdown_noise(d["detail"])
+            if "line" in d:
+                d["line"] = strip_raw_markdown_noise(d["line"])
+
+    for a in live_data.get("attraction_alerts", []):
+        if isinstance(a, dict):
+            if "note" in a:
+                a["note"] = strip_raw_markdown_noise(a["note"])
+            if "place_name" in a:
+                a["place_name"] = strip_raw_markdown_noise(a["place_name"])
+
+    for e in live_data.get("special_events", []):
+        if isinstance(e, dict):
+            for k in ["eventName", "event_name", "highlight", "location"]:
+                if k in e and isinstance(e[k], str):
+                    e[k] = strip_raw_markdown_noise(e[k])
+
+    return live_data
+
+
 @app.route("/ai/buddy-live-check", methods=["POST"])
 def buddy_live_check():
     """
-    Search RAG Live Insights for Pix Travel Buddy using OpenRouter Gemini with live web search (:online).
+    Search RAG Live Insights for Pixo Travel Buddy using OpenRouter Gemini with live web search (:online).
     Gathers real-time transit disruption (BTS/MRT), traffic, road closures, weather alerts, and safety news.
+    Strictly checks calendar dates and performs Event vs Advance Notice Scoping.
     """
     try:
         data = request.get_json(silent=True)
@@ -799,11 +1070,34 @@ def buddy_live_check():
         places = data.get("places") or []
         date_str = data.get("date") or datetime.date.today().isoformat()
 
+        today_date = datetime.date.today()
+        target_date = today_date
+        try:
+            if date_str:
+                clean_date_str = str(date_str).split("T")[0]
+                target_date = datetime.date.fromisoformat(clean_date_str)
+        except Exception:
+            target_date = today_date
+
+        is_today = (target_date == today_date)
+        is_future = (target_date > today_date)
+
+        thai_months = [
+            "", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+            "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+        ]
+        thai_days = ["วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์", "วันอาทิตย์"]
+        day_of_week_str = thai_days[target_date.weekday()]
+        thai_month_str = thai_months[target_date.month] if 1 <= target_date.month <= 12 else ""
+        thai_year_be = target_date.year + 543
+        month_num = target_date.month
+
         if not city and not places:
             return jsonify({
                 "status": "empty",
                 "has_disruption": False,
                 "transit_status": "normal",
+                "notice_type": "regular_advisory",
                 "title": "ไม่มีข้อมูลสถานที่",
                 "summary": "ไม่พบข้อมูลเมืองหรือสถานที่สำหรับตรวจสอบเหตุการณ์สด",
                 "disruptions": [],
@@ -819,55 +1113,78 @@ def buddy_live_check():
             })
 
         target_term = city or (places[0] if places else "กรุงเทพมหานคร")
-        cache_key = f"{target_term}_{date_str}".lower()
+        places_slug = "_".join(sorted([p.strip().lower() for p in places[:5]])) if places else "general"
+        cache_key = f"{target_term}_{target_date.isoformat()}_{places_slug}".lower()
         cached = get_cached_live_check(cache_key)
         if cached:
             return jsonify(cached)
 
         # 1. Primary: OpenRouter with live web search (google/gemini-2.5-flash:online)
         if openrouter_client:
-            prompt = f"""คุณคือระบบตรวจสอบข้อมูลสดรอบด้านสำหรับการท่องเที่ยวและขนส่งสาธารณะ (Pix Live Travel & Safety Companion) ประจำเมือง {target_term}
-วันที่ปัจจุบัน: {date_str}
-สถานที่สำคัญในทริป: {', '.join(places[:6]) if places else target_term}
+            date_description = f"{target_date.isoformat()} ({day_of_week_str} ที่ {target_date.day} {thai_month_str} พ.ศ. {thai_year_be})"
+            day_mode = "วันนี้ (เหตุการณ์สดจริงหน้างาน Real-time Live)" if is_today else f"วันข้างหน้าในแผนเดินทาง ({date_description} - เน้นคำแนะนำการวางแผนเดินทางล่วงหน้า)"
+            places_text = ', '.join(places[:6]) if places else target_term
 
-กรุณาค้นหาข้อมูลสดล่าสุดบนอินเทอร์เน็ตแบบเรียลไทม์ (Real-time Online Web Search) ครอบคลุม 5 มิติสำคัญ:
-1. [ขนส่ง & จราจร]: ระบบขนส่งสาธารณะ (รถไฟฟ้า BTS, MRT สายต่างๆ, รถไฟ, แอร์พอร์ตลิงก์ ARL, รถเมล์, เรือโดยสาร) มีจุดใดขัดข้อง ล่าช้า ปิดให้บริการ หรือถนนปิด น้ำท่วม อุบัติเหตุใหญ่ในวันนี้หรือไม่
-2. [สภาพอากาศ & ภัยพิบัติ]: ฝนตกหนัก พายุ ลมกระโชกแรง หมอกควัน PM2.5 น้ำท่วมฉับพลัน หรือประกาศเตือนภัยจากกรมอุตุฯ/ปภ.
-3. [สถานะสถานที่ท่องเที่ยวในทริป]: สถานที่เหล่านี้ ({', '.join(places[:6]) if places else target_term}) มีจุดใดปิดทำการชั่วคราว มีงานพระราชพิธี ปิดปรับปรุงซ่อมแซม หรือจำกัดเวลาเข้าชม/ต้องจองล่วงหน้าในวันนี้หรือไม่
-4. [เทศกาล & อีเวนต์สด]: มีงานเทศกาลท้องถิ่น ตลาดนัดพิเศษ Pop-up Market งานวัด คอนเสิร์ตใหญ่ หรืองานกิจกรรมที่น่าสนใจหรือส่งผลให้คนหนาแน่นในวันนี้หรือไม่
-5. [กลโกง & กฎระเบียบเฉพาะวัน]: ข้อควรระวังด้านความปลอดภัย กลโกงนักท่องเที่ยวในพื้นที่ (เช่น หลอกว่าวัดปิด, โก่งราคา) หรือกฎระเบียบพิเศษ (เช่น วันพระใหญ่งดจำหน่ายสุรา, ข้อห้ามบินโดรน)
+            prompt = f"""คุณคือระบบตรวจสอบข้อมูลสดและการเดินทางอัจฉริยะ (Pixo Live Travel & Transit Companion) ประจำเมือง {target_term}
+วันที่ของทริปนี้: {date_description}
+ประเภทวัน: {day_mode}
+สถานที่ในทริปของวันดังกล่าว: {places_text}
 
-ตอบกลับเป็น JSON เท่านั้น (Strict JSON) ในรูปแบบ:
+กรุณาค้นหาและวิเคราะห์ข้อมูลที่ถูกต้องแม่นยำ (Fact-Checked) โดยยึดหลักเกณฑ์ความถูกต้องสูงสุดดังนี้:
+
+1. [ตรวจสอบความถูกต้องของปฏิทินและเทศกาล - STRICT FACT-CHECKING]:
+   - วันที่ระบุคือเดือน {thai_month_str} (เดือน {month_num})
+   - **กฎเหล็กเทศกาลตรุษจีน (Chinese New Year)**: มีเฉพาะช่วงเดือนมกราคม - กุมภาพันธ์ (เดือน 1-2) เท่านั้น! ปัจจุบันคือเดือน {thai_month_str} **ห้ามระบุเด็ดขาดว่าช่วงนี้เป็นเทศกาลตรุษจีน** แม้สถานที่ในทริปจะมีย่านเยาวราช ให้แนะนำเรื่องอาหารสตรีทฟู้ด ร้านเด็ด หรือการเดินทาง MRT วัดมังกร ตามปกติ
+   - **เทศกาลสงกรานต์**: มีเฉพาะเดือนเมษายน (เดือน 4) เท่านั้น
+   - **เทศกาลกินเจ**: มีเฉพาะปลายเดือนกันยายน - ตุลาคม (เดือน 9-10) เท่านั้น
+   - **เทศกาลลอยกระทง**: มีเฉพาะเดือนพฤศจิกายน (เดือน 11) เท่านั้น
+   - หากวันที่ {target_date.day} {thai_month_str} ไม่มีเทศกาลใหญ่ ให้ใส่ special_events เป็น [] อย่าสร้างอีเวนต์ขึ้นมาเอง
+
+2. [การจำแนกประเภทเหตุการณ์และความเกี่ยวข้องกับวัน (Temporal Scoping & Event Classification)]:
+   - {"[สำหรับวันปัจจุบัน]: รายงานเฉพาะเหตุขัดข้องฉุกเฉินสดจริงในวันนี้เท่านั้น หากปกติให้แจ้งว่าระบบเดินทางคล่องตัว และตั้ง notice_type: 'live_incident'" if is_today else f"""[สำหรับวันข้างหน้า ({date_description})]:
+     * ห้ามนำเหตุด่วนฉุกเฉินเฉพาะหน้าของวันนี้ (เช่น รถไฟฟ้าขัดข้อง 1 ชม. วันนี้, อุบัติเหตุรถชนวันนี้, ฝนตกหนักบ่ายนี้) มาแจ้งเตือนในวันข้างหน้าเด็ดขาด ให้ถือว่าวันข้างหน้าระบบเดินทางเปิดให้บริการตามปกติ (transit_status: "normal", has_disruption: false)
+     * กรณีการปิดปรับปรุงระยะยาว (Scheduled Maintenance): เช่น มีประกาศปิดบูรณะวัดพระแก้ว หรือปิดซ่อมสะพานระบุช่วงวันที่ชัดเจน (เช่น 15-30 กันยายน) ให้ตรวจสอบว่า target_date ({target_date.isoformat()}) อยู่ในช่วงวันที่ดังกล่าวจริงหรือไม่ หากตรงให้ตั้ง notice_type: "scheduled_maintenance", has_disruption: true
+     * หากไม่มีการปิดซ่อมบำรุงระยะยาว ให้ตั้ง notice_type: "regular_advisory", has_disruption: false, transit_status: "normal" และเน้นคำแนะนำการเดินทางล่วงหน้า (Advance Transit Tips) สำหรับสถานที่ในวันนั้น ({places_text})"""}
+
+3. [ขนส่งสาธารณะทุกประเภท & แนะนำแอปเรียกรถ - MULTI-MODAL & RIDE-HAILING]:
+   - ครอบคลุมระบบขนส่งทุกประเภท: รถไฟฟ้า BTS ทุกสาย, MRT สายสีน้ำเงิน/ม่วง/เหลือง/ชมพู, แอร์พอร์ตลิงก์ ARL, รถไฟชานเมืองสายสีแดง SRT, รถเมล์ ขสมก. / รถ EV Bus, เรือด่วนเจ้าพระยา และเรือคลองแสนแสบ
+   - ในหัวข้อ advice_for_travelers ให้แนะนำทางเลือกระบบขนส่งสาธารณะที่เจาะจงกับสถานที่ในวันนั้น และหากเป็นช่วงเวลาเร่งด่วน หรือเส้นทางที่รถไฟฟ้าเข้าไม่ถึง หรือการจราจรติดขัด ให้แนะนำการใช้แอปเรียกรถ (เช่น Grab, Bolt, LINE MAN) เป็นทางเลือกเสริมเสมอ
+
+4. [สถานะสถานที่ท่องเที่ยวในทริป]:
+   - ตรวจสอบว่าสถานที่ {places_text} มีจุดใดปิดปรับปรุง ปิดซ่อมแซม หรือมีกำหนดการพิเศษในวันดังกล่าวหรือไม่
+
+ตอบกลับเป็น JSON เท่านั้น (Strict JSON) โดยเน้นสรุปฉับไวและกระชับ (Glanceable Summary) **ห้ามใส่ URL, ลิงก์, หรือชื่อเว็บไซต์ในเนื้อหาข้อความเด็ดขาด** (ให้ใส่ URL เฉพาะในฟิลด์ sources เท่านั้น):
 {{
-  "has_disruption": true หรือ false (เป็น true เฉพาะเมื่อมีเหตุขัดข้อง ล่าช้า ถนนปิด น้ำท่วม หรือสถานที่ในทริปปิดให้บริการจริง),
+  "has_disruption": true หรือ false,
+  "notice_type": "live_incident" | "scheduled_maintenance" | "regular_advisory",
   "transit_status": "normal" | "warning" | "critical",
-  "title": "หัวข้อสรุปสถานการณ์สดสั้นๆ เช่น ระบบการเดินทางปกติ หรือ แจ้งเตือนวัดพระแก้วปิดครึ่งวัน / MRT ล่าช้า",
-  "summary": "สรุปภาพรวมสถานการณ์สดสั้นๆ 1-2 ประโยค",
+  "title": "หัวข้อสรุปฉับไวสั้นๆ ไม่เกิน 8-10 คำ เช่น แนะนำการเดินทางย่านเยาวราช หรือ ขนส่งสาธารณะให้บริการปกติ",
+  "summary": "สรุปภาพรวมแบบฉับไว 1 ประโยคสั้นๆ ตรงประเด็น ให้เห็นภาพทันที (ตรงกับวัน {target_date.day} {thai_month_str} และสถานที่ในวันนั้น ห้ามมี URL)",
   "disruptions": [
     {{
       "line": "ชื่อสายรถไฟฟ้าหรือเส้นทาง",
       "status": "normal" | "delayed" | "disrupted",
-      "detail": "รายละเอียดเหตุการณ์สั้นๆ"
+      "detail": "รายละเอียดสั้นกระชับ 1 บรรทัด"
     }}
   ],
   "attraction_alerts": [
     {{
       "place_name": "ชื่อสถานที่",
       "status": "closed" | "restricted" | "crowded" | "normal",
-      "note": "รายละเอียด เช่น ปิดทำการช่วงบ่ายเนื่องจากมีพิธีการ หรือ เปิดทำการปกติ"
+      "note": "รายละเอียดสั้นๆ"
     }}
   ],
   "special_events": [
     {{
-      "event_name": "ชื่องานเทศกาลหรืออีเวนต์",
-      "location": "สถานที่หรือย่านจัดงาน",
-      "highlight": "จุดเด่นสั้นๆ หรือคำแนะนำเวลาที่ควรไป"
+      "event_name": "ชื่องานเทศกาลที่ตรงกับเดือน {thai_month_str} จริงๆ (ถ้าไม่มีให้ปล่อยว่าง)",
+      "location": "สถานที่จัดงาน",
+      "highlight": "จุดเด่นสั้นๆ 1 บรรทัด"
     }}
   ],
-  "weather_traffic_alert": "ข้อความแจ้งเตือนสภาพอากาศหรือการจราจรที่ควรระวัง",
-  "advice_for_travelers": "คำแนะนำสั้นๆ สำหรับผู้เดินทาง เช่น เผื่อเวลาเดินทาง หรือเลี่ยงเส้นทาง...",
-  "local_tips_and_rules": "คำเตือนกลโกงหรือกฎระเบียบเฉพาะวันที่ควรรู้ (ถ้ามี)",
-  "sources": ["URL หรือชื่อแหล่งข่าวที่ใช้อ้างอิง"]
+  "weather_traffic_alert": "สภาพอากาศหรือการจราจรฉับไว 1 ประโยค",
+  "advice_for_travelers": "คำแนะนำการเดินทางสั้นๆ 1-2 ประโยค (แนะนำรถไฟฟ้าหรือแอปเรียกรถ Grab/Bolt)",
+  "local_tips_and_rules": "ข้อควรระวังหรือคำแนะนำสำคัญสั้นๆ 1-2 ข้อ (ห้ามใส่ URL หรือลิงก์ในข้อความ)",
+  "sources": ["URL หรือเว็บไซต์แหล่งข้อมูล"]
 }}
 """
             models_to_try = [
@@ -903,6 +1220,9 @@ def buddy_live_check():
                     print(f"[OpenRouter Live Check Error on {current_model}]:", model_err)
 
             if live_data:
+                # Apply Strict Python Sanitizer & Guardrails
+                live_data = sanitize_buddy_live_data(live_data, target_date, is_today, target_term)
+
                 live_updates = []
                 tips = []
                 if live_data.get("summary"):
@@ -925,9 +1245,12 @@ def buddy_live_check():
                 result = {
                     "status": "success",
                     "city": city or target_term,
+                    "target_date": target_date.isoformat(),
+                    "is_today": is_today,
                     "has_disruption": has_disruption,
+                    "notice_type": live_data.get("notice_type", "live_incident" if (is_today and has_disruption) else ("scheduled_maintenance" if (not is_today and has_disruption) else "regular_advisory")),
                     "transit_status": live_data.get("transit_status", "normal"),
-                    "title": live_data.get("title", f"รายงานสดการเดินทางและสถานที่ {target_term}"),
+                    "title": live_data.get("title", f"ข้อมูลการเดินทาง {target_term}"),
                     "summary": live_data.get("summary", ""),
                     "disruptions": live_data.get("disruptions", []),
                     "attraction_alerts": attraction_alerts,
@@ -945,13 +1268,16 @@ def buddy_live_check():
                 return jsonify(result)
 
         # 2. Fallback if OpenRouter unavailable
-        query = f"{target_term} สภาพการจราจร รถไฟฟ้า รถติด สถานที่ท่องเที่ยว ข่าววันนี้"
+        query = build_buddy_search_query(target_term, places, target_date, is_today)
         results = search_web_duckduckgo(query, max_results=4)
         live_updates = [r.get("snippet", "")[:180] for r in results if r.get("snippet")]
         fallback_res = {
             "status": "fallback",
             "city": city or target_term,
+            "target_date": target_date.isoformat(),
+            "is_today": is_today,
             "has_disruption": False,
+            "notice_type": "regular_advisory",
             "transit_status": "normal",
             "title": f"ข้อมูลการเดินทาง {target_term}",
             "summary": live_updates[0] if live_updates else f"ข้อมูลการเดินทางใน {target_term}",
@@ -959,13 +1285,14 @@ def buddy_live_check():
             "attraction_alerts": [],
             "special_events": [],
             "weather_traffic_alert": "",
-            "advice_for_travelers": "ตรวจสอบเส้นทางและสภาพการจราจรก่อนออกเดินทาง",
+            "advice_for_travelers": "ตรวจสอบเส้นทางและสภาพการจราจรก่อนออกเดินทาง หรือใช้แอปเรียกรถ Grab/Bolt หากการจราจรหนาแน่น",
             "local_tips_and_rules": "",
             "sources": [r.get("url", "") for r in results if r.get("url")],
-            "tips": [f"ข้อมูลสดสำหรับ {target_term}: มีรายงานข้อมูลและการเดินทางในพื้นที่"] + live_updates[:2],
+            "tips": [f"ข้อมูลสำหรับการเดินทาง {target_term}: วางแผนการเดินทางล่วงหน้า"] + live_updates[:2],
             "live_updates": live_updates,
             "sources_count": len(results)
         }
+        fallback_res = sanitize_buddy_live_data(fallback_res, target_date, is_today, target_term)
         return jsonify(fallback_res)
 
     except Exception as e:

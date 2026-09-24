@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { Calendar, Clock, Trash2, Plus, Edit2, Check, MapPin, GripVertical, RefreshCw, Phone, Globe, Car, Sparkles, Search, Loader2, Camera, ChevronDown, Navigation } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Calendar, Clock, Trash2, Plus, Edit2, Check, MapPin, GripVertical, RefreshCw, Phone, Globe, Car, Sparkles, Search, Loader2, Camera, ChevronDown, Navigation, AlertTriangle, AlertCircle } from "lucide-react";
 import { getPlaceImage } from "@/utils/getPlaceImage";
 import { fetchWikimediaPhoto } from "@/api/geocode";
 import { getCuratedFallbackPhoto } from "@/services/photoService";
@@ -31,8 +31,16 @@ import { type ItineraryCoherence } from "@/api/spatialPlanner";
 import { useLanguage } from "@/context/LanguageContext";
 import { translateTextSync, translateTextAsync, batchTranslateWithAI, hasThaiScript, extractBilingualText } from "@/services/translatorService";
 import { BuddyDayBriefingCard } from "@/components/BuddyDayBriefingCard";
+import { BuddyDynamicRerouteBanner } from "@/components/BuddyDynamicRerouteBanner";
 import { BuddyActivityBadge } from "@/components/BuddyActivityBadge";
-import { evaluateDayBuddyAlerts, type BuddyAlert } from "@/services/buddyService";
+import {
+  evaluateDayBuddyAlerts,
+  type BuddyAlert,
+  evaluateSmartReroute,
+  type SmartRerouteProposal,
+  type SmartRerouteAlternative,
+  type LiveTransitStatus,
+} from "@/services/buddyService";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -92,6 +100,8 @@ interface TravelItineraryProps {
   onOptimizeDay?: (dayIndex: number) => void;
   isOptimizingDay?: number | null;
   cityName?: string;
+  onSwapActivities?: (dayIndex: number, idxA: number, idxB: number) => void;
+  onSubstituteActivity?: (dayIndex: number, actIndex: number, alternative: SmartRerouteAlternative) => void;
 }
 
 
@@ -228,51 +238,108 @@ const TravelConnector = ({
   destLat,
   destLng,
 }: TravelConnectorProps) => {
+  const { language } = useLanguage();
   if (status === "error") return null;
+
+  const isTh = language === "th";
+
+  // Parse duration in minutes to identify traffic congestion level
+  let durationMins = 0;
+  if (durationText) {
+    const hourMatch = durationText.match(/(\d+)\s*h/i);
+    const minMatch = durationText.match(/(\d+)\s*min/i);
+    if (hourMatch) durationMins += parseInt(hourMatch[1], 10) * 60;
+    if (minMatch) durationMins += parseInt(minMatch[1], 10);
+  }
+
+  // Traffic severity levels
+  const isSevereCongestion = durationMins >= 35;
+  const isModerateCongestion = durationMins >= 20 && durationMins < 35;
 
   const mapsUrl = originLat && originLng && destLat && destLng
     ? `https://www.google.com/maps/dir/?api=1&origin=${originLat},${originLng}&destination=${destLat},${destLng}`
     : "#";
 
   return (
-    <div className="flex items-center justify-between gap-2 py-1 px-2 my-1">
-      <div className="flex items-center gap-2 flex-1 min-w-[100px]">
+    <div className="flex flex-col items-center gap-1 py-1 px-2 my-1">
+      <div className="flex items-center gap-2 w-full min-w-[100px]">
         <div className="h-px flex-1 border-t-2 border-dashed border-border/60" />
         {mapsUrl !== "#" ? (
           <a
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground bg-muted/50 hover:bg-primary/10 hover:text-primary hover:border-primary/30 px-2.5 py-1 rounded-full border border-border/50 shrink-0 transition-colors"
-            title="View route on Google Maps"
+            className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border shrink-0 transition-colors ${
+              isSevereCongestion
+                ? "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/40 hover:bg-rose-500/20"
+                : isModerateCongestion
+                ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/40 hover:bg-amber-500/20"
+                : "bg-muted/50 text-muted-foreground hover:bg-primary/10 hover:text-primary hover:border-primary/30 border-border/50"
+            }`}
+            title={isTh ? "เปิดดูเส้นทางบน Google Maps" : "View route on Google Maps"}
           >
             {status === "loading" ? (
               <span className="animate-pulse">📍 ...</span>
             ) : (
               <>
                 <MapPin className="w-3 h-3" />
-                {durationText && <span>{durationText}</span>}
+                {durationText && <span className={isSevereCongestion || isModerateCongestion ? "font-semibold" : ""}>{durationText}</span>}
                 {durationText && distanceText && <span className="text-border">·</span>}
-                {distanceText && <span className="text-muted-foreground/70">{distanceText}</span>}
+                {distanceText && <span className="opacity-80">{distanceText}</span>}
               </>
             )}
           </a>
         ) : (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full border border-border/50 shrink-0">
+          <div
+            className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border shrink-0 ${
+              isSevereCongestion
+                ? "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/40"
+                : isModerateCongestion
+                ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/40"
+                : "bg-muted/50 text-muted-foreground border-border/50"
+            }`}
+          >
             {status === "loading" ? (
               <span className="animate-pulse">📍 ...</span>
             ) : (
               <>
                 <MapPin className="w-3 h-3" />
-                {durationText && <span>{durationText}</span>}
+                {durationText && <span className={isSevereCongestion || isModerateCongestion ? "font-semibold" : ""}>{durationText}</span>}
                 {durationText && distanceText && <span className="text-border">·</span>}
-                {distanceText && <span className="text-muted-foreground/70">{distanceText}</span>}
+                {distanceText && <span className="opacity-80">{distanceText}</span>}
               </>
             )}
           </div>
         )}
         <div className="h-px flex-1 border-t-2 border-dashed border-border/60" />
       </div>
+
+      {/* Traffic Congestion Warning Badge (Stay & Buffer alert) */}
+      {status === "ok" && (isSevereCongestion || isModerateCongestion) && (
+        <div
+          className={`flex items-center gap-1 text-[10px] font-medium px-2.5 py-0.5 rounded-full border shadow-2xs animate-in fade-in duration-300 ${
+            isSevereCongestion
+              ? "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30"
+              : "bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/30"
+          }`}
+        >
+          {isSevereCongestion ? (
+            <>
+              <AlertCircle className="w-2.5 h-2.5 text-rose-600 dark:text-rose-400 shrink-0 animate-pulse" />
+              <span>
+                {isTh ? "รถติดหนัก เผื่อเวลา +30 นาที" : "Severe Delay: allow +30m buffer"}
+              </span>
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>
+                {isTh ? "การจราจรหนาแน่น เผื่อเวลา ~15-20 นาที" : "Heavy Traffic: allow ~15-20m buffer"}
+              </span>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -616,10 +683,10 @@ const SortableCard = ({
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 ${isClosedToday
-                            ? "bg-rose-500"
-                            : isOpen24Today
-                              ? "bg-blue-500"
-                              : "bg-emerald-500 animate-pulse"
+                          ? "bg-rose-500"
+                          : isOpen24Today
+                            ? "bg-blue-500"
+                            : "bg-emerald-500 animate-pulse"
                           }`}
                       />
                       <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -657,8 +724,8 @@ const SortableCard = ({
                           <div
                             key={idx}
                             className={`flex items-center justify-between px-2 py-0.5 rounded transition-colors ${isThisToday
-                                ? "bg-primary/10 text-primary font-semibold border border-primary/20"
-                                : "text-muted-foreground hover:bg-muted/30"
+                              ? "bg-primary/10 text-primary font-semibold border border-primary/20"
+                              : "text-muted-foreground hover:bg-muted/30"
                               }`}
                           >
                             <span className="flex items-center gap-1.5">
@@ -1258,6 +1325,8 @@ interface DayColumnProps {
   onOptimizeDay?: (dayIndex: number) => void;
   isOptimizingDay?: number | null;
   totalDays?: number;
+  onSwapActivities?: (idxA: number, idxB: number) => void;
+  onSubstituteActivity?: (actIndex: number, alternative: SmartRerouteAlternative) => void;
 }
 
 const DayColumn = ({
@@ -1284,6 +1353,8 @@ const DayColumn = ({
   onOptimizeDay,
   isOptimizingDay,
   totalDays = 1,
+  onSwapActivities,
+  onSubstituteActivity,
 }: DayColumnProps) => {
   const { language } = useLanguage();
   let currentDayDate: Date | undefined;
@@ -1292,7 +1363,7 @@ const DayColumn = ({
     currentDayDate.setDate(currentDayDate.getDate() + dayIndex);
   }
 
-  // Pix Travel Buddy Morning Briefing & Alerts
+  // Pixo Travel Buddy Morning Briefing & Alerts
   const buddyBriefing = evaluateDayBuddyAlerts(
     day,
     dayIndex,
@@ -1307,6 +1378,18 @@ const DayColumn = ({
     a.lat && a.lng ? { lat: a.lat, lng: a.lng } : undefined
   );
   const segments = useDistanceMatrix(coords);
+  const [liveTransit, setLiveTransit] = useState<LiveTransitStatus | null>(null);
+
+  const rerouteProposal = useMemo(() => {
+    return evaluateSmartReroute(
+      day,
+      dayIndex,
+      segments,
+      liveTransit,
+      cityName || destinationName,
+      language
+    );
+  }, [day, dayIndex, segments, liveTransit, cityName, destinationName, language]);
 
   const getActivityWeather = (activity: Activity): ForecastHour | null => {
     if (!hourlyWeather.length || !currentDayDate) return null;
@@ -1380,11 +1463,21 @@ const DayColumn = ({
         )}
       </div>
 
-      {/* Pix Travel Buddy Day Briefing Card with Live Transit & Safety Monitoring */}
+      {/* Pixo Travel Buddy Day Briefing Card with Live Transit & Safety Monitoring */}
       <BuddyDayBriefingCard
         briefing={buddyBriefing}
         cityName={cityName || destinationName}
         places={day.activities.map(a => a.title).filter(Boolean)}
+        dayDate={currentDayDate}
+        dayIndex={dayIndex}
+        onLiveTransitLoaded={setLiveTransit}
+      />
+
+      {/* Pixo Real-time Smart Reroute Banner (Proactive Route Swapping & Smart Alternatives) */}
+      <BuddyDynamicRerouteBanner
+        proposal={rerouteProposal}
+        onSwap={onSwapActivities}
+        onSubstitute={onSubstituteActivity}
       />
 
       <SortableContext items={day.activities.map((a, i) => a.id || `act-${dayIndex}-${i}`)} strategy={verticalListSortingStrategy}>
@@ -1458,6 +1551,8 @@ const TravelItinerary = ({
   isAIRefining = false,
   onOptimizeDay,
   isOptimizingDay = null,
+  onSwapActivities,
+  onSubstituteActivity,
 }: TravelItineraryProps) => {
   const { language, t } = useLanguage();
 
@@ -1466,6 +1561,57 @@ const TravelItinerary = ({
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
   const [photoModalTarget, setPhotoModalTarget] = useState<{ dayIndex: number; activity: Activity } | null>(null);
   const selectedId = selectedActivityId !== undefined ? selectedActivityId : internalSelectedId;
+
+  const handleInternalSwap = (dayIndex: number, idxA: number, idxB: number) => {
+    if (onSwapActivities) {
+      onSwapActivities(dayIndex, idxA, idxB);
+      return;
+    }
+    if (dayIndex < 0 || dayIndex >= itinerary.length) return;
+    const targetDay = itinerary[dayIndex];
+    if (!targetDay || !targetDay.activities) return;
+    const activities = [...targetDay.activities];
+    if (idxA < 0 || idxA >= activities.length || idxB < 0 || idxB >= activities.length) return;
+
+    // Swap time slots and positions
+    const timeA = activities[idxA].time;
+    const timeB = activities[idxB].time;
+    const temp = activities[idxA];
+    activities[idxA] = { ...activities[idxB], time: timeA };
+    activities[idxB] = { ...temp, time: timeB };
+
+    const updated = itinerary.map((d, i) => (i === dayIndex ? { ...d, activities } : d));
+    onUpdate(updated);
+  };
+
+  const handleInternalSubstitute = (dayIndex: number, actIndex: number, alternative: SmartRerouteAlternative) => {
+    if (onSubstituteActivity) {
+      onSubstituteActivity(dayIndex, actIndex, alternative);
+      return;
+    }
+    if (dayIndex < 0 || dayIndex >= itinerary.length) return;
+    const targetDay = itinerary[dayIndex];
+    if (!targetDay || !targetDay.activities) return;
+    const activities = [...targetDay.activities];
+    if (actIndex < 0 || actIndex >= activities.length) return;
+
+    const oldAct = activities[actIndex];
+    const newAct: Activity = {
+      ...oldAct,
+      id: `act-${Date.now()}`,
+      title: alternative.title,
+      title_th: language === "th" ? alternative.title : oldAct.title_th,
+      title_en: language === "en" ? alternative.title : oldAct.title_en,
+      description: alternative.reason,
+      description_th: language === "th" ? alternative.reason : oldAct.description_th,
+      description_en: language === "en" ? alternative.reason : oldAct.description_en,
+      type: (alternative.category as any) || "landmark",
+    };
+
+    activities[actIndex] = newAct;
+    const updated = itinerary.map((d, i) => (i === dayIndex ? { ...d, activities } : d));
+    onUpdate(updated);
+  };
 
   const removeActivity = (dayIndex: number, activityId: string) => {
     const updated = itinerary.map((day, i) =>
@@ -1533,17 +1679,17 @@ const TravelItinerary = ({
     const updated = itinerary.map((day, i) =>
       i === dayIndex
         ? {
-            ...day,
-            activities: day.activities.map((a) => {
-              if (a.id !== activityId) return a;
-              return {
-                ...a,
-                title: newTitle,
-                title_th: isThai ? newTitle : a.title_th,
-                title_en: !isThai ? newTitle : a.title_en,
-              };
-            }),
-          }
+          ...day,
+          activities: day.activities.map((a) => {
+            if (a.id !== activityId) return a;
+            return {
+              ...a,
+              title: newTitle,
+              title_th: isThai ? newTitle : a.title_th,
+              title_en: !isThai ? newTitle : a.title_en,
+            };
+          }),
+        }
         : day
     );
     onUpdate(updated);
@@ -1557,22 +1703,22 @@ const TravelItinerary = ({
           itinerary.map((day, i) =>
             i === dayIndex
               ? {
-                  ...day,
-                  activities: day.activities.map((a) => {
-                    if (a.id !== activityId) return a;
-                    return {
-                      ...a,
-                      title_th: isThai ? newTitle : translated,
-                      title_en: !isThai ? newTitle : translated,
-                      english_name: !isThai ? newTitle : translated,
-                    };
-                  }),
-                }
+                ...day,
+                activities: day.activities.map((a) => {
+                  if (a.id !== activityId) return a;
+                  return {
+                    ...a,
+                    title_th: isThai ? newTitle : translated,
+                    title_en: !isThai ? newTitle : translated,
+                    english_name: !isThai ? newTitle : translated,
+                  };
+                }),
+              }
               : day
           )
         );
       }
-    }).catch(() => {});
+    }).catch(() => { });
   };
 
   // Background AI translation to ensure both Thai and English fields are populated for all activities
@@ -1633,7 +1779,7 @@ const TravelItinerary = ({
             }),
           }))
         );
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     if (itemsToTranslateEn.length > 0) {
@@ -1655,7 +1801,7 @@ const TravelItinerary = ({
             }),
           }))
         );
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, [itinerary.length]);
 
@@ -1809,6 +1955,8 @@ const TravelItinerary = ({
             onChangePhoto={(dIdx, act) => setPhotoModalTarget({ dayIndex: dIdx, activity: act })}
             onOptimizeDay={onOptimizeDay}
             isOptimizingDay={isOptimizingDay}
+            onSwapActivities={(idxA, idxB) => handleInternalSwap(dayIndex, idxA, idxB)}
+            onSubstituteActivity={(actIdx, alt) => handleInternalSubstitute(dayIndex, actIdx, alt)}
           />
         ))}
       </div>

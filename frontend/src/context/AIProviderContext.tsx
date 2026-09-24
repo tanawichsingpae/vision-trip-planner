@@ -5,7 +5,7 @@ export type AIModelType =
   | "openai-gpt-54"
   | "google-gemini-38-flash"
   | "openai-gpt-54-mini"
-  | "qwen-vl-32b"
+  | "qwen-38-flash"
   | "meta-llama4";
 
 // Legacy provider type compatibility (if referenced anywhere)
@@ -21,7 +21,7 @@ export const MODEL_ID_MAP: Record<AIModelType, string> = {
   "openai-gpt-54": "openai/gpt-5.4",
   "google-gemini-38-flash": "google/gemini-3.8-flash",
   "openai-gpt-54-mini": "openai/gpt-5.4-mini",
-  "qwen-vl-32b": "qwen/qwen3-vl-32b-instruct",
+  "qwen-38-flash": "qwen/qwen3.8-flash",
   "meta-llama4": "meta-llama/llama-4-maverick",
 };
 
@@ -37,13 +37,16 @@ export const AI_MODEL_OPTIONS: { value: AIModelType; label: string; description:
   { value: "google-gemini-38-flash", label: "Gemini 3.8 Flash", description: "google/gemini-3.8-flash", icon: "/logos/gemini.png" },
 
   // Qwen
-  { value: "qwen-vl-32b", label: "Qwen 3 VL 32B", description: "qwen/qwen3-vl-32b-instruct", icon: "/logos/qwen.png" },
+  { value: "qwen-38-flash", label: "Qwen 3.8 Flash", description: "qwen/qwen3.8-flash", icon: "/logos/qwen.png" },
 
   // Meta
   { value: "meta-llama4", label: "Llama 4 Maverick", description: "meta-llama/llama-4-maverick", icon: "/logos/llama.png" },
 ];
 
 const LEGACY_MIGRATION_MAP: Record<string, AIModelType> = {
+  "qwen-vl-32b": "qwen-38-flash",
+  "qwen-vl": "qwen-38-flash",
+  "qwen3-vl-32b": "qwen-38-flash",
   "google-gemini-25-flash": "google-gemini-38-flash",
   "google-gemini-25-pro": "google-gemini-38-flash",
   "gemini-flash": "google-gemini-38-flash",

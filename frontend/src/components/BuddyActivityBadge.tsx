@@ -59,10 +59,10 @@ export const BuddyActivityBadge: React.FC<BuddyActivityBadgeProps> = ({
         >
           <img
             src={mascotUrl}
-            alt="Pix Alert"
+            alt="Pixo Alert"
             className="size-4 rounded-full object-cover ring-1 ring-white/50 shrink-0"
             onError={(e) => {
-              (e.target as HTMLImageElement).src = "/logos/pix_tip.jpg";
+              (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
             }}
           />
           <span className="truncate max-w-[130px] font-semibold">
@@ -85,7 +85,7 @@ export const BuddyActivityBadge: React.FC<BuddyActivityBadgeProps> = ({
         <div className="flex items-center justify-between border-b border-border/40 pb-2">
           <div className="flex items-center gap-1.5 font-bold text-foreground">
             <Sparkles className="size-3.5 text-primary" />
-            <span>Pix Travel Buddy คำแนะนำ</span>
+            <span>Pixo Travel Buddy คำแนะนำ</span>
           </div>
           <span className="text-[10px] text-muted-foreground">
             {alerts.length} รายการ
@@ -103,7 +103,7 @@ export const BuddyActivityBadge: React.FC<BuddyActivityBadgeProps> = ({
                 alt={al.title}
                 className="size-8 rounded-lg object-cover ring-1 ring-border/80 shrink-0 mt-0.5"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = "/logos/pix_tip.jpg";
+                  (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
                 }}
               />
               <div className="flex-1 min-w-0">

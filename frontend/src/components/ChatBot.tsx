@@ -250,6 +250,24 @@ export function inferContextualQuickActions(
     ];
   }
 
+  // ── Traffic Congestion & Smart Reroute ──
+  if (text.includes("รถติด") || text.includes("จราจร") || text.includes("ติดขัด") || text.includes("สลับ") || text.includes("ทางเลี่ยง") || text.includes("traffic") || text.includes("congest") || text.includes("reroute") || text.includes("swap") || text.includes("ช้า")) {
+    if (isEn) {
+      return [
+        "Swap with the next stop to save time",
+        "Suggest a nearby spot with less traffic",
+        "Check current traffic for all routes",
+        "Keep current order anyway",
+      ];
+    }
+    return [
+      "สลับไปสถานที่ถัดไปก่อนเพื่อประหยัดเวลาครับ",
+      "แนะนำสถานที่ใกล้เคียงที่รถไม่ติดแทนครับ",
+      "เช็คสภาพจราจรทุกเส้นทางของวันนี้หน่อย",
+      "เดินทางตามลำดับเดิมต่อไปครับ",
+    ];
+  }
+
   // ── I. General Confirmation / Opinion Question ──
   const isQuestion = isEn
     ? (text.includes("?") || text.includes("would you") || text.includes("do you prefer") || text.includes("shall i") || text.includes("should we"))
@@ -318,7 +336,7 @@ export function getInitialWelcomeMessage(
     return {
       id: "welcome-en",
       role: "assistant",
-      content: `Hello! I'm Pix 😊 Your AI Travel Companion for ${dest} ✈️📸\n\nWhether you'd like to adjust your itinerary, switch hotels, fine-tune your budget, or identify spots from photos, I'm always here to help you plan! What would you like to explore?`,
+      content: `Hello! I'm Pixo 😊 Your AI Travel Companion for ${dest} ✈️📸\n\nWhether you'd like to adjust your itinerary, switch hotels, fine-tune your budget, or identify spots from photos, I'm always here to help you plan! What would you like to explore?`,
       suggestedQuickActions: inferContextualQuickActions("", "", dest, itinerary, preferences, "en"),
       aiModel: modelLabel,
       timestamp: Date.now(),
@@ -327,7 +345,7 @@ export function getInitialWelcomeMessage(
   return {
     id: "welcome-th",
     role: "assistant",
-    content: `สวัสดีครับ! พิกซ์ (Pix) เองครับ 😊 Your AI Travel Companion สำหรับทริป ${locationName} ✈️📸\n\nไม่ว่าคุณอยากจะปรับตารางเดินทาง สลับโรงแรม เปลี่ยนงบประมาณ หรือส่องสถานที่จากรูปถ่าย พิกซ์พร้อมช่วยคุณคิดช่วยจัดให้เสมอ บอกผมได้เลยนะครับ!`,
+    content: `สวัสดีครับ! พิกโซ่ (Pixo) เองครับ 😊 Your AI Travel Companion สำหรับทริป ${locationName} ✈️📸\n\nไม่ว่าคุณอยากจะปรับตารางเดินทาง สลับโรงแรม เปลี่ยนงบประมาณ หรือส่องสถานที่จากรูปถ่าย พิกโซ่พร้อมช่วยคุณคิดช่วยจัดให้เสมอ บอกผมได้เลยนะครับ!`,
     suggestedQuickActions: inferContextualQuickActions("", "", locationName, itinerary, preferences, "th"),
     aiModel: modelLabel,
     timestamp: Date.now(),
@@ -851,22 +869,22 @@ const ChatBot = ({
             </button>
             <div className="flex items-start gap-2">
               <img
-                src="/logos/pix_tip.jpg"
-                alt="Pix Mascot"
+                src="/pixo_carton/pixo_chatbot_profile.jpg"
+                alt="Pixo Mascot"
                 className="size-7 rounded-xl object-cover ring-1 ring-primary/40 shrink-0"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
+                  (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
                 }}
               />
               <div>
                 <p className="font-bold text-foreground text-[11px] flex items-center gap-1">
-                  <span>Pix Travel Buddy</span>
+                  <span>Pixo Travel Buddy</span>
                   <Sparkles className="size-2.5 text-primary" />
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
                   {language === "en"
-                    ? "Need tips on weather, rush hour transit, or schedule tweaks? Chat with Pix!"
-                    : "มีข้อสงสัยเรื่องสภาพอากาศ, เลี่ยงรถติด, หรืออยากปรับเวลา ทักพิกซ์ได้เลยครับ!"}
+                    ? "Need tips on weather, rush hour transit, or schedule tweaks? Chat with Pixo!"
+                    : "มีข้อสงสัยเรื่องสภาพอากาศ, เลี่ยงรถติด, หรืออยากปรับเวลา ทักพิกโซ่ได้เลยครับ!"}
                 </p>
               </div>
             </div>
@@ -878,14 +896,14 @@ const ChatBot = ({
         <button
           onClick={() => setIsOpen(true)}
           className="size-14 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl flex items-center justify-center hover:scale-110 transition-all ring-4 ring-primary/20 group overflow-hidden p-0.5 border border-white/20"
-          title={language === "en" ? "Chat with Pix Travel Buddy" : "เปิดแชทกับพิกซ์ (Pix Travel Buddy)"}
+          title={language === "en" ? "Chat with Pixo Travel Buddy" : "เปิดแชทกับพิกโซ่ (Pixo Travel Buddy)"}
         >
           <img
-            src="/logos/pix_tip.jpg"
-            alt="Pix Travel Buddy"
+            src="/pixo_carton/pixo_chatbot_profile.jpg"
+            alt="Pixo Travel Buddy"
             className="size-full rounded-full object-cover group-hover:scale-110 transition-transform"
             onError={(e) => {
-              (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
+              (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
             }}
           />
           <span className="absolute top-1 right-1 size-3 bg-emerald-400 rounded-full border-2 border-white animate-pulse" />
@@ -933,11 +951,11 @@ const ChatBot = ({
         <div className="flex items-center gap-2.5">
           <div className="size-8 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center border border-white/25 shadow-inner overflow-hidden shrink-0">
             <img
-              src="/logos/pix_tip.jpg"
-              alt="Pix Travel Buddy"
+              src="/pixo_carton/pixo_chatbot_profile.jpg"
+              alt="Pixo Travel Buddy"
               className="size-full object-cover"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
+                (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
               }}
             />
           </div>
@@ -945,7 +963,7 @@ const ChatBot = ({
             <div className="flex items-center gap-1.5 flex-wrap">
               <h3 className="font-bold text-white text-xs sm:text-sm tracking-tight flex items-center gap-1">
                 <Move className="size-3 text-white/70" />
-                <span>Pix Travel Buddy</span>
+                <span>Pixo Travel Buddy</span>
               </h3>
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-400/25 text-emerald-100 border border-emerald-300/30 px-2 py-0.2 rounded-full">
                 <span className="size-1.5 rounded-full bg-emerald-300 animate-ping" />
@@ -991,11 +1009,11 @@ const ChatBot = ({
             {msg.role === "assistant" && (
               <div className="size-7 rounded-xl overflow-hidden shrink-0 shadow-xs mt-0.5 border border-border/80 bg-secondary/80">
                 <img
-                  src="/logos/pix_tip.jpg"
-                  alt="Pix"
+                  src="/pixo_carton/pixo_chat.jpg"
+                  alt="Pixo"
                   className="size-full object-cover"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
+                    (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
                   }}
                 />
               </div>
@@ -1034,11 +1052,11 @@ const ChatBot = ({
           <div className="flex gap-2.5">
             <div className="size-7 rounded-xl overflow-hidden shrink-0 shadow-xs border border-border/80 bg-secondary/80">
               <img
-                src="/logos/pix_planning.jpg"
-                alt="Pix Planning"
+                src="/pixo_carton/pixo_planning.jpg"
+                alt="Pixo Planning"
                 className="size-full object-cover"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
+                  (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
                 }}
               />
             </div>
@@ -1047,7 +1065,7 @@ const ChatBot = ({
                 <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                 <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                 <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                <span className="text-xs text-muted-foreground ml-1.5 font-medium">{language === "en" ? "Pix is analyzing travel details... 🎒✨" : "พิกซ์กำลังวิเคราะห์ข้อมูล... 🎒✨"}</span>
+                <span className="text-xs text-muted-foreground ml-1.5 font-medium">{language === "en" ? "Pixo is analyzing travel details... 🎒✨" : "พิกโซ่กำลังวิเคราะห์ข้อมูล... 🎒✨"}</span>
               </div>
             </div>
           </div>
@@ -1084,7 +1102,7 @@ const ChatBot = ({
       <div className="p-3 border-t border-border/70 bg-card shrink-0">
         <div className="flex gap-2 items-center">
           <Input
-            placeholder={language === "en" ? "Tell Pix what to adjust (e.g. switch hotel, change day, or confirm)..." : "พิมพ์บอกความต้องการ เช่น เปลี่ยนโรงแรม, สลับวัน, หรือตอบยืนยัน..."}
+            placeholder={language === "en" ? "Tell Pixo what to adjust (e.g. switch hotel, change day, or confirm)..." : "พิมพ์บอกความต้องการ เช่น เปลี่ยนโรงแรม, สลับวัน, หรือตอบยืนยัน..."}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
