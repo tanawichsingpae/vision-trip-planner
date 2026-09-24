@@ -2823,10 +2823,10 @@ const Index = () => {
               </div>
 
 
-              {/* 2-Column Responsive Dashboard (7:5 ratio for expansive map and timeline) */}
+              {/* 2-Column Responsive Dashboard: Left = Travel Itinerary (8/12 cols, 66.7%), Right = Interactive Map & Weather (4/12 cols, 33.3%) */}
               <div className="grid gap-6 lg:grid-cols-12 items-start">
-                {/* Left Column (7/12 on lg & xl): Itinerary Timeline */}
-                <div className="lg:col-span-7 xl:col-span-7 2xl:col-span-7">
+                {/* Left Column (8/12 on lg, xl & 2xl): Itinerary Timeline */}
+                <div className="lg:col-span-8 xl:col-span-8 2xl:col-span-8">
                   <TravelItinerary
                     itinerary={itinerary}
                     onUpdate={(newItinerary) => {
@@ -2852,8 +2852,8 @@ const Index = () => {
 
                 </div>
 
-                {/* Right Column (5/12 on lg & xl, Sticky): Interactive Map & Live Weather */}
-                <div className="flex flex-col gap-4 lg:col-span-5 xl:col-span-5 2xl:col-span-5 lg:sticky lg:top-20 lg:self-start">
+                {/* Right Column (4/12 on lg, xl & 2xl, Sticky): Interactive Map & Live Weather */}
+                <div className="flex flex-col gap-4 lg:col-span-4 xl:col-span-4 2xl:col-span-4 lg:sticky lg:top-20 lg:self-start">
                   {(() => {
                     const effectiveCoords = selectedPlace
                       || (detectedLocations[0]?.lat && detectedLocations[0]?.lng ? { lat: detectedLocations[0].lat, lng: detectedLocations[0].lng } : null)

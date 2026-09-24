@@ -7,7 +7,18 @@ export async function safeFetch<T>(url: string, options?: RequestInit): Promise<
   if (!response.ok) {
     const errorText = await response.text();
     console.error(`API request failed [${response.status}] for URL: ${url}`, errorText);
-    throw new Error(`API request failed with status ${response.status}`);
+    let errorMessage = `API request failed with status ${response.status}`;
+    try {
+      const parsedError = JSON.parse(errorText);
+      if (parsedError && parsedError.error) {
+        errorMessage = typeof parsedError.error === "string" ? parsedError.error : JSON.stringify(parsedError.error);
+      }
+    } catch {
+      if (errorText) {
+        errorMessage += `: ${errorText.substring(0, 150)}`;
+      }
+    }
+    throw new Error(errorMessage);
   }
 
   const text = await response.text();

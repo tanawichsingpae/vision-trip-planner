@@ -1,6 +1,10 @@
+import os
 from dotenv import load_dotenv
 load_dotenv()
-import os
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+import json
+import time
+import datetime
 from io import BytesIO
 from pyexpat.errors import messages
 
@@ -455,15 +459,51 @@ def search_web_duckduckgo(query: str, max_results: int = 4):
     return results[:max_results]
 
 LEGACY_MODEL_MAP = {
-    "gemini-2.5-flash": "google/gemini-3.8-flash",
-    "gemini-3.8-flash": "google/gemini-3.8-flash",
-    "gemini-1.5-pro": "google/gemini-3.8-flash",
-    "gpt-4o-mini": "openai/gpt-5.4-mini",
-    "gpt-4o": "openai/gpt-5.4",
+    "gemini-2.5-flash": "google/gemini-2.5-flash",
+    "gemini-3.8-flash": "google/gemini-2.5-flash",
+    "gemini-1.5-pro": "google/gemini-2.5-flash",
+    "gpt-4o-mini": "openai/gpt-4o-mini",
+    "gpt-4o": "openai/gpt-4o",
     "claude-sonnet": "anthropic/claude-sonnet-5",
-    "qwen-vl": "qwen/qwen3-vl-32b-instruct",
-    "llama4": "meta-llama/llama-4-maverick",
+    "qwen-vl": "qwen/qwen-2.5-vl-72b-instruct:free",
+    "llama4": "meta-llama/llama-3.3-70b-instruct",
 }
+
+def clean_conversational_text(text: str, user_text: str = "") -> str:
+    """
+    Cleans chatbot output according to Pix style rules:
+    - No link citations like [Pantip](https://...) unless user explicitly asks for links/sources
+    - No markdown asterisks (**bold** or *item*)
+    - Uses emojis for a clean, user-friendly reading experience
+    """
+    if not text:
+        return ""
+
+    import re
+    cleaned = text
+
+    # Check if user asked for links
+    user_asked_for_links = bool(
+        re.search(r"(ขอ|ดู|มี)?(ลิงก์|ลิ้งค์|ลิ้ง|link|url|source|ที่มา|แหล่งที่มา|แหล่งข่าว|เว็บ)", user_text, re.IGNORECASE)
+    )
+
+    if not user_asked_for_links:
+        # Remove markdown link citations like [Pantip](https://...)
+        cleaned = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', '', cleaned)
+        # Remove standalone URLs
+        cleaned = re.sub(r'https?://\S+', '', cleaned)
+
+    # Remove markdown bold/italic asterisks: **text** -> text, *text* -> text
+    cleaned = re.sub(r'\*\*([^*]+)\*\*', r'\1', cleaned)
+    cleaned = re.sub(r'\*([^*]+)\*', r'\1', cleaned)
+    cleaned = cleaned.replace("**", "").replace("*", "")
+
+    # Clean double spaces caused by link removal
+    cleaned = re.sub(r' +', ' ', cleaned)
+    # Clean empty lines if more than 2 consecutive
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+
+    return cleaned.strip()
 
 @app.route("/ai", methods=["POST"])
 @app.route("/openai", methods=["POST"])
@@ -477,7 +517,7 @@ def call_ai():
         return jsonify({"error": "No JSON payload provided"}), 400
 
     try:
-        raw_model = data.get("model", "google/gemini-3.8-flash")
+        raw_model = data.get("model", "google/gemini-2.5-flash")
         # Resolve legacy model names if passed
         model_name = LEGACY_MODEL_MAP.get(raw_model, raw_model)
         expect_json = data.get("expect_json", True)
@@ -507,13 +547,11 @@ def call_ai():
             else:
                 messages = [{"role": "user", "content": prompt_text}]
 
-        print(f"[AI] Calling OpenRouter model: {model_name} (expect_json={expect_json})")
-
         formatted_messages = list(messages)
 
-        # ── Web Search RAG Integration for Conversational Requests (expect_json=False) ──
-        if not expect_json and formatted_messages:
-            last_msg = formatted_messages[-1]
+        # ── Conversational ChatBot Handling with 4-Tier Real-Time Search (expect_json=False) ──
+        if not expect_json:
+            last_msg = formatted_messages[-1] if formatted_messages else {}
             user_text = ""
             if isinstance(last_msg.get("content"), list):
                 for item in last_msg["content"]:
@@ -522,75 +560,428 @@ def call_ai():
             else:
                 user_text = str(last_msg.get("content", ""))
 
-            if user_text and len(user_text.strip()) > 3:
-                print(f"[Search RAG] Searching web for user query: '{user_text[:60]}...'")
-                search_results = search_web_duckduckgo(user_text, max_results=4)
-                if search_results:
-                    context_blocks = []
-                    for idx, res in enumerate(search_results):
-                        context_blocks.append(f"[{idx+1}] Source: {res['url']}\nTitle: {res['title']}\nSnippet: {res['snippet']}")
+            import re
+            user_asked_for_links = bool(
+                re.search(r"(ขอ|ดู|มี)?(ลิงก์|ลิ้งค์|ลิ้ง|link|url|source|ที่มา|แหล่งที่มา|แหล่งข่าว|เว็บ)", user_text, re.IGNORECASE)
+            )
+            link_rule = (
+                "- ผู้ใช้ขอลิงก์: สามารถแนบลิงก์ URL อ้างอิงที่เกี่ยวข้องได้"
+                if user_asked_for_links else
+                "- 🚫 ห้ามใส่หรือแนบลิงก์ URL อ้างอิง เช่น [ชื่อเว็บ](url) หรือ https://... ในข้อความตอบรับเด็ดขาด!"
+            )
 
-                    search_context = (
-                        "=== Real-Time Web Search Context (Internet Results) ===\n"
-                        "Use the up-to-date web search results below to inform your response if relevant. "
-                        "Cite or refer to current details when answering questions about live events, weather, news, or places.\n"
-                        "IMPORTANT PERSONA & FORMATTING RULES:\n"
-                        "- You are 'พิกซ์ (Pix) - Your AI Travel Companion' — a polite, warm, smart, friendly Korean-inspired travel buddy.\n"
-                        "- Always speak with polite Thai ending particles (ครับ), refer to yourself as 'ผม' or 'พิกซ์', and STRICTLY address the user ONLY as 'คุณ' (NEVER use 'คุณลูกค้า', 'ท่าน', 'เธอ', 'นาย', 'พี่', 'น้อง', 'เพื่อน', 'ยู' or any other pronoun; ALWAYS address the user ONLY as 'คุณ').\n"
-                        "- Explain reasons clearly and concisely. Do NOT dump huge unrequested lists.\n"
-                        "- NEVER use markdown asterisks '*' or '**' for bold or bullet points in your response. Write clean, natural prose using line breaks and tasteful emojis instead.\n\n"
-                        + "\n\n".join(context_blocks) + "\n"
-                        "======================================================="
+            today_str = datetime.date.today().isoformat()
+            date_anchor = (
+                f"\n[กฎเหล็กและข้อบังคับสูงสุดในการตอบสำหรับ ChatBot พิกซ์]:\n"
+                f"- วันที่ปัจจุบันคือ {today_str} ให้ใช้ข้อมูลข่าวสารสดและเหตุการณ์ล่าสุดบนอินเทอร์เน็ตในการตอบ\n"
+                f"{link_rule}\n"
+                f"- 🚫 ห้ามใช้เครื่องหมายดอกจัน '**' หรือ '*' ในข้อความตอบรับเด็ดขาด (ห้ามทำตัวหนาด้วย ** หรือทำ bullet ด้วย *)!\n"
+                f"- ✨ ให้ปรับไปใช้อีโมจิที่เข้ากับเนื้อหา (เช่น 📍, 🚗, 🚆, 🚌, ⏱️, 💰, 💡, 🏛️, 🏮, ✨) เป็นสัญลักษณ์นำหน้าหัวข้อและหัวข้อย่อย เพื่อความ User-Friendly สบายตา น่าอ่าน และอบอุ่น"
+            )
+
+            has_system = False
+            for msg in formatted_messages:
+                if msg.get("role") == "system":
+                    msg["content"] = str(msg.get("content", "")) + date_anchor
+                    has_system = True
+                    break
+            if not has_system:
+                formatted_messages.insert(0, {"role": "system", "content": date_anchor})
+
+            # 4-Tier Online Strategy:
+            # 1. google/gemini-2.5-flash:online (Primary)
+            # 2. google/gemini-2.0-flash-001:online (Secondary)
+            # 3. openai/gpt-4o-mini:online (Tertiary)
+            # 4. search_web_duckduckgo + base model (Fallback 4)
+            online_models_to_try = [
+                "google/gemini-2.5-flash:online",
+                "google/gemini-2.0-flash-001:online",
+                "openai/gpt-4o-mini:online",
+            ]
+
+            cleaned_content = None
+            last_error = None
+
+            for current_model in online_models_to_try:
+                try:
+                    print(f"[ChatBot Online AI] Requesting model: {current_model}")
+                    response = openrouter_client.chat.completions.create(
+                        model=current_model,
+                        messages=formatted_messages,
+                        max_tokens=4096,
                     )
+                    if response and getattr(response, "choices", None):
+                        choice = response.choices[0]
+                        msg = getattr(choice, "message", None)
+                        content = getattr(msg, "content", None) if msg else None
+                        if content is None and msg and hasattr(msg, "reasoning_content"):
+                            content = getattr(msg, "reasoning_content", None)
+                        if content is not None and str(content).strip():
+                            cleaned_content = str(content).strip()
+                            print(f"[ChatBot Online AI] Successfully generated reply using model: {current_model}")
+                            break
+                except Exception as online_err:
+                    print(f"[ChatBot Online AI Error on {current_model}]:", online_err)
+                    last_error = str(online_err)
 
-                    formatted_messages.insert(len(formatted_messages) - 1, {
-                        "role": "system",
-                        "content": search_context
-                    })
-                    print(f"[Search RAG] Successfully injected {len(search_results)} search results into prompt!")
+            # 4. Fallback if all 3 OpenRouter :online models fail
+            if not cleaned_content:
+                print("[ChatBot Online AI] All online models failed. Falling back to DuckDuckGo Search RAG.")
+                if user_text and len(user_text.strip()) > 3:
+                    search_results = search_web_duckduckgo(user_text, max_results=4)
+                    if search_results:
+                        context_blocks = []
+                        for idx, res in enumerate(search_results):
+                            context_blocks.append(f"[{idx+1}] Source: {res['url']}\nTitle: {res['title']}\nSnippet: {res['snippet']}")
 
-        if expect_json:
-            # Ensure JSON output is requested
-            formatted_messages.insert(0, {
-                "role": "system",
-                "content": "You are a helpful AI assistant. You must respond ONLY with valid JSON matching the requested schema. Do not output any markdown headers, conversational text, or formatting outside of JSON."
-            })
+                        search_context = (
+                            "=== Real-Time Web Search Context (DuckDuckGo Fallback) ===\n"
+                            "Use the up-to-date web search results below to inform your response if relevant. "
+                            "Cite or refer to current details when answering questions about live events, weather, news, or places.\n"
+                            "IMPORTANT PERSONA & FORMATTING RULES:\n"
+                            "- You are 'พิกซ์ (Pix) - Your AI Travel Companion' — a polite, warm, smart, friendly Korean-inspired travel buddy.\n"
+                            "- Always speak with polite Thai ending particles (ครับ), refer to yourself as 'ผม' or 'พิกซ์', and STRICTLY address the user ONLY as 'คุณ' (NEVER use 'คุณลูกค้า', 'ท่าน', 'เธอ', 'นาย', 'พี่', 'น้อง', 'เพื่อน', 'ยู' or any other pronoun; ALWAYS address the user ONLY as 'คุณ').\n"
+                            "- Explain reasons clearly and concisely. Do NOT dump huge unrequested lists.\n"
+                            "- 🚫 NEVER use markdown asterisks '*' or '**' for bold or bullet points in your response. Write clean, natural prose using line breaks and tasteful emojis instead.\n"
+                            "- 🚫 DO NOT attach markdown link citations like [Site](url) unless explicitly requested.\n\n"
+                            + "\n\n".join(context_blocks) + "\n"
+                            "======================================================="
+                        )
+                        formatted_messages.insert(len(formatted_messages) - 1, {
+                            "role": "system",
+                            "content": search_context
+                        })
 
-        create_kwargs = {
-            "model": model_name,
-            "messages": formatted_messages,
-            "max_tokens": 8192 if expect_json else 4096,
-        }
-        response = openrouter_client.chat.completions.create(**create_kwargs)
+                base_fallbacks = [
+                    model_name,
+                    "google/gemini-2.5-flash",
+                    "openai/gpt-4o-mini",
+                    "meta-llama/llama-3.3-70b-instruct"
+                ]
+                for fb_model in base_fallbacks:
+                    try:
+                        print(f"[ChatBot Fallback AI] Requesting model: {fb_model}")
+                        response = openrouter_client.chat.completions.create(
+                            model=fb_model,
+                            messages=formatted_messages,
+                            max_tokens=4096,
+                        )
+                        if response and getattr(response, "choices", None):
+                            choice = response.choices[0]
+                            msg = getattr(choice, "message", None)
+                            content = getattr(msg, "content", None) if msg else None
+                            if content is None and msg and hasattr(msg, "reasoning_content"):
+                                content = getattr(msg, "reasoning_content", None)
+                            if content is not None and str(content).strip():
+                                cleaned_content = str(content).strip()
+                                print(f"[ChatBot Fallback AI] Successfully generated reply using model: {fb_model}")
+                                break
+                    except Exception as fb_err:
+                        print(f"[ChatBot Fallback AI Error on {fb_model}]:", fb_err)
+                        last_error = str(fb_err)
 
-        content = response.choices[0].message.content
-        if content is None:
-            message_obj = response.choices[0].message
-            refusal = getattr(message_obj, "refusal", None)
-            if refusal:
-                print(f"[AI] Refusal from {model_name}: {refusal}")
-                return jsonify({"error": f"AI model refused: {refusal}"}), 500
-            return jsonify({"error": f"AI model {model_name} returned empty content"}), 500
+            if cleaned_content:
+                cleaned_content = clean_conversational_text(cleaned_content, user_text)
+                return jsonify({"text": cleaned_content})
 
-        # Clean markdown code fences if present
-        cleaned_content = content.strip()
-        if cleaned_content.startswith("```"):
-            lines = cleaned_content.splitlines()
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            cleaned_content = "\n".join(lines).strip()
+            return jsonify({"error": last_error or "AI model returned empty content"}), 500
 
-        if expect_json and not cleaned_content.startswith(("{", "[")):
-            print(f"[AI] Refusal/non-JSON response from {model_name}: {cleaned_content[:200]}")
-            return jsonify({"error": f"AI model declined to output valid JSON: {cleaned_content[:200]}"}), 400
+        # ── Structured JSON Generation (expect_json=True) ──
+        formatted_messages.insert(0, {
+            "role": "system",
+            "content": "You are a helpful AI assistant. You must respond ONLY with valid JSON matching the requested schema. Do not output any markdown headers, conversational text, or formatting outside of JSON."
+        })
 
-        return jsonify({"text": cleaned_content})
+        candidate_models = [model_name]
+        fallbacks = [
+            "google/gemini-2.5-flash",
+            "openai/gpt-4o-mini",
+            "openai/gpt-4o",
+            "meta-llama/llama-3.3-70b-instruct"
+        ]
+        for fb in fallbacks:
+            if fb not in candidate_models:
+                candidate_models.append(fb)
+
+        cleaned_content = None
+        last_error = None
+
+        for current_model in candidate_models:
+            try:
+                print(f"[AI] Requesting model: {current_model} (expect_json={expect_json})")
+                create_kwargs = {
+                    "model": current_model,
+                    "messages": formatted_messages,
+                    "max_tokens": 8192,
+                }
+                response = openrouter_client.chat.completions.create(**create_kwargs)
+
+                if not response or not getattr(response, "choices", None):
+                    print(f"[AI] Model {current_model} returned no choices object")
+                    last_error = f"AI model {current_model} returned no choices"
+                    continue
+
+                choice = response.choices[0]
+                msg = getattr(choice, "message", None)
+                content = getattr(msg, "content", None) if msg else None
+
+                if content is None and msg and hasattr(msg, "reasoning_content"):
+                    content = getattr(msg, "reasoning_content", None)
+
+                if content is not None and str(content).strip():
+                    cleaned = str(content).strip()
+                    if cleaned.startswith("```"):
+                        lines = cleaned.splitlines()
+                        if lines and lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines and lines[-1].startswith("```"):
+                            lines = lines[:-1]
+                        cleaned = "\n".join(lines).strip()
+
+                    if not cleaned.startswith(("{", "[")):
+                        print(f"[AI] Model {current_model} non-JSON response: {cleaned[:150]}")
+                        last_error = f"AI model {current_model} declined to output valid JSON"
+                        continue
+
+                    cleaned_content = cleaned
+                    print(f"[AI] Successfully generated content using model: {current_model}")
+                    break
+                else:
+                    refusal = getattr(msg, "refusal", None) if msg else None
+                    finish_reason = getattr(choice, "finish_reason", None)
+                    print(f"[AI] Model {current_model} returned empty content (finish_reason={finish_reason}, refusal={refusal})")
+                    last_error = f"AI model {current_model} returned empty content"
+            except Exception as model_err:
+                print(f"[AI] Exception calling model {current_model}: {model_err}")
+                last_error = str(model_err)
+
+        if cleaned_content:
+            return jsonify({"text": cleaned_content})
+
+        return jsonify({"error": last_error or f"AI model {model_name} returned empty content"}), 500
 
     except Exception as e:
         print("AI Error:", e)
         return jsonify({"error": str(e)}), 500
+
+
+# In-memory cache for live transit check (5-minute TTL per query)
+_live_check_cache = {}
+
+def get_cached_live_check(cache_key: str):
+    now = time.time()
+    if cache_key in _live_check_cache:
+        entry, expiry = _live_check_cache[cache_key]
+        if now < expiry:
+            return entry
+    return None
+
+def set_cached_live_check(cache_key: str, data: dict, ttl_seconds: int = 300):
+    _live_check_cache[cache_key] = (data, time.time() + ttl_seconds)
+
+
+@app.route("/ai/buddy-live-check", methods=["POST"])
+def buddy_live_check():
+    """
+    Search RAG Live Insights for Pix Travel Buddy using OpenRouter Gemini with live web search (:online).
+    Gathers real-time transit disruption (BTS/MRT), traffic, road closures, weather alerts, and safety news.
+    """
+    try:
+        data = request.get_json(silent=True)
+        if not data:
+            try:
+                raw_body = request.get_data(as_text=True)
+                data = json.loads(raw_body) if raw_body else {}
+            except Exception:
+                data = {}
+
+        city = (data.get("city") or "").strip()
+        places = data.get("places") or []
+        date_str = data.get("date") or datetime.date.today().isoformat()
+
+        if not city and not places:
+            return jsonify({
+                "status": "empty",
+                "has_disruption": False,
+                "transit_status": "normal",
+                "title": "ไม่มีข้อมูลสถานที่",
+                "summary": "ไม่พบข้อมูลเมืองหรือสถานที่สำหรับตรวจสอบเหตุการณ์สด",
+                "disruptions": [],
+                "attraction_alerts": [],
+                "special_events": [],
+                "weather_traffic_alert": "",
+                "advice_for_travelers": "",
+                "local_tips_and_rules": "",
+                "tips": [],
+                "live_updates": [],
+                "sources": [],
+                "sources_count": 0
+            })
+
+        target_term = city or (places[0] if places else "กรุงเทพมหานคร")
+        cache_key = f"{target_term}_{date_str}".lower()
+        cached = get_cached_live_check(cache_key)
+        if cached:
+            return jsonify(cached)
+
+        # 1. Primary: OpenRouter with live web search (google/gemini-2.5-flash:online)
+        if openrouter_client:
+            prompt = f"""คุณคือระบบตรวจสอบข้อมูลสดรอบด้านสำหรับการท่องเที่ยวและขนส่งสาธารณะ (Pix Live Travel & Safety Companion) ประจำเมือง {target_term}
+วันที่ปัจจุบัน: {date_str}
+สถานที่สำคัญในทริป: {', '.join(places[:6]) if places else target_term}
+
+กรุณาค้นหาข้อมูลสดล่าสุดบนอินเทอร์เน็ตแบบเรียลไทม์ (Real-time Online Web Search) ครอบคลุม 5 มิติสำคัญ:
+1. [ขนส่ง & จราจร]: ระบบขนส่งสาธารณะ (รถไฟฟ้า BTS, MRT สายต่างๆ, รถไฟ, แอร์พอร์ตลิงก์ ARL, รถเมล์, เรือโดยสาร) มีจุดใดขัดข้อง ล่าช้า ปิดให้บริการ หรือถนนปิด น้ำท่วม อุบัติเหตุใหญ่ในวันนี้หรือไม่
+2. [สภาพอากาศ & ภัยพิบัติ]: ฝนตกหนัก พายุ ลมกระโชกแรง หมอกควัน PM2.5 น้ำท่วมฉับพลัน หรือประกาศเตือนภัยจากกรมอุตุฯ/ปภ.
+3. [สถานะสถานที่ท่องเที่ยวในทริป]: สถานที่เหล่านี้ ({', '.join(places[:6]) if places else target_term}) มีจุดใดปิดทำการชั่วคราว มีงานพระราชพิธี ปิดปรับปรุงซ่อมแซม หรือจำกัดเวลาเข้าชม/ต้องจองล่วงหน้าในวันนี้หรือไม่
+4. [เทศกาล & อีเวนต์สด]: มีงานเทศกาลท้องถิ่น ตลาดนัดพิเศษ Pop-up Market งานวัด คอนเสิร์ตใหญ่ หรืองานกิจกรรมที่น่าสนใจหรือส่งผลให้คนหนาแน่นในวันนี้หรือไม่
+5. [กลโกง & กฎระเบียบเฉพาะวัน]: ข้อควรระวังด้านความปลอดภัย กลโกงนักท่องเที่ยวในพื้นที่ (เช่น หลอกว่าวัดปิด, โก่งราคา) หรือกฎระเบียบพิเศษ (เช่น วันพระใหญ่งดจำหน่ายสุรา, ข้อห้ามบินโดรน)
+
+ตอบกลับเป็น JSON เท่านั้น (Strict JSON) ในรูปแบบ:
+{{
+  "has_disruption": true หรือ false (เป็น true เฉพาะเมื่อมีเหตุขัดข้อง ล่าช้า ถนนปิด น้ำท่วม หรือสถานที่ในทริปปิดให้บริการจริง),
+  "transit_status": "normal" | "warning" | "critical",
+  "title": "หัวข้อสรุปสถานการณ์สดสั้นๆ เช่น ระบบการเดินทางปกติ หรือ แจ้งเตือนวัดพระแก้วปิดครึ่งวัน / MRT ล่าช้า",
+  "summary": "สรุปภาพรวมสถานการณ์สดสั้นๆ 1-2 ประโยค",
+  "disruptions": [
+    {{
+      "line": "ชื่อสายรถไฟฟ้าหรือเส้นทาง",
+      "status": "normal" | "delayed" | "disrupted",
+      "detail": "รายละเอียดเหตุการณ์สั้นๆ"
+    }}
+  ],
+  "attraction_alerts": [
+    {{
+      "place_name": "ชื่อสถานที่",
+      "status": "closed" | "restricted" | "crowded" | "normal",
+      "note": "รายละเอียด เช่น ปิดทำการช่วงบ่ายเนื่องจากมีพิธีการ หรือ เปิดทำการปกติ"
+    }}
+  ],
+  "special_events": [
+    {{
+      "event_name": "ชื่องานเทศกาลหรืออีเวนต์",
+      "location": "สถานที่หรือย่านจัดงาน",
+      "highlight": "จุดเด่นสั้นๆ หรือคำแนะนำเวลาที่ควรไป"
+    }}
+  ],
+  "weather_traffic_alert": "ข้อความแจ้งเตือนสภาพอากาศหรือการจราจรที่ควรระวัง",
+  "advice_for_travelers": "คำแนะนำสั้นๆ สำหรับผู้เดินทาง เช่น เผื่อเวลาเดินทาง หรือเลี่ยงเส้นทาง...",
+  "local_tips_and_rules": "คำเตือนกลโกงหรือกฎระเบียบเฉพาะวันที่ควรรู้ (ถ้ามี)",
+  "sources": ["URL หรือชื่อแหล่งข่าวที่ใช้อ้างอิง"]
+}}
+"""
+            models_to_try = [
+                "google/gemini-2.5-flash:online",
+                "google/gemini-2.0-flash-001:online",
+                "openai/gpt-4o-mini:online",
+            ]
+            live_data = None
+            used_model = None
+
+            for current_model in models_to_try:
+                try:
+                    resp = openrouter_client.chat.completions.create(
+                        model=current_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=2048,
+                    )
+                    content = (resp.choices[0].message.content or "").strip()
+                    if content.startswith("```"):
+                        lines = content.splitlines()
+                        if lines and lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines and lines[-1].startswith("```"):
+                            lines = lines[:-1]
+                        content = "\n".join(lines).strip()
+
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict) and "has_disruption" in parsed:
+                        live_data = parsed
+                        used_model = current_model
+                        break
+                except Exception as model_err:
+                    print(f"[OpenRouter Live Check Error on {current_model}]:", model_err)
+
+            if live_data:
+                live_updates = []
+                tips = []
+                if live_data.get("summary"):
+                    live_updates.append(live_data["summary"])
+                    tips.append(live_data["summary"])
+                if live_data.get("advice_for_travelers"):
+                    tips.append(live_data["advice_for_travelers"])
+                if live_data.get("local_tips_and_rules"):
+                    tips.append(live_data["local_tips_and_rules"])
+                if live_data.get("weather_traffic_alert"):
+                    live_updates.append(live_data["weather_traffic_alert"])
+
+                # Check if any attraction is closed or restricted, trigger disruption
+                attraction_alerts = live_data.get("attraction_alerts", [])
+                has_attraction_issue = any(
+                    a.get("status") in ["closed", "restricted"] for a in attraction_alerts if isinstance(a, dict)
+                )
+                has_disruption = bool(live_data.get("has_disruption", False)) or has_attraction_issue
+
+                result = {
+                    "status": "success",
+                    "city": city or target_term,
+                    "has_disruption": has_disruption,
+                    "transit_status": live_data.get("transit_status", "normal"),
+                    "title": live_data.get("title", f"รายงานสดการเดินทางและสถานที่ {target_term}"),
+                    "summary": live_data.get("summary", ""),
+                    "disruptions": live_data.get("disruptions", []),
+                    "attraction_alerts": attraction_alerts,
+                    "special_events": live_data.get("special_events", []),
+                    "weather_traffic_alert": live_data.get("weather_traffic_alert", ""),
+                    "advice_for_travelers": live_data.get("advice_for_travelers", ""),
+                    "local_tips_and_rules": live_data.get("local_tips_and_rules", ""),
+                    "sources": live_data.get("sources", []),
+                    "tips": tips,
+                    "live_updates": live_updates,
+                    "sources_count": len(live_data.get("sources", [])),
+                    "model": used_model
+                }
+                set_cached_live_check(cache_key, result, ttl_seconds=300)
+                return jsonify(result)
+
+        # 2. Fallback if OpenRouter unavailable
+        query = f"{target_term} สภาพการจราจร รถไฟฟ้า รถติด สถานที่ท่องเที่ยว ข่าววันนี้"
+        results = search_web_duckduckgo(query, max_results=4)
+        live_updates = [r.get("snippet", "")[:180] for r in results if r.get("snippet")]
+        fallback_res = {
+            "status": "fallback",
+            "city": city or target_term,
+            "has_disruption": False,
+            "transit_status": "normal",
+            "title": f"ข้อมูลการเดินทาง {target_term}",
+            "summary": live_updates[0] if live_updates else f"ข้อมูลการเดินทางใน {target_term}",
+            "disruptions": [],
+            "attraction_alerts": [],
+            "special_events": [],
+            "weather_traffic_alert": "",
+            "advice_for_travelers": "ตรวจสอบเส้นทางและสภาพการจราจรก่อนออกเดินทาง",
+            "local_tips_and_rules": "",
+            "sources": [r.get("url", "") for r in results if r.get("url")],
+            "tips": [f"ข้อมูลสดสำหรับ {target_term}: มีรายงานข้อมูลและการเดินทางในพื้นที่"] + live_updates[:2],
+            "live_updates": live_updates,
+            "sources_count": len(results)
+        }
+        return jsonify(fallback_res)
+
+    except Exception as e:
+        print("[Error in /ai/buddy-live-check]:", e)
+        return jsonify({
+            "tips": [],
+            "live_updates": [],
+            "sources": [],
+            "sources_count": 0,
+            "has_disruption": False,
+            "transit_status": "normal",
+            "attraction_alerts": [],
+            "special_events": [],
+            "local_tips_and_rules": "",
+            "error": str(e)
+        }), 200
 
 
 # --------------------

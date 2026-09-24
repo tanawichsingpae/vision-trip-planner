@@ -30,6 +30,9 @@ import { type ForecastHour } from "@/services/environmentService";
 import { type ItineraryCoherence } from "@/api/spatialPlanner";
 import { useLanguage } from "@/context/LanguageContext";
 import { translateTextSync, translateTextAsync, batchTranslateWithAI, hasThaiScript, extractBilingualText } from "@/services/translatorService";
+import { BuddyDayBriefingCard } from "@/components/BuddyDayBriefingCard";
+import { BuddyActivityBadge } from "@/components/BuddyActivityBadge";
+import { evaluateDayBuddyAlerts, type BuddyAlert } from "@/services/buddyService";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -298,6 +301,7 @@ interface SortableCardProps {
   apiKey?: string;
   onChangePhoto?: (dayIndex: number, activity: Activity) => void;
   cityName?: string;
+  buddyAlerts?: BuddyAlert[];
 }
 
 const SortableCard = ({
@@ -320,6 +324,7 @@ const SortableCard = ({
   apiKey,
   onChangePhoto,
   cityName,
+  buddyAlerts,
 }: SortableCardProps) => {
   const { language, locPlace, locDesc } = useLanguage();
   const displayTitle = locPlace(activity);
@@ -720,14 +725,20 @@ const SortableCard = ({
           </div>
         )}
 
-        {/* Per-activity weather */}
-        {activityWeather && (
-          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-900/20 px-2 py-0.5 rounded-full border border-sky-200 dark:border-sky-700 w-fit">
-            <span>{weatherEmoji(activityWeather.condition?.description)}</span>
-            <span className="font-medium">{activityWeather.tempC}°C</span>
-            <span className="text-muted-foreground">{activityWeather.condition?.description}</span>
-          </div>
-        )}
+        {/* Per-activity weather and Pix Buddy Alerts */}
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          {activityWeather && (
+            <div className="flex items-center gap-1.5 text-[11px] text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-900/20 px-2 py-0.5 rounded-full border border-sky-200 dark:border-sky-700 w-fit">
+              <span>{weatherEmoji(activityWeather.condition?.description)}</span>
+              <span className="font-medium">{activityWeather.tempC}°C</span>
+              <span className="text-muted-foreground">{activityWeather.condition?.description}</span>
+            </div>
+          )}
+
+          {buddyAlerts && buddyAlerts.length > 0 && (
+            <BuddyActivityBadge alerts={buddyAlerts} />
+          )}
+        </div>
 
         {/* Navigation & Map Action Buttons */}
         <div className="mt-3 pt-2.5 border-t border-border/50 flex flex-col gap-2 pdf-hidden">
@@ -1246,6 +1257,7 @@ interface DayColumnProps {
   onChangePhoto?: (dayIndex: number, activity: Activity) => void;
   onOptimizeDay?: (dayIndex: number) => void;
   isOptimizingDay?: number | null;
+  totalDays?: number;
 }
 
 const DayColumn = ({
@@ -1271,6 +1283,7 @@ const DayColumn = ({
   onChangePhoto,
   onOptimizeDay,
   isOptimizingDay,
+  totalDays = 1,
 }: DayColumnProps) => {
   const { language } = useLanguage();
   let currentDayDate: Date | undefined;
@@ -1278,6 +1291,17 @@ const DayColumn = ({
     currentDayDate = new Date(tripStartDate);
     currentDayDate.setDate(currentDayDate.getDate() + dayIndex);
   }
+
+  // Pix Travel Buddy Morning Briefing & Alerts
+  const buddyBriefing = evaluateDayBuddyAlerts(
+    day,
+    dayIndex,
+    totalDays,
+    hourlyWeather,
+    tripStartDate,
+    cityName || destinationName,
+    language
+  );
 
   const coords = day.activities.map(a =>
     a.lat && a.lng ? { lat: a.lat, lng: a.lng } : undefined
@@ -1299,7 +1323,7 @@ const DayColumn = ({
   };
 
   return (
-    <div className="bg-slate-50/50 dark:bg-slate-900/20 rounded-3xl p-4 sm:p-5 border border-border/50 h-full flex flex-col pdf-card-shadow">
+    <div className="bg-slate-50/50 dark:bg-slate-900/20 rounded-3xl p-4 sm:p-5 border border-border/50 h-full flex flex-col pdf-card-shadow overflow-hidden min-w-0">
       <div className="flex items-center justify-between gap-2.5 mb-4 pb-3 border-b border-border/40 pdf-day-header">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div
@@ -1356,6 +1380,13 @@ const DayColumn = ({
         )}
       </div>
 
+      {/* Pix Travel Buddy Day Briefing Card with Live Transit & Safety Monitoring */}
+      <BuddyDayBriefingCard
+        briefing={buddyBriefing}
+        cityName={cityName || destinationName}
+        places={day.activities.map(a => a.title).filter(Boolean)}
+      />
+
       <SortableContext items={day.activities.map((a, i) => a.id || `act-${dayIndex}-${i}`)} strategy={verticalListSortingStrategy}>
         <DroppableDay dayIndex={dayIndex} isOver={false}>
           {day.activities.map((activity, index) => (
@@ -1379,6 +1410,7 @@ const DayColumn = ({
                 activityWeather={getActivityWeather(activity)}
                 onChangePhoto={onChangePhoto}
                 cityName={cityName || destinationName}
+                buddyAlerts={buddyBriefing.allAlerts.filter((a) => a.activityId === activity.id)}
               />
               {index < day.activities.length - 1 && segments[index] && (
                 <TravelConnector
@@ -1756,6 +1788,7 @@ const TravelItinerary = ({
             key={day.day}
             day={day}
             dayIndex={dayIndex}
+            totalDays={itinerary.length}
             tripStartDate={tripStartDate}
             hourlyWeather={hourlyWeather}
             isDraggingAttraction={isDraggingAttraction}

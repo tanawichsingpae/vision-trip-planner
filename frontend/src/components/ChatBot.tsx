@@ -394,6 +394,7 @@ const ChatBot = ({
   };
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [showProactiveBubble, setShowProactiveBubble] = useState(true);
 
   // ── Floating Window Position & Size State ──
   const [position, setPosition] = useState<{ x: number; y: number }>(() => ({
@@ -627,6 +628,22 @@ const ChatBot = ({
       const { actionData, cleanText } = parseActionJson(rawResponse);
       let response = cleanText || rawResponse;
 
+      // Clean unrequested link citations and asterisks for user-friendly emoji presentation
+      const userAskedForLinks = /(ขอ|ดู|มี)?(ลิงก์|ลิ้งค์|ลิ้ง|link|url|source|ที่มา|แหล่งที่มา|แหล่งข่าว|เว็บ)/i.test(text);
+      if (!userAskedForLinks) {
+        response = response
+          .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/gi, "")
+          .replace(/https?:\/\/\S+/gi, "");
+      }
+      response = response
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/\*([^*]+)\*/g, "$1")
+        .replace(/\*\*/g, "")
+        .replace(/(?:^|\n)\s*\*\s+/g, "\n🔹 ")
+        .replace(/ +/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+
       if (actionData) {
         try {
           const actionsTaken: string[] = [];
@@ -815,21 +832,65 @@ const ChatBot = ({
 
   if (!isOpen) {
     return (
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 size-14 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl flex items-center justify-center hover:scale-110 transition-all z-50 ring-4 ring-primary/20 group overflow-hidden p-0.5 border border-white/20"
-        title={language === "en" ? "Open Pixinerary Concierge Chat" : "เปิดแชทกับพิกซ์ (Pix Concierge)"}
-      >
-        <img
-          src="/logos/chatbot_profile.png"
-          alt="Pixinerary Concierge"
-          className="size-full rounded-full object-cover group-hover:scale-110 transition-transform"
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
-          }}
-        />
-        <span className="absolute top-1 right-1 size-3 bg-emerald-400 rounded-full border-2 border-white animate-pulse" />
-      </button>
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 pdf-hidden">
+        {/* Proactive Buddy Bubble */}
+        {showProactiveBubble && (
+          <div
+            onClick={() => setIsOpen(true)}
+            className="animate-in fade-in slide-in-from-bottom-2 duration-300 relative max-w-[240px] sm:max-w-[280px] p-3 rounded-2xl bg-card/95 backdrop-blur-md border border-primary/30 shadow-xl cursor-pointer hover:border-primary transition-all text-xs"
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowProactiveBubble(false);
+              }}
+              className="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-muted border border-border flex items-center justify-center text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3" />
+            </button>
+            <div className="flex items-start gap-2">
+              <img
+                src="/logos/pix_tip.jpg"
+                alt="Pix Mascot"
+                className="size-7 rounded-xl object-cover ring-1 ring-primary/40 shrink-0"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
+                }}
+              />
+              <div>
+                <p className="font-bold text-foreground text-[11px] flex items-center gap-1">
+                  <span>Pix Travel Buddy</span>
+                  <Sparkles className="size-2.5 text-primary" />
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                  {language === "en"
+                    ? "Need tips on weather, rush hour transit, or schedule tweaks? Chat with Pix!"
+                    : "มีข้อสงสัยเรื่องสภาพอากาศ, เลี่ยงรถติด, หรืออยากปรับเวลา ทักพิกซ์ได้เลยครับ!"}
+                </p>
+              </div>
+            </div>
+            {/* Speech bubble pointer arrow */}
+            <div className="absolute -bottom-1.5 right-6 size-3 bg-card border-b border-r border-primary/30 rotate-45" />
+          </div>
+        )}
+
+        <button
+          onClick={() => setIsOpen(true)}
+          className="size-14 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl flex items-center justify-center hover:scale-110 transition-all ring-4 ring-primary/20 group overflow-hidden p-0.5 border border-white/20"
+          title={language === "en" ? "Chat with Pix Travel Buddy" : "เปิดแชทกับพิกซ์ (Pix Travel Buddy)"}
+        >
+          <img
+            src="/logos/pix_tip.jpg"
+            alt="Pix Travel Buddy"
+            className="size-full rounded-full object-cover group-hover:scale-110 transition-transform"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
+            }}
+          />
+          <span className="absolute top-1 right-1 size-3 bg-emerald-400 rounded-full border-2 border-white animate-pulse" />
+        </button>
+      </div>
     );
   }
 
@@ -872,11 +933,11 @@ const ChatBot = ({
         <div className="flex items-center gap-2.5">
           <div className="size-8 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center border border-white/25 shadow-inner overflow-hidden shrink-0">
             <img
-              src="/logos/chatbot_profile.png"
-              alt="Pix"
+              src="/logos/pix_tip.jpg"
+              alt="Pix Travel Buddy"
               className="size-full object-cover"
               onError={(e) => {
-                e.currentTarget.style.display = "none";
+                (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
               }}
             />
           </div>
@@ -884,7 +945,7 @@ const ChatBot = ({
             <div className="flex items-center gap-1.5 flex-wrap">
               <h3 className="font-bold text-white text-xs sm:text-sm tracking-tight flex items-center gap-1">
                 <Move className="size-3 text-white/70" />
-                <span>Pix Concierge</span>
+                <span>Pix Travel Buddy</span>
               </h3>
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-400/25 text-emerald-100 border border-emerald-300/30 px-2 py-0.2 rounded-full">
                 <span className="size-1.5 rounded-full bg-emerald-300 animate-ping" />
@@ -930,11 +991,11 @@ const ChatBot = ({
             {msg.role === "assistant" && (
               <div className="size-7 rounded-xl overflow-hidden shrink-0 shadow-xs mt-0.5 border border-border/80 bg-secondary/80">
                 <img
-                  src="/logos/chatbot_profile.png"
-                  alt="Bot Profile"
+                  src="/logos/pix_tip.jpg"
+                  alt="Pix"
                   className="size-full object-cover"
                   onError={(e) => {
-                    e.currentTarget.style.display = "none";
+                    (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
                   }}
                 />
               </div>
@@ -973,11 +1034,11 @@ const ChatBot = ({
           <div className="flex gap-2.5">
             <div className="size-7 rounded-xl overflow-hidden shrink-0 shadow-xs border border-border/80 bg-secondary/80">
               <img
-                src="/logos/chatbot_profile.png"
-                alt="Bot Profile"
+                src="/logos/pix_planning.jpg"
+                alt="Pix Planning"
                 className="size-full object-cover"
                 onError={(e) => {
-                  e.currentTarget.style.display = "none";
+                  (e.target as HTMLImageElement).src = "/logos/chatbot_profile.png";
                 }}
               />
             </div>
@@ -986,7 +1047,7 @@ const ChatBot = ({
                 <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                 <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                 <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                <span className="text-xs text-muted-foreground ml-1.5 font-medium">{language === "en" ? "Pix is analyzing travel details... ☕✨" : "พิกซ์กำลังวิเคราะห์ข้อมูล... ☕✨"}</span>
+                <span className="text-xs text-muted-foreground ml-1.5 font-medium">{language === "en" ? "Pix is analyzing travel details... 🎒✨" : "พิกซ์กำลังวิเคราะห์ข้อมูล... 🎒✨"}</span>
               </div>
             </div>
           </div>

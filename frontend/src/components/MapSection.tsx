@@ -670,23 +670,23 @@ const MapSection = ({
   return (
     <div className="animate-slide-up w-full p-4 sm:p-5 flex flex-col gap-4">
       {/* Header with Title and Day Filter Buttons */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+      <div className="flex flex-col gap-2.5">
         <div className="flex items-center gap-2">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <MapIcon className="size-4" />
           </div>
-          <div>
-            <h2 className="text-sm sm:text-base font-bold text-foreground">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm sm:text-base font-bold text-foreground truncate">
               {t("interactiveMap", "Interactive Map")}
             </h2>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground truncate">
               {t("mapVisualRoute", "Visual route & location mapping powered by Mapbox & OpenStreetMap")}
             </p>
           </div>
         </div>
 
         {/* Day Filter Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           <button
             onClick={() => setSelectedDayFilter("all")}
             className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${

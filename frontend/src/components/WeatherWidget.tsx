@@ -104,9 +104,9 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Current Weather */}
         {hasWeather && data.current && (
-          <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col justify-between">
-            <div className="flex items-start justify-between">
-              <div>
+          <div className="rounded-2xl border border-border/70 bg-card p-3.5 sm:p-4 shadow-2xs flex flex-col justify-between">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
                 <p className="text-xs font-semibold text-muted-foreground mb-1">
                   {language === "th" ? "สภาพอากาศปัจจุบัน" : "Current Weather"}
                 </p>
@@ -116,7 +116,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
                   </span>
                   <span className="text-base font-semibold text-muted-foreground">C</span>
                 </div>
-                <p className="text-xs font-medium text-foreground/80 mt-1 capitalize">
+                <p className="text-xs font-medium text-foreground/80 mt-1 capitalize truncate">
                   {data.current.condition.description}
                 </p>
               </div>
@@ -125,12 +125,12 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
               </span>
             </div>
 
-            <div className="flex items-center gap-3 pt-3 mt-3 border-t border-border/50 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
+            <div className="flex items-center gap-2.5 pt-3 mt-3 border-t border-border/50 text-[11px] text-muted-foreground flex-wrap">
+              <span className="flex items-center gap-1 shrink-0">
                 <Droplets className="size-3.5 text-sky-500" />
                 <span>{language === "th" ? "ความชื้น" : "Humidity"} {data.current.humidity ?? 70}%</span>
               </span>
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1 shrink-0">
                 <Wind className="size-3.5 text-slate-500" />
                 <span>{language === "th" ? "ลม" : "Wind"} {data.current.windSpeedKph ?? 12} km/h</span>
               </span>
@@ -140,7 +140,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
 
         {/* Air Quality Index */}
         {hasAQI && data.airQuality && (
-          <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col justify-between">
+          <div className="rounded-2xl border border-border/70 bg-card p-3.5 sm:p-4 shadow-2xs flex flex-col justify-between">
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-1">
                 {language === "th" ? "ดัชนีคุณภาพอากาศ (AQI)" : "Air Quality Index (AQI)"}
@@ -152,7 +152,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
                   </span>
                 </div>
                 <span
-                  className="px-2.5 py-1 rounded-full text-xs font-bold shrink-0 shadow-2xs"
+                  className="px-2.5 py-0.5 rounded-full text-xs font-bold shrink-0 shadow-2xs"
                   style={{
                     backgroundColor: `${data.airQuality.color}20`,
                     color: data.airQuality.color,
@@ -162,7 +162,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
                   {data.airQuality.category}
                 </span>
               </div>
-              <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1">
+              <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1 truncate">
                 <Leaf className="size-3 text-emerald-500 shrink-0" />
                 <span>{language === "th" ? "มลพิษหลัก:" : "Dominant:"} <strong className="text-foreground">{data.airQuality.dominantPollutant || "PM2.5"}</strong></span>
               </p>
@@ -274,50 +274,52 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
         </div>
       )}
 
-      {/* ── Forecast Section: 5-Day Forecast & Vertical 24-Hour Forecast ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+      {/* ── Forecast Section: 5-Day Forecast & Vertical 24-Hour Forecast (Side-by-side on horizontal screens) ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 items-stretch">
         {/* 5-Day Daily Forecast */}
         {data.forecast && data.forecast.length > 0 && (
-          <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-foreground mb-3">
-              <CalendarDays className="size-3.5 text-sky-500" />
-              <span>{language === "th" ? "พยากรณ์อากาศ 5 วัน" : "5-Day Forecast"}</span>
-            </div>
-            <div className="space-y-2 flex-1">
-              {data.forecast.slice(0, 5).map((day, i) => {
-                const d = day.date ? new Date(day.date) : null;
-                const label = i === 0
-                  ? (language === "th" ? "วันนี้" : "Today")
-                  : d
-                    ? d.toLocaleDateString(language === "th" ? "th-TH" : "en-US", { weekday: "short" })
-                    : `Day ${i + 1}`;
+          <div className="rounded-2xl border border-border/70 bg-card p-3.5 sm:p-4 shadow-2xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-foreground mb-3">
+                <CalendarDays className="size-3.5 text-sky-500" />
+                <span>{language === "th" ? "พยากรณ์อากาศ 5 วัน" : "5-Day Forecast"}</span>
+              </div>
+              <div className="space-y-1.5">
+                {data.forecast.slice(0, 5).map((day, i) => {
+                  const d = day.date ? new Date(day.date) : null;
+                  const label = i === 0
+                    ? (language === "th" ? "วันนี้" : "Today")
+                    : d
+                      ? d.toLocaleDateString(language === "th" ? "th-TH" : "en-US", { weekday: "short" })
+                      : `Day ${i + 1}`;
 
-                return (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between p-2 rounded-xl bg-secondary/40 hover:bg-secondary/70 transition-colors text-xs"
-                  >
-                    <span className="font-semibold text-foreground w-12 shrink-0">{label}</span>
-                    <span className="text-base mx-1.5 shrink-0" role="img">
-                      {weatherEmoji(day.condition.description)}
-                    </span>
-                    <span className="text-muted-foreground flex-1 truncate text-[11px]">
-                      {day.condition.description}
-                    </span>
-                    <div className="flex items-center gap-1.5 font-mono text-xs shrink-0 font-medium ml-2">
-                      <span className="font-bold text-foreground">{day.maxTempC}°</span>
-                      <span className="text-muted-foreground text-[11px]">{day.minTempC}°</span>
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between p-2 rounded-xl bg-secondary/40 hover:bg-secondary/70 transition-colors text-xs gap-1.5"
+                    >
+                      <span className="font-semibold text-foreground w-11 shrink-0 text-xs">{label}</span>
+                      <span className="text-base shrink-0" role="img">
+                        {weatherEmoji(day.condition.description)}
+                      </span>
+                      <span className="text-muted-foreground flex-1 truncate text-[11px]">
+                        {day.condition.description}
+                      </span>
+                      <div className="flex items-center gap-1 font-mono text-xs shrink-0 font-medium ml-1">
+                        <span className="font-bold text-foreground">{day.maxTempC}°</span>
+                        <span className="text-muted-foreground text-[10px]">{day.minTempC}°</span>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
 
         {/* 24-Hour Hourly Forecast (Vertical Timeline Layout) */}
         {data.hourly && data.hourly.length > 0 && (
-          <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-2xs flex flex-col">
+          <div className="rounded-2xl border border-border/70 bg-card p-3.5 sm:p-4 shadow-2xs flex flex-col justify-between">
             <div className="flex items-center justify-between gap-1.5 mb-3">
               <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
                 <Clock className="size-3.5 text-sky-500" />
@@ -339,10 +341,10 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
                 return (
                   <div
                     key={i}
-                    className="flex items-center justify-between p-2 rounded-xl bg-secondary/30 hover:bg-secondary/60 transition-colors text-xs"
+                    className="flex items-center justify-between p-2 rounded-xl bg-secondary/30 hover:bg-secondary/60 transition-colors text-xs gap-1.5"
                   >
-                    <span className="w-16 font-semibold text-foreground text-xs shrink-0">{timeLabel}</span>
-                    <div className="flex items-center gap-1.5 flex-1 min-w-0 mx-1">
+                    <span className="w-12 font-semibold text-foreground text-[11px] shrink-0">{timeLabel}</span>
+                    <div className="flex items-center gap-1 flex-1 min-w-0">
                       <span className="text-base shrink-0">
                         {weatherEmoji(hour.condition.description)}
                       </span>
@@ -350,7 +352,7 @@ const LiveWeatherContent = ({ data }: { data: EnvironmentData | null }) => {
                         {hour.condition.description}
                       </span>
                     </div>
-                    <span className="font-mono font-bold text-sm text-foreground shrink-0 ml-2">
+                    <span className="font-mono font-bold text-xs text-foreground shrink-0 ml-1">
                       {hour.tempC}°C
                     </span>
                   </div>
@@ -473,11 +475,11 @@ const WeatherWidget = ({ lat, lng, locationName, tripStartDate, typicalWeather }
 
       {loading ? (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Skeleton className="h-28" />
             <Skeleton className="h-28" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Skeleton className="h-44" />
             <Skeleton className="h-44" />
           </div>
