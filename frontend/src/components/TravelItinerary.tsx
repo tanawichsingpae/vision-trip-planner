@@ -803,7 +803,7 @@ const SortableCard = ({
           )}
 
           {buddyAlerts && buddyAlerts.length > 0 && (
-            <BuddyActivityBadge alerts={buddyAlerts} />
+            <BuddyActivityBadge alerts={buddyAlerts} language={language} />
           )}
         </div>
 

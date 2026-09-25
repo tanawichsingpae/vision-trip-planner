@@ -108,6 +108,235 @@ export function getPixoMascotUrl(pose: PixoPose | string): string {
  */
 export const getPixMascotUrl = getPixoMascotUrl;
 
+export interface PixoPoseMetaInfo {
+  title: string;
+  tag: string;
+  emoji: string;
+  description: string;
+}
+
+const PIXO_POSE_METADATA_TABLE: Record<
+  string,
+  {
+    titleTh: string;
+    titleEn: string;
+    tagTh: string;
+    tagEn: string;
+    emoji: string;
+    descriptionTh: string;
+    descriptionEn: string;
+  }
+> = {
+  warning: {
+    titleTh: "พิกโซ่เตือนระเบียบ & ความปลอดภัย",
+    titleEn: "Pixo Safety & Rules Guide",
+    tagTh: "ตรวจระเบียบ",
+    tagEn: "Rules & Safety",
+    emoji: "🛕",
+    descriptionTh: "พิกโซ่คอยเตือนเรื่องข้อห้าม การแต่งกาย และความปลอดภัยในสถานที่สำคัญ",
+    descriptionEn: "Pixo alerts you on etiquette, dress codes, and local safety rules.",
+  },
+  rainy: {
+    titleTh: "พิกโซ่เรดาร์ฟ้าฝน",
+    titleEn: "Pixo Rain Scout",
+    tagTh: "ลุยฝน",
+    tagEn: "Weather Alert",
+    emoji: "☔",
+    descriptionTh: "พิกโซ่เช็คพยากรณ์อากาศและแนะที่เที่ยวในร่มสำรองให้เที่ยวได้อย่างราบรื่น",
+    descriptionEn: "Pixo checks live weather and suggests smart indoor alternatives.",
+  },
+  sunny: {
+    titleTh: "พิกโซ่รับแดดสดใส",
+    titleEn: "Pixo Sunny Explorer",
+    tagTh: "แดดแจ่มใส",
+    tagEn: "Sunny Skies",
+    emoji: "☀️",
+    descriptionTh: "สภาพอากาศแจ่มใส เหมาะกับการเที่ยวกลางแจ้ง ถ่ายรูปสวย และชมวิว",
+    descriptionEn: "Clear weather, perfect for outdoor exploration and sightseeing.",
+  },
+  transit: {
+    titleTh: "พิกโซ่นำทางหลบรถติด",
+    titleEn: "Pixo Transit Navigator",
+    tagTh: "สัญจรคล่องตัว",
+    tagEn: "Transit Tip",
+    emoji: "🚗",
+    descriptionTh: "พิกโซ่สแกนการจราจรสดและแนะนำเส้นทางที่ประหยัดเวลาที่สุด",
+    descriptionEn: "Pixo scans real-time transit to keep your journey smooth and on schedule.",
+  },
+  tip: {
+    titleTh: "พิกโซ่เกร็ดลับนักเดินทาง",
+    titleEn: "Pixo Travel Tips",
+    tagTh: "ทิปส์น่ารู้",
+    tagEn: "Travel Tip",
+    emoji: "💡",
+    descriptionTh: "เกร็ดความรู้และข้อแนะนำที่เป็นประโยชน์สำหรับทริปนี้",
+    descriptionEn: "Helpful travel insights curated for your destination.",
+  },
+  foodie: {
+    titleTh: "พิกโซ่สายกินพาชิม",
+    titleEn: "Pixo Foodie Guide",
+    tagTh: "สายกิน",
+    tagEn: "Foodie Spot",
+    emoji: "🍜",
+    descriptionTh: "พิกโซ่รวมเมนูเด็ดและร้านดังท้องถิ่นที่ไม่ควรพลาด",
+    descriptionEn: "Local food recommendations and must-try delicacies.",
+  },
+  budget: {
+    titleTh: "พิกโซ่ผู้ช่วยคุมงบ",
+    titleEn: "Pixo Budget Buddy",
+    tagTh: "คุมงบเที่ยว",
+    tagEn: "Budget Advice",
+    emoji: "💰",
+    descriptionTh: "แนะนำการใช้จ่ายและวิธีเที่ยวแบบประหยัดคุ้มค่าที่สุด",
+    descriptionEn: "Smart budget tracking and cost-saving tips.",
+  },
+  flight: {
+    titleTh: "พิกโซ่เช็คอินไฟลท์บิน",
+    titleEn: "Pixo Flight Scout",
+    tagTh: "ไฟลท์ & สนามบิน",
+    tagEn: "Flight & Transit",
+    emoji: "✈️",
+    descriptionTh: "เตือนเวลาเดินทางล่วงหน้า เผื่อเวลาเช็คอินและโหลดกระเป๋า",
+    descriptionEn: "Flight reminders and early airport transit advice.",
+  },
+  night: {
+    titleTh: "พิกโซ่ไนท์ไลฟ์ & พักผ่อน",
+    titleEn: "Pixo Night Scout",
+    tagTh: "ค่ำคืนผ่อนคลาย",
+    tagEn: "Evening Vibe",
+    emoji: "🌙",
+    descriptionTh: "แนะนำกิจกรรมยามค่ำคืนและเตือนให้พักผ่อนเต็มอิ่มพร้อมลุยวันถัดไป",
+    descriptionEn: "Evening highlights and rest reminders for tomorrow's adventures.",
+  },
+  planning: {
+    titleTh: "พิกโซ่จัดแผนทริป",
+    titleEn: "Pixo Trip Planner",
+    tagTh: "วางแผนแม่นยำ",
+    tagEn: "Smart Planning",
+    emoji: "🗺️",
+    descriptionTh: "จัดลำดับจุดเที่ยวตามระยะทางจริง ไม่ต้องเดินทางย้อนไปมา",
+    descriptionEn: "Optimizing your route to eliminate detours and backtracks.",
+  },
+  celebrate: {
+    titleTh: "พิกโซ่พร้อมฉลองทริปฟิน",
+    titleEn: "Pixo Celebration",
+    tagTh: "ทริปสมบูรณ์",
+    tagEn: "Ready to Explore",
+    emoji: "🎉",
+    descriptionTh: "แผนการเดินทางพร้อมแล้ว ลุยทริปให้สนุกเต็มที่เลย!",
+    descriptionEn: "Your itinerary is all set! Have an incredible journey!",
+  },
+  camera: {
+    titleTh: "พิกโซ่ช่างภาพพาส่องมุมสวย",
+    titleEn: "Pixo Photo Spotter",
+    tagTh: "มุมถ่ายรูปสวย",
+    tagEn: "Photo Sights",
+    emoji: "📸",
+    descriptionTh: "ชี้เป้ามุมถ่ายรูปยอดนิยมและจังหวะแสงสวยสำหรับบันทึกความทรงจำ",
+    descriptionEn: "Highlighting scenic photo spots and prime angles for great memories.",
+  },
+  search: {
+    titleTh: "พิกโซ่ส่องค้นหาพิกัด",
+    titleEn: "Pixo Sights Finder",
+    tagTh: "ค้นหาจุดเที่ยว",
+    tagEn: "Place Finder",
+    emoji: "🔎",
+    descriptionTh: "ค้นหาจุดแลนด์มาร์กและข้อมูลเชิงลึกจากภาพถ่ายและสถานที่รอบตัว",
+    descriptionEn: "Discovering landmarks and hidden gems from photos and nearby sights.",
+  },
+  chat: {
+    titleTh: "พิกโซ่พร้อมคุยทุกเรื่องเที่ยว",
+    titleEn: "Pixo Chat Assistant",
+    tagTh: "ถามได้ตลอด",
+    tagEn: "Chat Ready",
+    emoji: "💬",
+    descriptionTh: "พร้อมตอบข้อสงสัย ปรับเปลี่ยนเวลา และสลับโรงแรมให้แบบเรียลไทม์",
+    descriptionEn: "Ready to answer questions and adjust your itinerary live.",
+  },
+  route_planer: {
+    titleTh: "พิกโซ่จัดรูทอัจฉริยะ",
+    titleEn: "Pixo Route Optimizer",
+    tagTh: "รูทอัจฉริยะ",
+    tagEn: "Route Maestro",
+    emoji: "🧭",
+    descriptionTh: "คำนวณเส้นทางและเวลาสัญจรระหว่างสถานที่อย่างลงตัว",
+    descriptionEn: "Calculating optimal paths and transit intervals between spots.",
+  },
+  confident: {
+    titleTh: "พิกโซ่มั่นใจในรูทนี้",
+    titleEn: "Pixo Confident Guide",
+    tagTh: "รูทลงตัวสุดๆ",
+    tagEn: "Top Pick",
+    emoji: "✨",
+    descriptionTh: "รูทที่คัดสรรแล้วว่าคุ้มค่าและสะดวกสบายที่สุด",
+    descriptionEn: "A thoroughly vetted route designed for the best experience.",
+  },
+  confused: {
+    titleTh: "พิกโซ่ช่วยไขข้อสงสัย",
+    titleEn: "Pixo Helpful Clarifier",
+    tagTh: "ช่วยไขข้อข้องใจ",
+    tagEn: "Clarification",
+    emoji: "🤔",
+    descriptionTh: "หากมีข้อสงสัยหรืออยากเปลี่ยนแผน บอกพิกโซ่ได้เสมอ",
+    descriptionEn: "Got doubts or need adjustments? Pixo is right here to help.",
+  },
+  insight: {
+    titleTh: "พิกโซ่วิเคราะห์เชิงลึก",
+    titleEn: "Pixo Deep Insight",
+    tagTh: "อินไซต์เด็ด",
+    tagEn: "Deep Insight",
+    emoji: "🧠",
+    descriptionTh: "ข้อมูลเจาะลึกเฉพาะท้องถิ่นที่จะทำให้เที่ยวได้สนุกและคุ้มค่ายิ่งขึ้น",
+    descriptionEn: "Local insider knowledge to elevate your trip experience.",
+  },
+  goodbye: {
+    titleTh: "พิกโซ่บ๊ายบายทริปนี้",
+    titleEn: "Pixo Trip Farewell",
+    tagTh: "สุขสันต์วันกลับ",
+    tagEn: "Safe Travels",
+    emoji: "👋",
+    descriptionTh: "หวังว่าคุณจะประทับใจกับทริปนี้ เดินทางปลอดภัยนะครับ!",
+    descriptionEn: "Hope you had an amazing adventure! Safe travels home!",
+  },
+  surprised: {
+    titleTh: "พิกโซ่เจอของดีน่าประหลาดใจ",
+    titleEn: "Pixo Discovery Spark",
+    tagTh: "เซอร์ไพรส์น่าเที่ยว",
+    tagEn: "Surprise Find",
+    emoji: "⭐",
+    descriptionTh: "ค้นพบสถานที่น่าสนใจใกล้เคียงที่คุ้มค่าแก่การแวะชม",
+    descriptionEn: "Found an exciting spot nearby worth a spontaneous visit.",
+  },
+  chatbot_profile: {
+    titleTh: "พิกโซ่เพื่อนคู่หูนักเดินทาง",
+    titleEn: "Pixo Travel Buddy",
+    tagTh: "เพื่อนร่วมทริป",
+    tagEn: "Your AI Buddy",
+    emoji: "🎒",
+    descriptionTh: "พิกโซ่ (Pixo) นกอินทรีตัวน้อย AI Travel Companion ประจำ Pixinerary",
+    descriptionEn: "Pixo is your sharp, cheerful AI travel companion scout for every journey.",
+  },
+};
+
+/**
+ * Returns localized metadata for a given Pixo pose.
+ */
+export function getPixoPoseMetadata(
+  pose: PixoPose | string,
+  lang: "th" | "en" = "th"
+): PixoPoseMetaInfo {
+  const normPose = pose === "happy" ? "celebrate" : pose;
+  const item = PIXO_POSE_METADATA_TABLE[normPose] || PIXO_POSE_METADATA_TABLE.tip;
+  const isTh = lang === "th";
+
+  return {
+    title: isTh ? item.titleTh : item.titleEn,
+    tag: isTh ? item.tagTh : item.tagEn,
+    emoji: item.emoji,
+    description: isTh ? item.descriptionTh : item.descriptionEn,
+  };
+}
+
 /**
  * Checks whether an activity title or description mentions temples, royal palaces, or sacred sites.
  */

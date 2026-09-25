@@ -8,6 +8,7 @@ import { chatWithAssistant, type TripPreferences, fetchPlacePhoto } from "@/serv
 import { type DayPlan, type Activity } from "@/components/TravelItinerary";
 import { fetchPlaceDetails } from "@/api/places";
 import { hasThaiScript, translateTextSync } from "@/services/translatorService";
+import { PixoMascotPeek } from "@/components/PixoMascotPeek";
 
 export interface Message {
   id: string;
@@ -867,14 +868,20 @@ const ChatBot = ({
             >
               <X className="size-3" />
             </button>
-            <div className="flex items-start gap-2">
-              <img
+            <div className="flex items-start gap-2.5">
+              <PixoMascotPeek
+                pose="chatbot_profile"
                 src="/pixo_carton/pixo_chatbot_profile.jpg"
                 alt="Pixo Mascot"
-                className="size-7 rounded-xl object-cover ring-1 ring-primary/40 shrink-0"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-                }}
+                headline="Pixo Travel Companion 🎒✨"
+                speechBubble={
+                  language === "en"
+                    ? "Need tips on weather, rush hour transit, or schedule tweaks? Chat with Pixo!"
+                    : "มีข้อสงสัยเรื่องสภาพอากาศ, เลี่ยงรถติด, หรืออยากปรับเวลา ทักพิกโซ่ได้เลยครับ!"
+                }
+                language={language as "th" | "en"}
+                avatarClassName="size-9 rounded-xl object-cover ring-1 ring-primary/40 shrink-0 shadow-xs"
+                showHoverHint={true}
               />
               <div>
                 <p className="font-bold text-foreground text-[11px] flex items-center gap-1">
@@ -893,21 +900,37 @@ const ChatBot = ({
           </div>
         )}
 
-        <button
-          onClick={() => setIsOpen(true)}
-          className="size-14 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl flex items-center justify-center hover:scale-110 transition-all ring-4 ring-primary/20 group overflow-hidden p-0.5 border border-white/20"
-          title={language === "en" ? "Chat with Pixo Travel Buddy" : "เปิดแชทกับพิกโซ่ (Pixo Travel Buddy)"}
-        >
-          <img
+        <div className="relative">
+          <PixoMascotPeek
+            pose="chatbot_profile"
             src="/pixo_carton/pixo_chatbot_profile.jpg"
             alt="Pixo Travel Buddy"
-            className="size-full rounded-full object-cover group-hover:scale-110 transition-transform"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-            }}
-          />
-          <span className="absolute top-1 right-1 size-3 bg-emerald-400 rounded-full border-2 border-white animate-pulse" />
-        </button>
+            headline="Pixo Travel Companion 🎒✨"
+            speechBubble={
+              language === "en"
+                ? "Hello! I'm Pixo, your AI travel buddy. Click me anytime to plan or adjust your trip!"
+                : "สวัสดีครับ! พิกโซ่เองครับ กดคุยกับผมเพื่อปรับแผนทริปหรือถามเรื่องเที่ยวได้ตลอดเวลานะครับ!"
+            }
+            language={language as "th" | "en"}
+            clickable={false}
+          >
+            <button
+              onClick={() => setIsOpen(true)}
+              className="size-14 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl flex items-center justify-center hover:scale-110 transition-all ring-4 ring-primary/20 group overflow-hidden p-0.5 border border-white/20 cursor-pointer"
+              title={language === "en" ? "Chat with Pixo Travel Buddy (Hold to view HD)" : "เปิดแชทกับพิกโซ่ (แตะค้างดูรูปเต็ม HD)"}
+            >
+              <img
+                src="/pixo_carton/pixo_chatbot_profile.jpg"
+                alt="Pixo Travel Buddy"
+                className="size-full rounded-full object-cover group-hover:scale-110 transition-transform"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
+                }}
+              />
+              <span className="absolute top-1 right-1 size-3 bg-emerald-400 rounded-full border-2 border-white animate-pulse" />
+            </button>
+          </PixoMascotPeek>
+        </div>
       </div>
     );
   }
@@ -949,16 +972,20 @@ const ChatBot = ({
         title={language === "en" ? "Drag header to move floating window" : "ลากส่วนหัวเพื่อย้ายหน้าต่าง"}
       >
         <div className="flex items-center gap-2.5">
-          <div className="size-8 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center border border-white/25 shadow-inner overflow-hidden shrink-0">
-            <img
-              src="/pixo_carton/pixo_chatbot_profile.jpg"
-              alt="Pixo Travel Buddy"
-              className="size-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-              }}
-            />
-          </div>
+          <PixoMascotPeek
+            pose="chatbot_profile"
+            src="/pixo_carton/pixo_chatbot_profile.jpg"
+            alt="Pixo Travel Buddy"
+            headline="Pixo Travel Companion 🎒✨"
+            speechBubble={
+              language === "en"
+                ? "I'm always here to help you customize days, adjust schedules, or swap hotels!"
+                : "พิกโซ่พร้อมช่วยปรับวันเดินทาง สลับโรงแรม หรือตรวจสภาพอากาศให้เสมอครับ!"
+            }
+            language={language as "th" | "en"}
+            avatarClassName="size-9 rounded-xl object-cover ring-1 ring-white/30 shadow-inner bg-white/10"
+            showHoverHint={true}
+          />
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <h3 className="font-bold text-white text-xs sm:text-sm tracking-tight flex items-center gap-1">
@@ -1007,16 +1034,16 @@ const ChatBot = ({
         {messages.map((msg) => (
           <div key={msg.id} className={`flex gap-2.5 ${msg.role === "user" ? "justify-end" : ""}`}>
             {msg.role === "assistant" && (
-              <div className="size-7 rounded-xl overflow-hidden shrink-0 shadow-xs mt-0.5 border border-border/80 bg-secondary/80">
-                <img
-                  src="/pixo_carton/pixo_chat.jpg"
-                  alt="Pixo"
-                  className="size-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-                  }}
-                />
-              </div>
+              <PixoMascotPeek
+                pose="chat"
+                src="/pixo_carton/pixo_chat.jpg"
+                alt="Pixo"
+                headline="Pixo Travel Buddy 💬"
+                speechBubble={msg.content.slice(0, 160) + (msg.content.length > 160 ? "..." : "")}
+                language={language as "th" | "en"}
+                avatarClassName="size-8 rounded-xl object-cover ring-1 ring-border/80 shrink-0 shadow-2xs mt-0.5"
+                showHoverHint={false}
+              />
             )}
             <div className="flex flex-col max-w-[85%] space-y-1">
               <div
@@ -1050,16 +1077,20 @@ const ChatBot = ({
         ))}
         {isTyping && (
           <div className="flex gap-2.5">
-            <div className="size-7 rounded-xl overflow-hidden shrink-0 shadow-xs border border-border/80 bg-secondary/80">
-              <img
-                src="/pixo_carton/pixo_planning.jpg"
-                alt="Pixo Planning"
-                className="size-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-                }}
-              />
-            </div>
+            <PixoMascotPeek
+              pose="planning"
+              src="/pixo_carton/pixo_planning.jpg"
+              alt="Pixo Planning"
+              headline="Pixo Trip Planner 🗺️✨"
+              speechBubble={
+                language === "en"
+                  ? "Pixo is analyzing routes, distances, and optimal travel sequences!"
+                  : "พิกโซ่กำลังคำนวณระยะทาง จัดคิวเที่ยว และตรวจเช็ครายละเอียดให้เป๊ะที่สุดครับ!"
+              }
+              language={language as "th" | "en"}
+              avatarClassName="size-8 rounded-xl object-cover ring-1 ring-border/80 shrink-0 shadow-2xs"
+              showHoverHint={false}
+            />
             <div className="bg-card border border-border/70 rounded-2xl rounded-tl-xs px-3.5 py-2.5 shadow-2xs">
               <div className="flex gap-1.5 items-center">
                 <span className="size-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />

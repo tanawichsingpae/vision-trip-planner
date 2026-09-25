@@ -22,6 +22,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { PixoMascotPeek } from "@/components/PixoMascotPeek";
 
 export interface BuddyDynamicRerouteBannerProps {
   proposal: SmartRerouteProposal | null;
@@ -116,15 +117,17 @@ export const BuddyDynamicRerouteBanner: React.FC<BuddyDynamicRerouteBannerProps>
       <div className="flex items-start justify-between gap-3 mb-2.5">
         <div className="flex items-center gap-2.5">
           <div className="relative shrink-0">
-            <img
+            <PixoMascotPeek
+              pose="transit"
               src={mascotUrl}
               alt="Pixo Buddy"
-              className="size-9 rounded-full object-cover ring-2 ring-amber-400/70 shadow-xs bg-white dark:bg-slate-800"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-              }}
+              headline="Pixo Smart Reroute 🚗💨"
+              speechBubble={proposal.reason}
+              language={isTh ? "th" : "en"}
+              avatarClassName="size-12 rounded-xl object-cover ring-2 ring-amber-400/70 shadow-xs bg-white dark:bg-slate-800 transition-transform hover:scale-105"
+              showHoverHint={true}
             />
-            <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-amber-500 text-[8px] text-white">
+            <span className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-amber-500 text-[9px] text-white shadow-xs pointer-events-none">
               ⚡
             </span>
           </div>

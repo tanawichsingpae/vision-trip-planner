@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   type BuddyAlert,
   getPixMascotUrl,
@@ -8,17 +8,20 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ArrowRight, Sparkles, X } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PixoMascotPeek } from "@/components/PixoMascotPeek";
 
 interface BuddyActivityBadgeProps {
   alerts: BuddyAlert[];
   onActionClick?: (alert: BuddyAlert) => void;
+  language?: "th" | "en";
 }
 
 export const BuddyActivityBadge: React.FC<BuddyActivityBadgeProps> = ({
   alerts,
   onActionClick,
+  language = "th",
 }) => {
   if (!alerts || alerts.length === 0) return null;
 
@@ -52,24 +55,29 @@ export const BuddyActivityBadge: React.FC<BuddyActivityBadgeProps> = ({
         <button
           type="button"
           onClick={(e) => e.stopPropagation()}
-          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-2xs ${getBadgeStyle(
+          className={`inline-flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-xl border text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-2xs group ${getBadgeStyle(
             primaryAlert
           )}`}
           title={primaryAlert.message}
         >
-          <img
-            src={mascotUrl}
-            alt="Pixo Alert"
-            className="size-4 rounded-full object-cover ring-1 ring-white/50 shrink-0"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-            }}
-          />
+          {/* Pixo Mascot Thumbnail: 26px with Rounded Sticker Treatment */}
+          <div className="relative shrink-0">
+            <img
+              src={mascotUrl}
+              alt="Pixo Alert"
+              className="w-[26px] h-[26px] rounded-lg object-cover ring-1 ring-white/60 dark:ring-white/20 shadow-2xs transition-transform group-hover:scale-105"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
+              }}
+            />
+          </div>
+
           <span className="truncate max-w-[130px] font-semibold">
             {primaryAlert.title}
           </span>
+
           {alerts.length > 1 && (
-            <span className="size-3.5 rounded-full bg-primary/20 text-primary text-[9px] font-bold flex items-center justify-center -ml-0.5">
+            <span className="size-4 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center -ml-0.5">
               +{alerts.length - 1}
             </span>
           )}
@@ -79,35 +87,42 @@ export const BuddyActivityBadge: React.FC<BuddyActivityBadgeProps> = ({
       <PopoverContent
         align="start"
         side="top"
-        className="w-80 p-3.5 rounded-2xl bg-card border border-border/80 shadow-xl space-y-3 z-50 text-xs pdf-hidden"
+        className="w-[340px] p-4 rounded-2xl bg-card border border-border/80 shadow-2xl space-y-3 z-50 text-xs pdf-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border/40 pb-2">
+        <div className="flex items-center justify-between border-b border-border/40 pb-2.5">
           <div className="flex items-center gap-1.5 font-bold text-foreground">
-            <Sparkles className="size-3.5 text-primary" />
-            <span>Pixo Travel Buddy คำแนะนำ</span>
+            <Sparkles className="size-4 text-primary" />
+            <span className="text-xs">
+              {language === "th" ? "Pixo Travel Buddy คำแนะนำ" : "Pixo Travel Buddy Tips"}
+            </span>
           </div>
-          <span className="text-[10px] text-muted-foreground">
-            {alerts.length} รายการ
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted font-medium text-muted-foreground">
+            {alerts.length} {language === "th" ? "รายการ" : "tips"}
           </span>
         </div>
 
-        <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+        <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
           {alerts.map((al) => (
             <div
               key={al.id}
-              className="flex items-start gap-2.5 p-2 rounded-xl bg-secondary/40 border border-border/60"
+              className="flex items-start gap-3 p-2.5 rounded-2xl bg-secondary/40 border border-border/60 hover:border-primary/30 transition-colors"
             >
-              <img
-                src={getPixMascotUrl(al.pose)}
-                alt={al.title}
-                className="size-8 rounded-lg object-cover ring-1 ring-border/80 shrink-0 mt-0.5"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-                }}
-              />
+              {/* Mascot Showcase in Popover: 64px with Hold-to-Zoom */}
+              <div className="shrink-0">
+                <PixoMascotPeek
+                  pose={al.pose}
+                  alt={al.title}
+                  headline={al.title}
+                  speechBubble={al.message}
+                  language={language}
+                  avatarClassName="size-16 rounded-xl object-cover ring-2 ring-border/80 shrink-0 shadow-sm transition-transform hover:scale-105"
+                  showHoverHint={true}
+                />
+              </div>
+
               <div className="flex-1 min-w-0">
-                <h5 className="font-semibold text-foreground text-xs leading-tight">
+                <h5 className="font-bold text-foreground text-xs leading-tight">
                   {al.title}
                 </h5>
                 <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
@@ -120,7 +135,7 @@ export const BuddyActivityBadge: React.FC<BuddyActivityBadgeProps> = ({
                     variant="outline"
                     size="sm"
                     onClick={() => onActionClick?.(al)}
-                    className="mt-2 h-6 px-2 text-[10px] font-medium rounded-lg border-primary/30 text-primary hover:bg-primary/10 gap-1"
+                    className="mt-2 h-6 px-2.5 text-[10px] font-medium rounded-lg border-primary/30 text-primary hover:bg-primary/10 gap-1"
                   >
                     <span>{al.actionLabel}</span>
                     <ArrowRight className="size-2.5" />
@@ -129,6 +144,12 @@ export const BuddyActivityBadge: React.FC<BuddyActivityBadgeProps> = ({
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="pt-1 border-t border-border/40 text-[10px] text-muted-foreground/75 text-center">
+          {language === "th"
+            ? "💡 แตะค้างที่รูป Pixo เพื่อซูมดูรูปเต็มแบบ HD ✨"
+            : "💡 Press & hold Pixo image to zoom HD ✨"}
         </div>
       </PopoverContent>
     </Popover>

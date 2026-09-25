@@ -33,6 +33,7 @@ import {
 import { useLanguage } from "@/context/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PixoMascotPeek } from "@/components/PixoMascotPeek";
 import {
   Dialog,
   DialogContent,
@@ -312,21 +313,20 @@ export const BuddyDayBriefingCard: React.FC<BuddyDayBriefingCardProps> = ({
       {/* ============================================================ */}
       <div className="group rounded-2xl border border-border/70 bg-card/85 dark:bg-card/70 backdrop-blur-md p-2.5 sm:p-3 mb-3 shadow-2xs hover:border-border transition-all duration-200 overflow-hidden w-full pdf-hidden">
         <div className="flex items-center gap-2.5">
-          {/* Left: Mascot Avatar with Live Status Dot */}
+          {/* Left: Mascot Avatar with Live Status Dot + PixoMascotPeek */}
           <div className="relative shrink-0">
-            <div className="size-10 rounded-xl overflow-hidden ring-1 ring-border/80 bg-muted flex items-center justify-center shadow-2xs">
-              <img
-                src={mascotUrl}
-                alt="Pixo"
-                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-                }}
-              />
-            </div>
+            <PixoMascotPeek
+              pose={dominantPose}
+              alt="Pixo"
+              headline={`Pixo Daily Briefing (${isTh ? `วันที่ ${briefing.dayNumber}` : `Day ${briefing.dayNumber}`})`}
+              speechBubble={greeting}
+              language={language as "th" | "en"}
+              avatarClassName="w-[52px] h-[52px] sm:w-[56px] sm:h-[56px] rounded-2xl object-cover ring-2 ring-primary/20 bg-muted shadow-2xs transition-transform duration-300 group-hover:scale-105"
+              showHoverHint={true}
+            />
             {/* Status dot */}
             <span
-              className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-background ${statusDotClass}`}
+              className={`absolute -bottom-0.5 -right-0.5 size-3 rounded-full ring-2 ring-background ${statusDotClass}`}
               title={statusLevel}
             />
           </div>
@@ -592,27 +592,32 @@ export const BuddyDayBriefingCard: React.FC<BuddyDayBriefingCardProps> = ({
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto p-5 sm:p-6 rounded-2xl">
           <DialogHeader className="space-y-1.5 text-left">
-            <div className="flex items-center gap-3">
-              <div className="size-12 rounded-xl overflow-hidden ring-1 ring-border bg-muted shrink-0">
-                <img
-                  src={mascotUrl}
+            <div className="flex items-center gap-3.5 sm:gap-4 p-3 rounded-2xl bg-secondary/35 border border-border/50">
+              <div className="shrink-0">
+                <PixoMascotPeek
+                  pose={dominantPose}
                   alt="Pixo"
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = "/pixo_carton/pixo_tip.jpg";
-                  }}
+                  headline={`Pixo Daily Briefing (${isTh ? `วันที่ ${briefing.dayNumber}` : `Day ${briefing.dayNumber}`})`}
+                  speechBubble={greeting}
+                  language={language as "th" | "en"}
+                  avatarClassName="size-20 sm:size-24 rounded-2xl object-cover ring-2 ring-primary/30 bg-muted shrink-0 shadow-md transition-transform hover:scale-105"
+                  showHoverHint={true}
                 />
               </div>
               <div className="min-w-0 flex-1">
-                <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
+                <DialogTitle className="text-base sm:text-lg font-bold text-foreground flex items-center gap-2">
                   <span>Pixo Daily Briefing</span>
-                  <Badge variant="secondary" className="text-[10px] font-medium">
+                  <Badge variant="secondary" className="text-[10px] font-semibold">
                     {isTh ? `วันที่ ${briefing.dayNumber}` : `Day ${briefing.dayNumber}`}
                   </Badge>
                 </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground truncate">
+                <DialogDescription className="text-xs text-muted-foreground truncate mt-0.5">
                   {dayDate ? dayDate.toLocaleDateString(isTh ? "th-TH" : "en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }) : cityName || "Travel Itinerary"}
                 </DialogDescription>
+                <div className="mt-2 text-[11px] text-primary font-medium flex items-center gap-1.5">
+                  <Sparkles className="size-3 shrink-0" />
+                  <span className="truncate">{smartHeadline}</span>
+                </div>
               </div>
             </div>
           </DialogHeader>

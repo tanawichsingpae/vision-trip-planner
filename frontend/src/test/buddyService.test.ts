@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   getPixMascotUrl,
+  getPixoPoseMetadata,
   evaluateDayBuddyAlerts,
   isTempleOrSacredSite,
   isCashDominantVenue,
@@ -519,4 +520,30 @@ describe("Pixo Travel Buddy Service", () => {
       }
     });
   });
+
+  describe("Pixo Pose Metadata & Localization", () => {
+    it("should return localized metadata for standard and special poses", () => {
+      const warningTh = getPixoPoseMetadata("warning", "th");
+      expect(warningTh.title).toContain("ความปลอดภัย");
+      expect(warningTh.tag).toBe("ตรวจระเบียบ");
+      expect(warningTh.emoji).toBe("🛕");
+
+      const warningEn = getPixoPoseMetadata("warning", "en");
+      expect(warningEn.title).toBe("Pixo Safety & Rules Guide");
+      expect(warningEn.tag).toBe("Rules & Safety");
+
+      const rainyTh = getPixoPoseMetadata("rainy", "th");
+      expect(rainyTh.emoji).toBe("☔");
+      expect(rainyTh.tag).toBe("ลุยฝน");
+
+      const happyTh = getPixoPoseMetadata("happy", "th");
+      expect(happyTh.emoji).toBe("🎉");
+      expect(happyTh.title).toContain("ฉลองทริป");
+
+      const fallbackMeta = getPixoPoseMetadata("unknown_random_pose", "en");
+      expect(fallbackMeta.title).toBe("Pixo Travel Tips");
+      expect(fallbackMeta.emoji).toBe("💡");
+    });
+  });
 });
+
