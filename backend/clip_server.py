@@ -1613,6 +1613,26 @@ def buddy_live_check():
         day_mode = "วันนี้ (เหตุการณ์สดจริงหน้างาน Real-time Live)" if is_today else f"วันข้างหน้าในแผนเดินทาง ({date_description} - เน้นคำแนะนำการวางแผนล่วงหน้า)"
         places_text = ', '.join(places[:6]) if places else target_term
 
+        if is_today:
+            temporal_scope_instruction = "[สำหรับวันปัจจุบัน]: รายงานเหตุฉุกเฉิน/ขัดข้องสดจริงในวันนี้เท่านั้น"
+        else:
+            temporal_scope_instruction = (
+                f"[สำหรับวันข้างหน้า ({date_description})]:\n"
+                "      * ห้ามนำเหตุด่วนฉุกเฉินชั่วคราวสั้นๆ ของวันนี้ (เช่น รถไฟฟ้าขัดข้อง 1 ชม. วันนี้ หรืออุบัติเหตุรถชนวันนี้) ไปแจ้งเตือนวันข้างหน้า\n"
+                '      * ยกเว้นกรณีภัยพิบัติรุนแรงต่อเนื่องหลายวัน (เช่น น้ำท่วมขังเรื้อรัง, มรสุมปิดเกาะ) หรือการปิดซ่อมบำรุงระยะยาว ให้คงการแจ้งเตือนไว้และตั้ง notice_type: "scheduled_maintenance" หรือ "disaster_alert"'
+            )
+
+        if is_thailand:
+            festival_instruction = (
+                "กฎเทศกาลไทย: ตรุษจีนเฉพาะเดือน 1-2, สงกรานต์เฉพาะเดือน 4, กินเจปลายเดือน 9-10, "
+                "ลอยกระทงเดือน 11 หากวันที่ระบุไม่มีเทศกาลใหญ่ให้ special_events เป็น []"
+            )
+        else:
+            festival_instruction = (
+                f"สำหรับ {country_ctx['country_name']}: ไม่ต้องใช้กฎเทศกาลไทย "
+                "ให้ยึดตามเทศกาลหรือวันหยุดสากลที่ตรงกับวันดังกล่าวจริง"
+            )
+
         # 3. Primary: OpenRouter with live web search & disaster synthesis
         if openrouter_client:
             prompt = f"""คุณคือระบบตรวจสอบข้อมูลสด ภัยพิบัติ และการเดินทางอัจฉริยะ (Pixo Universal Live Disaster & Transit Companion) ประจำเมือง {target_term} ({country_ctx['country_name']})
@@ -1642,12 +1662,10 @@ def buddy_live_check():
      * ตั้ง "disaster_alert": {{"has_disaster": false, "disaster_type": "none", "severity": "none", "headline": "", "affected_areas": [], "action_advice": ""}}
 
 2. [การจำแนกประเภทเหตุการณ์และความเกี่ยวข้องกับวัน (Temporal Scoping)]:
-   - {"[สำหรับวันปัจจุบัน]: รายงานเหตุฉุกเฉิน/ขัดข้องสดจริงในวันนี้เท่านั้น" if is_today else f"""[สำหรับวันข้างหน้า ({date_description})]:
-     * ห้ามนำเหตุด่วนฉุกเฉินชั่วคราวสั้นๆ ของวันนี้ (เช่น รถไฟฟ้าขัดข้อง 1 ชม. วันนี้ หรืออุบัติเหตุรถชนวันนี้) ไปแจ้งเตือนวันข้างหน้า
-     * ยกเว้นกรณีภัยพิบัติรุนแรงต่อเนื่องหลายวัน (เช่น น้ำท่วมขังเรื้อรัง, มรสุมปิดเกาะ) หรือการปิดซ่อมบำรุงระยะยาว ให้คงการแจ้งเตือนไว้และตั้ง notice_type: "scheduled_maintenance" หรือ "disaster_alert" """}
+   - {temporal_scope_instruction}
 
 3. [การปรับให้เข้ากับประเทศและวัฒนธรรม (Localization & Transit)]:
-   - {"กฎเทศกาลไทย: ตรุษจีนเฉพาะเดือน 1-2, สงกรานต์เฉพาะเดือน 4, กินเจปลายเดือน 9-10, ลอยกระทงเดือน 11 หากวันที่ระบุไม่มีเทศกาลใหญ่ให้ special_events เป็น []" if is_thailand else f"สำหรับ {country_ctx['country_name']}: ไม่ต้องใช้กฎเทศกาลไทย ให้ยึดตามเทศกาลหรือวันหยุดสากลที่ตรงกับวันดังกล่าวจริง"}
+   - {festival_instruction}
    - แนะนำระบบคมนาคมและแอปเรียกรถที่ใช้งานได้จริงในพื้นที่นี้ ({country_ctx['transit_apps']})
 
 4. [สถานะสถานที่ท่องเที่ยวในทริป]:
