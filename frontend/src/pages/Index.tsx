@@ -21,6 +21,8 @@ import {
   Check,
   Languages,
   ShieldCheck,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
@@ -34,6 +36,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { hasThaiScript, translateTextSync } from "@/services/translatorService";
@@ -79,7 +89,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { getCoordinates, distanceMetres } from "@/api/geocode";
+import { getCoordinates, distanceMetres, verifyCoordinatesHaveNearbyPOI } from "@/api/geocode";
 import { getNearbyAttractions, fetchPlaceDetails, fetchPlaceDetailsByPlaceId, getFallbackOpeningHours } from "@/api/places";
 import { gatherCandidatePOIs, kMeansCluster, partitionPoisIntoNonOverlappingSectors, calculateMasterHub, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, rebalanceCrossDayPOIs, scrubAndRelocateDayOutliers, enforceMaxHopDistance, auditItineraryIssues, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
 import { generateTravelPlan, refineItineraryWithAI, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, inferFallbackNonTravelContent, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
@@ -91,7 +101,6 @@ import { toast } from "sonner";
 import { useAI, AI_MODEL_OPTIONS, getAIModelInfo, MODEL_ID_MAP } from "@/context/AIProviderContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import { VisionOutlierModal, type OutlierItem } from "@/components/VisionOutlierModal";
 import { detectVisionOutliers } from "@/utils/outlierDetector";
 import { SavedTripsModal } from "@/components/SavedTripsModal";
@@ -1282,7 +1291,7 @@ const Index = () => {
           .replace(/^(Visit|Explore|See|Tour|Dinner at|Lunch at|Breakfast at|Relax at|ชมวิว|กินข้าวที่|เที่ยว|แวะ)\s+/i, "")
           .trim();
 
-        const candidateList = [title, englishName, wikiTitle, cleanedTitle].filter(
+        const candidateList = [englishName, wikiTitle, cleanedTitle, title].filter(
           (c): c is string => Boolean(c && c.trim().length > 1)
         );
         const uniqueCandidates = Array.from(new Set(candidateList));
@@ -1290,6 +1299,10 @@ const Index = () => {
         for (const candidate of uniqueCandidates) {
           try {
             const result = await getCoordinates(candidate, coords, destinationCity);
+            // Reject Strategy 5 synthetic fallback anchors — only accept genuine API results
+            if (result.isFallback) {
+              continue;
+            }
             const dist = distanceMetres(result, coords);
             // Valid coordinate if within destination boundary (45 km ceiling to prevent distant province outliers)
             if (dist <= 45_000) {
@@ -1340,6 +1353,7 @@ const Index = () => {
                 countryName: mainLocation.country,
                 wikiTitle: activity.wiki_title,
                 indexOffset: dayIndex,
+                englishName: activity.english_name,
               }
             );
 
@@ -1350,12 +1364,14 @@ const Index = () => {
             // Priority 4: City center default with smart spatial jitter (prevent pin stacking)
             let actLat: number | null = null;
             let actLng: number | null = null;
+            let isCoordsVerified = false;
 
             if (placeDetails.lat != null && placeDetails.lng != null) {
               const dist = distanceMetres({ lat: placeDetails.lat, lng: placeDetails.lng }, coords);
               if (dist <= 45_000) {
                 actLat = placeDetails.lat;
                 actLng = placeDetails.lng;
+                isCoordsVerified = true;
               }
             }
 
@@ -1368,6 +1384,7 @@ const Index = () => {
               if (validated) {
                 actLat = validated.lat;
                 actLng = validated.lng;
+                isCoordsVerified = true;
               } else if (
                 typeof activity.lat === "number" &&
                 typeof activity.lng === "number" &&
@@ -1378,8 +1395,20 @@ const Index = () => {
               ) {
                 const aiDist = distanceMetres({ lat: activity.lat, lng: activity.lng }, coords);
                 if (aiDist <= 45_000) {
-                  actLat = activity.lat;
-                  actLng = activity.lng;
+                  // Verify the AI-provided coordinate has a real POI nearby
+                  // (prevents hallucinated coords from placing pins on roads/fields)
+                  const isVerified = await verifyCoordinatesHaveNearbyPOI(
+                    activity.lat,
+                    activity.lng,
+                    activity.english_name || activity.title
+                  );
+                  if (isVerified) {
+                    actLat = activity.lat;
+                    actLng = activity.lng;
+                    isCoordsVerified = true;
+                  } else {
+                    console.warn(`[verify] AI coords for "${activity.title}" rejected — no real POI at (${activity.lat},${activity.lng})`);
+                  }
                 }
               }
             }
@@ -1393,6 +1422,7 @@ const Index = () => {
               const lngOffset = (jitterDistKm / (111 * Math.cos((coords.lat * Math.PI) / 180))) * Math.cos(angle);
               actLat = coords.lat + latOffset;
               actLng = coords.lng + lngOffset;
+              isCoordsVerified = false;
             }
 
             // 3. Verify opening hours against current day of the trip
@@ -1418,6 +1448,7 @@ const Index = () => {
               ...activity,
               lat: actLat,
               lng: actLng,
+              isCoordsVerified,
               photo_url: finalPhoto,
               image_url: finalPhoto,
               isUserPhoto: isUserPhoto,
@@ -1433,14 +1464,17 @@ const Index = () => {
             console.warn(`[enrichment] Fallback for "${activity.title}":`, e);
             let fallbackLat = coords.lat;
             let fallbackLng = coords.lng;
+            let fallbackVerified = false;
             try {
-              const fallbackValidated = await geocodeWithValidation(activity.title);
+              const fallbackValidated = await geocodeWithValidation(activity.title, activity.english_name, activity.wiki_title);
               if (fallbackValidated) {
                 fallbackLat = fallbackValidated.lat;
                 fallbackLng = fallbackValidated.lng;
+                fallbackVerified = true;
               } else if (activity.lat && activity.lng && activity.lat !== 0 && activity.lng !== 0) {
                 fallbackLat = activity.lat;
                 fallbackLng = activity.lng;
+                fallbackVerified = true;
               } else {
                 const actIdx = day.activities.indexOf(activity);
                 const angle = ((actIdx * 72) * Math.PI) / 180;
@@ -1460,6 +1494,7 @@ const Index = () => {
               ...activity,
               lat: fallbackLat,
               lng: fallbackLng,
+              isCoordsVerified: fallbackVerified,
               photo_url: finalPhoto,
               image_url: finalPhoto,
               isUserPhoto: isUserPhoto,
@@ -2251,6 +2286,8 @@ const Index = () => {
   };
 
   const [isExportingHTML, setIsExportingHTML] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [pdfExportProgress, setPdfExportProgress] = useState<string>("");
 
   // ─── HTML / Print Export (Dedicated A4 Document) ───────────────────────────
 
@@ -2380,6 +2417,83 @@ const Index = () => {
       );
     } finally {
       setIsExportingHTML(false);
+    }
+  };
+
+  const exportToPDF = async () => {
+    if (isExportingPDF || isExportingHTML) return;
+    setIsExportingPDF(true);
+    setPdfExportProgress("");
+    toast.info(
+      language === "th"
+        ? "กำลังเตรียมข้อมูลและสร้างไฟล์ PDF..."
+        : "Preparing and generating PDF itinerary..."
+    );
+
+    try {
+      const [{ normalizeExportTrip }, { generateItineraryHtml }, { exportItineraryToPdf }] = await Promise.all([
+        import("@/lib/export/normalizeExportTrip"),
+        import("@/lib/export/generateItineraryHtml"),
+        import("@/lib/export/exportItineraryToPdf"),
+      ]);
+
+      const apiKey = import.meta.env.VITE_GEOAPIFY_API_KEY ?? "";
+      const staticMapUrl = buildStaticMapUrl(itinerary, apiKey);
+
+      const cityFromVision =
+        (language === "th" ? detectedLocations[0]?.city_th : detectedLocations[0]?.city_en) ||
+        detectedLocations[0]?.city;
+
+      const destinationName =
+        preferences?.destination ||
+        cityFromVision ||
+        locPlace(detectedLocations[0]) ||
+        "Trip";
+
+      const landmarkName = locPlace(detectedLocations[0]);
+      const subtitle =
+        landmarkName && landmarkName !== destinationName
+          ? landmarkName
+          : (language === "th" ? "แผนการท่องเที่ยวอันน่าประทับใจ" : "Heritage & soul");
+
+      const exportTrip = normalizeExportTrip({
+        itinerary,
+        destination: destinationName,
+        subtitle,
+        tripStartDate,
+        language,
+        cityName: destinationName,
+        staticMapUrl,
+      });
+
+      const htmlContent = generateItineraryHtml(exportTrip, { language });
+
+      const safeFilename = destinationName
+        .toLowerCase()
+        .replace(/[^a-z0-9_\u0E00-\u0E7F]/gi, "_") || "travel";
+
+      await exportItineraryToPdf(htmlContent, {
+        filename: `${safeFilename}_itinerary.pdf`,
+        onProgress: (current, total) => {
+          setPdfExportProgress(`(${current}/${total})`);
+        },
+      });
+
+      toast.success(
+        language === "th"
+          ? "ส่งออกไฟล์ PDF สำเร็จ! สามารถเปิดดูได้ทันทีบน iOS และ Android"
+          : "PDF exported successfully! Ready to open on iOS and Android."
+      );
+    } catch (err) {
+      console.error("PDF export failed:", err);
+      toast.error(
+        language === "th"
+          ? "ส่งออก PDF ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+          : "Failed to export PDF. Please try again."
+      );
+    } finally {
+      setIsExportingPDF(false);
+      setPdfExportProgress("");
     }
   };
 
@@ -2748,22 +2862,92 @@ const Index = () => {
                     </h2>
                   )}
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={exportToHTML}
-                    disabled={isExportingHTML}
-                    className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1 shadow-2xs cursor-pointer"
-                    title={language === "th" ? "ส่งออกแผนการเดินทางเป็นไฟล์ HTML (สามารถสั่งพิมพ์ PDF ได้)" : "Export itinerary as HTML file (Print-ready PDF)"}
-                  >
-                    {isExportingHTML ? (
-                      <span className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <FileDown className="size-3.5" />
-                    )}
-                    <span>{language === "th" ? "ส่งออก HTML" : "Export HTML"}</span>
-                  </Button>
+                  {/* Export Dropdown Menu (PDF & HTML) */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isExportingHTML || isExportingPDF}
+                        className="rounded-xl border-border bg-background hover:bg-muted font-medium text-xs h-7 px-2.5 gap-1.5 shadow-2xs cursor-pointer"
+                        title={
+                          language === "th"
+                            ? "ส่งออกแผนการเดินทาง (PDF หรือ HTML)"
+                            : "Export itinerary (PDF or HTML)"
+                        }
+                      >
+                        {isExportingHTML || isExportingPDF ? (
+                          <span className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <FileDown className="size-3.5" />
+                        )}
+                        <span>
+                          {isExportingPDF
+                            ? (language === "th"
+                                ? `กำลังส่งออก PDF ${pdfExportProgress}`
+                                : `Exporting PDF ${pdfExportProgress}`)
+                            : isExportingHTML
+                            ? (language === "th" ? "กำลังส่งออก HTML..." : "Exporting HTML...")
+                            : (language === "th" ? "ส่งออก" : "Export")}
+                        </span>
+                        <ChevronDown className="size-3 opacity-60 ml-0.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="w-56 p-1.5 rounded-xl shadow-lg border border-border/80 bg-popover/95 backdrop-blur-sm z-50"
+                    >
+                      <DropdownMenuLabel className="px-2 py-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                        {language === "th" ? "เลือกรูปแบบเอกสาร" : "Export Format"}
+                      </DropdownMenuLabel>
+
+                      {/* PDF Export Option */}
+                      <DropdownMenuItem
+                        onClick={exportToPDF}
+                        disabled={isExportingPDF || isExportingHTML}
+                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors focus:bg-primary/10 focus:text-primary"
+                      >
+                        <div className="flex size-7 items-center justify-center rounded-md bg-red-500/10 text-red-500 font-bold text-xs shrink-0">
+                          PDF
+                        </div>
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-xs text-foreground">
+                              {language === "th" ? "ส่งออก PDF (.pdf)" : "Export PDF (.pdf)"}
+                            </span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                              {language === "th" ? "แนะนำ" : "Best"}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground truncate">
+                            {language === "th" ? "เปิดได้ทุกเครื่อง (iOS & Android)" : "Universal · iOS & Android"}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+
+                      <DropdownMenuSeparator className="my-1" />
+
+                      {/* HTML Export Option */}
+                      <DropdownMenuItem
+                        onClick={exportToHTML}
+                        disabled={isExportingPDF || isExportingHTML}
+                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors focus:bg-primary/10 focus:text-primary"
+                      >
+                        <div className="flex size-7 items-center justify-center rounded-md bg-sky-500/10 text-sky-500 font-bold text-xs shrink-0">
+                          HTML
+                        </div>
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <span className="font-semibold text-xs text-foreground">
+                            {language === "th" ? "ส่งออก HTML (.html)" : "Export HTML (.html)"}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground truncate">
+                            {language === "th" ? "ไฟล์เว็บเปิดในเบราว์เซอร์" : "Standalone interactive file"}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
                   {/* Save to Blind Eval Button (Visible only to dev when itinerary exists) */}
                   {role === "dev" && itinerary && itinerary.length > 0 && itinerary[0].activities?.length > 0 && (
@@ -3132,3 +3316,4 @@ const Index = () => {
 
 
 export default Index;
+

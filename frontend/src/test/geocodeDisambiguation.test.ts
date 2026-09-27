@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getCoordinates, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres } from "@/api/geocode";
+import { getCoordinates, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres, buildGoogleMapsUrl } from "@/api/geocode";
 import { fetchPlaceDetails } from "@/api/places";
 
 describe("Geocoding Landmark Disambiguation & Precision", () => {
@@ -83,5 +83,46 @@ describe("Geocoding Landmark Disambiguation & Precision", () => {
     const huaLamphong = { lat: 13.7371, lng: 100.5165 };
     const distToHuaLamphong = distanceMetres({ lat: details.lat!, lng: details.lng! }, huaLamphong);
     expect(distToHuaLamphong).toBeGreaterThan(2000);
+  });
+
+  it("should build accurate Google Maps URLs without stripping Thai names", () => {
+    // 1. Thai name only, no English name
+    const thaiSearchUrl = buildGoogleMapsUrl({
+      placeName: "วัดพระแก้ว",
+      cityName: "กรุงเทพมหานคร",
+      mode: "search",
+    });
+    expect(thaiSearchUrl).toContain("https://www.google.com/maps/search/?api=1&query=");
+    expect(decodeURIComponent(thaiSearchUrl)).toContain("วัดพระแก้ว, กรุงเทพมหานคร");
+
+    // 2. English name preferred over Thai placeName
+    const enSearchUrl = buildGoogleMapsUrl({
+      englishName: "Wat Phra Kaew",
+      placeName: "วัดพระแก้ว",
+      cityName: "Bangkok",
+      mode: "search",
+    });
+    expect(decodeURIComponent(enSearchUrl)).toContain("Wat Phra Kaew, Bangkok");
+
+    // 3. Directions with verified coordinates
+    const verifiedDirectionsUrl = buildGoogleMapsUrl({
+      lat: 13.7515,
+      lng: 100.4927,
+      englishName: "Wat Phra Kaew",
+      isCoordsVerified: true,
+      mode: "directions",
+    });
+    expect(verifiedDirectionsUrl).toBe("https://www.google.com/maps/dir/?api=1&destination=13.7515,100.4927");
+
+    // 4. Directions with unverified jitter coords falls back to place name for accurate navigation
+    const unverifiedDirectionsUrl = buildGoogleMapsUrl({
+      lat: 13.7515,
+      lng: 100.4927,
+      englishName: "Wat Phra Kaew",
+      cityName: "Bangkok",
+      isCoordsVerified: false,
+      mode: "directions",
+    });
+    expect(decodeURIComponent(unverifiedDirectionsUrl)).toContain("destination=Wat Phra Kaew, Bangkok");
   });
 });

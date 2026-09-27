@@ -9,10 +9,21 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
-import { useLanguage } from "@/context/LanguageContext";
-import { analyzeImage, type VisionResult } from "@/services/aiService";
-import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import { analyzeImage, analyzeImageDirect, type VisionResult } from "@/services/aiService";
+import {
+  evaluatePredictionWithAliases,
+  classifyErrorCategory,
+  FailureMode,
+  FAILURE_MODE_CONFIGS,
+} from "@/utils/evaluationMetrics";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
+import {
+  VPRTier,
+  TIER_CONFIGS,
+  TIER_ORDER,
+  detectTierFromFilename,
+  normalizeTier,
+} from "@/types/experimentTiers";
 import {
   Upload,
   Play,
@@ -52,25 +63,47 @@ interface Exp2Result {
   modelLabel: string;
   predicted_clip: string;
   predicted_noclip: string;
+  confidence_clip: number;
+  confidence_noclip: number;
   correct_clip: boolean;
   correct_noclip: boolean;
   latency_clip: number;
   latency_noclip: number;
   delta_latency: number;
+  tier?: VPRTier;
+  tokens_clip?: number;
+  tokens_noclip?: number;
+  cost_clip?: number;
+  cost_noclip?: number;
+  delta_cost?: number;
+  failure_mode_clip?: FailureMode;
+  failure_mode_noclip?: FailureMode;
+  temperature?: number;
 }
 
 interface Exp2History {
   timestamp: string;
   image_name: string;
   ground_truth: string;
+  tier: VPRTier;
   model: string;
   predicted_clip: string;
   predicted_noclip: string;
+  confidence_clip?: number;
+  confidence_noclip?: number;
   correct_clip: string | boolean;
   correct_noclip: string | boolean;
   latency_clip: number;
   latency_noclip: number;
   delta_latency: number;
+  tokens_clip?: number;
+  tokens_noclip?: number;
+  cost_clip?: number;
+  cost_noclip?: number;
+  delta_cost?: number;
+  failure_mode_clip?: FailureMode;
+  failure_mode_noclip?: FailureMode;
+  temperature?: number;
 }
 
 type Verdict = "clip_only" | "direct_only" | "both_correct" | "both_wrong";
@@ -116,10 +149,11 @@ function isTruthy(v: string | boolean | undefined): boolean {
 }
 
 export default function Exp2PipelineComparison() {
-  const { isThai, t } = useLanguage();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [groundTruth, setGroundTruth] = useState<string>("");
+  const [singleTier, setSingleTier] = useState<VPRTier>("tier1_iconic");
+  const [selectedTierFilter, setSelectedTierFilter] = useState<"all" | VPRTier>("all");
   const [selectedModels, setSelectedModels] = useState<AIModelType[]>(
     AI_MODEL_OPTIONS.map((o) => o.value)
   );
@@ -139,14 +173,25 @@ export default function Exp2PipelineComparison() {
           timestamp: row["Timestamp"] || row.timestamp || "",
           image_name: row["Image Name"] || row.image_name || "",
           ground_truth: row["Ground Truth"] || row.ground_truth || "",
+          tier: normalizeTier(row["Tier"] || row.tier || "tier1_iconic"),
           model: row["Model"] || row.model || "",
           predicted_clip: row["Predicted (CLIP)"] || row.predicted_clip || "",
           predicted_noclip: row["Predicted (No CLIP)"] || row.predicted_noclip || "",
+          confidence_clip: row["Confidence (CLIP)"] !== undefined ? Number(row["Confidence (CLIP)"]) : row.confidence_clip ?? 0,
+          confidence_noclip: row["Confidence (No CLIP)"] !== undefined ? Number(row["Confidence (No CLIP)"]) : row.confidence_noclip ?? 0,
           correct_clip: row["Correct (CLIP)"] !== undefined ? row["Correct (CLIP)"] : row.correct_clip,
           correct_noclip: row["Correct (No CLIP)"] !== undefined ? row["Correct (No CLIP)"] : row.correct_noclip,
           latency_clip: Number(row["Latency CLIP (ms)"] || row.latency_clip || 0),
           latency_noclip: Number(row["Latency No CLIP (ms)"] || row.latency_noclip || 0),
           delta_latency: Number(row["Delta Latency (ms)"] || row.delta_latency || 0),
+          tokens_clip: row["Tokens CLIP"] !== undefined ? Number(row["Tokens CLIP"]) : row.tokens_clip,
+          tokens_noclip: row["Tokens No CLIP"] !== undefined ? Number(row["Tokens No CLIP"]) : row.tokens_noclip,
+          cost_clip: row["Cost CLIP (USD)"] !== undefined ? Number(row["Cost CLIP (USD)"]) : row.cost_clip,
+          cost_noclip: row["Cost No CLIP (USD)"] !== undefined ? Number(row["Cost No CLIP (USD)"]) : row.cost_noclip,
+          delta_cost: row["Delta Cost (USD)"] !== undefined ? Number(row["Delta Cost (USD)"]) : row.delta_cost,
+          failure_mode_clip: (row["Failure Mode (CLIP)"] || row.failure_mode_clip || "none") as FailureMode,
+          failure_mode_noclip: (row["Failure Mode (No CLIP)"] || row.failure_mode_noclip || "none") as FailureMode,
+          temperature: row["Temperature"] !== undefined ? Number(row["Temperature"]) : 0.0,
         }));
         setDbLogs(mapped);
       }
@@ -166,6 +211,7 @@ export default function Exp2PipelineComparison() {
       setImagePreview(URL.createObjectURL(file));
       const guessed = file.name.substring(0, file.name.lastIndexOf(".")).replace(/[-_]/g, " ");
       setGroundTruth(guessed);
+      setSingleTier(detectTierFromFilename(file.name));
       setCurrentResults([]);
     }
   };
@@ -188,23 +234,34 @@ export default function Exp2PipelineComparison() {
       const modelOpt = AI_MODEL_OPTIONS.find((m) => m.value === modelId);
       const label = modelOpt ? modelOpt.label : modelId;
 
-      // 1. Run WITH CLIP (2-Turn Visual Retrieval Pipeline)
+      // 1. Run WITH CLIP (2-Turn Visual Retrieval Pipeline) - Strictly Deterministic Benchmark (No Fallback)
       setProgressLabel(`[${label}] Running WITH CLIP (2-Turn Pipeline)...`);
       const startClip = performance.now();
       let resClip: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
       try {
-        resClip = await analyzeImage(imageFile, modelId, true);
+        resClip = await analyzeImage(
+          imageFile,
+          modelId,
+          true,
+          (step) => setProgressLabel(`[${label}] CLIP: ${step}`),
+          { allowFallback: false, temperature: 0.0 }
+        );
       } catch (err) {
         console.error("Exp2 CLIP error:", err);
       }
       const timeClip = Math.round(performance.now() - startClip);
 
-      // 2. Run WITHOUT CLIP (Direct 1-Turn Multimodal Vision)
+      // 2. Run WITHOUT CLIP (Direct 1-Turn Multimodal Vision) - Strictly Deterministic Benchmark (No Fallback)
       setProgressLabel(`[${label}] Running WITHOUT CLIP (Direct 1-Turn)...`);
       const startNoClip = performance.now();
       let resNoClip: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
       try {
-        resNoClip = await analyzeImage(imageFile, modelId, false);
+        resNoClip = await analyzeImageDirect(
+          imageFile,
+          modelId,
+          (step) => setProgressLabel(`[${label}] Direct: ${step}`),
+          { allowFallback: false, temperature: 0.0 }
+        );
       } catch (err) {
         console.error("Exp2 Direct error:", err);
       }
@@ -217,16 +274,46 @@ export default function Exp2PipelineComparison() {
       const matchClip = evaluatePredictionWithAliases(predClip, groundTruth, resClip.similar_locations || [], 0.70);
       const matchNoClip = evaluatePredictionWithAliases(predNoClip, groundTruth, resNoClip.similar_locations || [], 0.70);
 
+      // Failure Mode Taxonomy (3 Symptoms)
+      const failureModeClip = classifyErrorCategory(predClip, groundTruth, {
+        isCorrect: matchClip.isCorrect,
+        confidence: resClip.confidence ?? 0.0,
+        tier: singleTier,
+      });
+
+      const failureModeNoClip = classifyErrorCategory(predNoClip, groundTruth, {
+        isCorrect: matchNoClip.isCorrect,
+        confidence: resNoClip.confidence ?? 0.0,
+        tier: singleTier,
+      });
+
+      const tokensClip = resClip.metrics?.total_tokens ?? 0;
+      const tokensNoClip = resNoClip.metrics?.total_tokens ?? 0;
+      const costClip = resClip.metrics?.cost_usd ?? 0.0;
+      const costNoClip = resNoClip.metrics?.cost_usd ?? 0.0;
+      const deltaCost = costNoClip - costClip;
+
       temp.push({
         model: modelId,
         modelLabel: label,
+        tier: singleTier,
         predicted_clip: predClip,
         predicted_noclip: predNoClip,
+        confidence_clip: resClip.confidence ?? 0.0,
+        confidence_noclip: resNoClip.confidence ?? 0.0,
         correct_clip: matchClip.isCorrect,
         correct_noclip: matchNoClip.isCorrect,
-        latency_clip: timeClip,
-        latency_noclip: timeNoClip,
+        latency_clip: resClip.metrics?.latency_ms ? Math.round(resClip.metrics.latency_ms) : timeClip,
+        latency_noclip: resNoClip.metrics?.latency_ms ? Math.round(resNoClip.metrics.latency_ms) : timeNoClip,
         delta_latency: timeNoClip - timeClip,
+        tokens_clip: tokensClip,
+        tokens_noclip: tokensNoClip,
+        cost_clip: costClip,
+        cost_noclip: costNoClip,
+        delta_cost: deltaCost,
+        failure_mode_clip: failureModeClip,
+        failure_mode_noclip: failureModeNoClip,
+        temperature: 0.1,
       });
 
       setCurrentResults([...temp]);
@@ -259,15 +346,28 @@ export default function Exp2PipelineComparison() {
     const payload = {
       image_name: imageFile?.name || "image.jpg",
       ground_truth: groundTruth,
+      tier: singleTier,
+      temperature: 0.1,
       results: currentResults.map((r) => ({
         model: r.model,
         predicted_clip: r.predicted_clip,
         predicted_noclip: r.predicted_noclip,
+        confidence_clip: r.confidence_clip ?? 0.0,
+        confidence_noclip: r.confidence_noclip ?? 0.0,
         correct_clip: r.correct_clip,
         correct_noclip: r.correct_noclip,
         latency_clip: r.latency_clip,
         latency_noclip: r.latency_noclip,
         delta_latency: r.delta_latency,
+        tier: r.tier || singleTier,
+        tokens_clip: r.tokens_clip ?? 0,
+        tokens_noclip: r.tokens_noclip ?? 0,
+        cost_clip: r.cost_clip ?? 0.0,
+        cost_noclip: r.cost_noclip ?? 0.0,
+        delta_cost: r.delta_cost ?? 0.0,
+        temperature: 0.1,
+        failure_mode_clip: r.failure_mode_clip || "none",
+        failure_mode_noclip: r.failure_mode_noclip || "none",
       })),
     };
 
@@ -291,37 +391,74 @@ export default function Exp2PipelineComparison() {
   // ── Combined logs (Historical CSV + Current Trial) ──
   const combinedLogs = useMemo(() => {
     const currentMapped = currentResults.map((r) => ({
+      timestamp: new Date().toISOString(),
+      image_name: imageFile?.name || "current_image.jpg",
+      ground_truth: groundTruth,
+      tier: r.tier || singleTier,
       model: r.model,
+      predicted_clip: r.predicted_clip,
+      predicted_noclip: r.predicted_noclip,
       correct_clip: r.correct_clip,
       correct_noclip: r.correct_noclip,
       latency_clip: r.latency_clip,
       latency_noclip: r.latency_noclip,
+      delta_latency: r.delta_latency,
+      failure_mode_clip: r.failure_mode_clip,
+      failure_mode_noclip: r.failure_mode_noclip,
+      temperature: 0.1,
     }));
     return [...dbLogs, ...currentMapped];
-  }, [dbLogs, currentResults]);
+  }, [dbLogs, currentResults, imageFile, groundTruth, singleTier]);
 
-  // ── Metrics from combined logs ──
+  // Sliced logs by selectedTierFilter
+  const effectiveLogs = useMemo(() => {
+    if (selectedTierFilter === "all") return combinedLogs;
+    return combinedLogs.filter((r) => normalizeTier(r.tier) === selectedTierFilter);
+  }, [combinedLogs, selectedTierFilter]);
+
+  // Stratified CLIP Ablation per Tier
+  const tierAblation = useMemo(() => {
+    return TIER_ORDER.map((tierKey) => {
+      const logsInTier = combinedLogs.filter((l) => normalizeTier(l.tier) === tierKey);
+      const total = logsInTier.length;
+      const clipCorr = logsInTier.filter((l) => isTruthy(l.correct_clip)).length;
+      const noClipCorr = logsInTier.filter((l) => isTruthy(l.correct_noclip)).length;
+      const clipAcc = total > 0 ? parseFloat(((clipCorr / total) * 100).toFixed(1)) : 0;
+      const noClipAcc = total > 0 ? parseFloat(((noClipCorr / total) * 100).toFixed(1)) : 0;
+      const delta = parseFloat((clipAcc - noClipAcc).toFixed(1));
+      return {
+        tier: tierKey,
+        cfg: TIER_CONFIGS[tierKey],
+        total,
+        clipAcc,
+        noClipAcc,
+        delta,
+      };
+    });
+  }, [combinedLogs]);
+
+  // ── Metrics from effective logs ──
   const metrics = useMemo(() => {
-    if (combinedLogs.length === 0) return null;
-    const total = combinedLogs.length;
-    const clipCorrect = combinedLogs.filter((r) => isTruthy(r.correct_clip)).length;
-    const noclipCorrect = combinedLogs.filter((r) => isTruthy(r.correct_noclip)).length;
+    if (effectiveLogs.length === 0) return null;
+    const total = effectiveLogs.length;
+    const clipCorrect = effectiveLogs.filter((r) => isTruthy(r.correct_clip)).length;
+    const noclipCorrect = effectiveLogs.filter((r) => isTruthy(r.correct_noclip)).length;
 
-    const clipOnlyWins = combinedLogs.filter((r) => isTruthy(r.correct_clip) && !isTruthy(r.correct_noclip)).length;
-    const directOnlyWins = combinedLogs.filter((r) => !isTruthy(r.correct_clip) && isTruthy(r.correct_noclip)).length;
-    const bothCorrect = combinedLogs.filter((r) => isTruthy(r.correct_clip) && isTruthy(r.correct_noclip)).length;
-    const bothWrong = combinedLogs.filter((r) => !isTruthy(r.correct_clip) && !isTruthy(r.correct_noclip)).length;
+    const clipOnlyWins = effectiveLogs.filter((r) => isTruthy(r.correct_clip) && !isTruthy(r.correct_noclip)).length;
+    const directOnlyWins = effectiveLogs.filter((r) => !isTruthy(r.correct_clip) && isTruthy(r.correct_noclip)).length;
+    const bothCorrect = effectiveLogs.filter((r) => isTruthy(r.correct_clip) && isTruthy(r.correct_noclip)).length;
+    const bothWrong = effectiveLogs.filter((r) => !isTruthy(r.correct_clip) && !isTruthy(r.correct_noclip)).length;
 
     const clipAcc = (clipCorrect / total) * 100;
     const noclipAcc = (noclipCorrect / total) * 100;
     const clipGain = clipAcc - noclipAcc;
 
-    const avgClipTime = Math.round(combinedLogs.reduce((s, r) => s + Number(r.latency_clip || 0), 0) / total);
-    const avgNoClipTime = Math.round(combinedLogs.reduce((s, r) => s + Number(r.latency_noclip || 0), 0) / total);
+    const avgClipTime = Math.round(effectiveLogs.reduce((s, r) => s + Number(r.latency_clip || 0), 0) / total);
+    const avgNoClipTime = Math.round(effectiveLogs.reduce((s, r) => s + Number(r.latency_noclip || 0), 0) / total);
 
     // Per-model breakdown
     const modelMap: Record<string, { clip_correct: number; noclip_correct: number; total: number; clipTime: number; directTime: number }> = {};
-    combinedLogs.forEach((r) => {
+    effectiveLogs.forEach((r) => {
       if (!modelMap[r.model]) modelMap[r.model] = { clip_correct: 0, noclip_correct: 0, total: 0, clipTime: 0, directTime: 0 };
       modelMap[r.model].total += 1;
       if (isTruthy(r.correct_clip)) modelMap[r.model].clip_correct += 1;
@@ -358,7 +495,7 @@ export default function Exp2PipelineComparison() {
       avgNoClipTime,
       modelBreakdown,
     };
-  }, [combinedLogs]);
+  }, [effectiveLogs]);
 
   // Export LaTeX table for Ablation Study
   const copyAblationLatex = () => {
@@ -396,17 +533,14 @@ ${rows}
           <div className="text-left">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                {t("Experiment 2: การเปรียบเทียบสถาปัตยกรรม Pipeline & Ablation Study", "Experiment 2: Pipeline Architecture & Ablation Study")}
+                Experiment 2: Pipeline Architecture & Ablation Study
               </h2>
               <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 text-xs font-semibold">
-                {t("วิทยานิพนธ์ บทที่ 4.2", "Thesis Chap. 4.2")}
+                Thesis Chap. 4.2
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {t(
-                "วัดผลลัพธ์เชิงประจักษ์ของการใช้ 2-Turn CLIP Retrieval ช่วยคัดกรอง เทียบกับการส่งภาพตรงเข้า VLM (1-Turn Direct Vision)",
-                "Quantify the empirical benefit of 2-Turn Visual Retrieval (CLIP) against 1-Turn Direct Multimodal Vision."
-              )}
+              Quantify the empirical benefit of 2-Turn Visual Retrieval (CLIP) against 1-Turn Direct Multimodal Vision.
             </p>
           </div>
 
@@ -419,13 +553,63 @@ ${rows}
               className="text-xs bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50 shadow-2xs h-8"
             >
               {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-indigo-600" />}
-              {copiedLatex ? t("คัดลอก LaTeX สำเร็จ", "Copied LaTeX") : t("ส่งออกตาราง LaTeX", "Export Ablation LaTeX")}
+              {copiedLatex ? "Copied LaTeX" : "Export Ablation LaTeX"}
             </Button>
           </div>
         </div>
 
         {/* Executive Summary Takeaways Card */}
         <KeyTakeawaysCard expId="exp2" />
+
+        {/* Interactive Benchmark Tier Slicer Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <span>Stratified Tier Slicer:</span>
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                variant={selectedTierFilter === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedTierFilter("all")}
+                className={`text-xs h-7 px-3 rounded-lg ${
+                  selectedTierFilter === "all"
+                    ? "bg-slate-900 text-white font-semibold"
+                    : "bg-white text-slate-700 hover:bg-slate-50 border-slate-200"
+                }`}
+              >
+                All Tiers ({combinedLogs.length})
+              </Button>
+              {TIER_ORDER.map((tierKey) => {
+                const cfg = TIER_CONFIGS[tierKey];
+                const count = combinedLogs.filter((l) => normalizeTier(l.tier) === tierKey).length;
+                const isSel = selectedTierFilter === tierKey;
+                return (
+                  <Button
+                    key={tierKey}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedTierFilter(tierKey)}
+                    className={`text-xs h-7 px-2.5 rounded-lg border flex items-center gap-1.5 transition-all ${
+                      isSel
+                        ? `${cfg.badgeClass} ring-2 ring-indigo-500 font-bold shadow-xs`
+                        : "bg-white text-slate-600 hover:bg-slate-50 border-slate-200"
+                    }`}
+                  >
+                    <span>{cfg.icon}</span>
+                    <span>{cfg.shortLabel}</span>
+                    <span className="text-[10px] opacity-75 font-mono">({count})</span>
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+          {selectedTierFilter !== "all" && (
+            <div className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-md font-medium">
+              Filtered by: <strong>{TIER_CONFIGS[selectedTierFilter].label}</strong>
+            </div>
+          )}
+        </div>
 
         {/* Top Hero KPI Summary Cards */}
         {metrics && (
@@ -436,17 +620,17 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
-                      {t("2-Turn CLIP Pipeline", "2-Turn CLIP Pipeline")}
+                      2-Turn CLIP Pipeline
                     </span>
                     <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-mono">
-                      {t("นำเสนอ (Proposed)", "Proposed")}
+                      Proposed
                     </Badge>
                   </div>
                   <p className="text-2xl sm:text-3xl font-extrabold text-emerald-900 mt-2">
                     {metrics.clipAcc}%
                   </p>
                   <p className="text-[11px] text-emerald-600/90 mt-0.5 flex items-center gap-1 font-mono">
-                    {t("เวลาเฉลี่ย:", "Avg Latency:")} <strong>{metrics.avgClipTime} ms</strong>
+                    Avg Latency: <strong>{metrics.avgClipTime} ms</strong>
                   </p>
                 </CardContent>
               </Card>
@@ -456,17 +640,17 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-blue-800 uppercase tracking-wider">
-                      {t("1-Turn Direct Vision", "1-Turn Direct Vision")}
+                      1-Turn Direct Vision
                     </span>
                     <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] font-mono">
-                      {t("มาตรฐาน (Baseline)", "Baseline")}
+                      Baseline
                     </Badge>
                   </div>
                   <p className="text-2xl sm:text-3xl font-extrabold text-blue-900 mt-2">
                     {metrics.noclipAcc}%
                   </p>
                   <p className="text-[11px] text-blue-600/90 mt-0.5 flex items-center gap-1 font-mono">
-                    {t("เวลาเฉลี่ย:", "Avg Latency:")} <strong>{metrics.avgNoClipTime} ms</strong>
+                    Avg Latency: <strong>{metrics.avgNoClipTime} ms</strong>
                   </p>
                 </CardContent>
               </Card>
@@ -482,7 +666,7 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
-                      {t("ส่วนต่างความแม่นยำ (Δ Gain)", "Empirical CLIP Gain (Δ)")}
+                      Empirical CLIP Gain (Δ)
                     </span>
                     {metrics.clipGain > 0 ? (
                       <TrendingUp className="w-4 h-4 text-emerald-600" />
@@ -500,8 +684,8 @@ ${rows}
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     {metrics.clipGain >= 0
-                      ? t("ความแม่นยำสูงขึ้นอย่างมีนัยสำคัญ", "Statistically superior accuracy")
-                      : t("Direct ตอบเร็วกว่า", "Zero-shot direct faster")}
+                      ? "Statistically superior accuracy"
+                      : "Zero-shot direct faster"}
                   </p>
                 </CardContent>
               </Card>
@@ -511,17 +695,17 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      {t("จำนวนคู่ภาพที่ทดสอบ", "Evaluated Samples")}
+                      Evaluated Samples
                     </span>
                     <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px]">
-                      {metrics.total} {t("การทดสอบคู่", "Paired Tests")}
+                      {metrics.total} Paired Tests
                     </Badge>
                   </div>
                   <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">
                     {metrics.total}
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    {t("เวลาที่เพิ่มขึ้น:", "Δ Latency:")} <strong>+{Math.abs(metrics.avgClipTime - metrics.avgNoClipTime)} ms</strong> {t("overhead", "overhead")}
+                    Δ Latency: <strong>+{Math.abs(metrics.avgClipTime - metrics.avgNoClipTime)} ms</strong> overhead
                   </p>
                 </CardContent>
               </Card>
@@ -536,13 +720,10 @@ ${rows}
                     <div>
                       <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                         <BarChart3 className="w-4 h-4 text-indigo-600" />
-                        {t("เปรียบเทียบผลลัพธ์: CLIP Pipeline vs. Direct Vision", "Ablation Benchmark: CLIP Pipeline vs. Direct Vision")}
+                        Ablation Benchmark: CLIP Pipeline vs. Direct Vision
                       </CardTitle>
                       <CardDescription className="text-xs text-slate-500">
-                        {t(
-                          "แสดงอัตราความแม่นยำเปรียบเทียบของแต่ละโมเดลเมื่อเปิด/ปิด CLIP Pre-filtering",
-                          "Evaluates accuracy improvement and trade-off per model architecture."
-                        )}
+                        Evaluates accuracy improvement and trade-off per model architecture.
                       </CardDescription>
                     </div>
                   </div>
@@ -578,7 +759,7 @@ ${rows}
                                     <span className="font-mono font-bold">{directVal}%</span>
                                   </div>
                                   <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-4 text-[11px] font-bold">
-                                    <span className="text-slate-600">{isThai ? "ส่วนต่าง (Gain):" : "Net Delta:"}</span>
+                                    <span className="text-slate-600">Net Delta:</span>
                                     <span className={delta >= 0 ? "text-emerald-600" : "text-rose-600"}>
                                       {delta >= 0 ? `+${delta.toFixed(1)}% 🏆` : `${delta.toFixed(1)}%`}
                                     </span>
@@ -590,8 +771,8 @@ ${rows}
                           }}
                         />
                         <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "5px" }} />
-                        <Bar dataKey="clipAcc" name={isThai ? "2-Turn CLIP Pipeline (%)" : "2-Turn CLIP Pipeline (%)"} fill="#10b981" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="directAcc" name={isThai ? "1-Turn Direct Vision (%)" : "1-Turn Direct Vision (%)"} fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="clipAcc" name="2-Turn CLIP Pipeline (%)" fill="#10b981" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="directAcc" name="1-Turn Direct Vision (%)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -669,6 +850,56 @@ ${rows}
                 </CardContent>
               </Card>
             </div>
+
+            {/* Stratified Multi-Tier CLIP Gain Matrix */}
+            <Card className="bg-white border-slate-200 shadow-sm text-left">
+              <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-purple-600" />
+                    Stratified Multi-Tier CLIP Ablation Analysis (T1–T4)
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-500">
+                    Comparing CLIP 2-Turn Retrieval vs. 1-Turn Direct Multimodal accuracy gain across difficulty tiers.
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  {tierAblation.map((tab) => (
+                    <div
+                      key={tab.tier}
+                      className={`p-3.5 rounded-xl border text-left space-y-1.5 ${tab.cfg.badgeClass}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-base">{tab.cfg.icon}</span>
+                        <Badge variant="outline" className="text-[10px] bg-white/70">
+                          {tab.total} trials
+                        </Badge>
+                      </div>
+                      <div className="font-bold text-xs truncate">{tab.cfg.shortLabel}</div>
+                      <div className="text-[10px] opacity-80 truncate">{tab.cfg.label}</div>
+                      <div className="pt-2 border-t border-black/5 text-xs space-y-1">
+                        <div className="flex justify-between items-center text-[11px]">
+                          <span className="text-slate-600">2-Turn CLIP:</span>
+                          <span className="font-mono font-bold text-emerald-800">{tab.clipAcc}%</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[11px]">
+                          <span className="text-slate-600">1-Turn Direct:</span>
+                          <span className="font-mono font-bold text-blue-800">{tab.noClipAcc}%</span>
+                        </div>
+                        <div className="flex justify-between items-center font-bold pt-1 border-t border-black/5 text-[11px]">
+                          <span>Net Benefit (Δ):</span>
+                          <span className={tab.delta >= 0 ? "text-emerald-700 font-extrabold" : "text-rose-700 font-extrabold"}>
+                            {tab.delta >= 0 ? `+${tab.delta}% 🏆` : `${tab.delta}%`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           </div>
         )}
 
@@ -729,10 +960,45 @@ ${rows}
                   <Input
                     value={groundTruth}
                     onChange={(e) => setGroundTruth(e.target.value)}
-                    placeholder="e.g. Wat Arun | วัดอรุณ | Temple of Dawn"
+                    placeholder="e.g. Wat Arun | Temple of Dawn | Wat Pho"
                     className="bg-white text-xs border-slate-200 text-slate-900"
                     disabled={isRunning}
                   />
+                </div>
+
+                {/* Benchmark Tier Category Selector */}
+                <div className="space-y-1.5 text-left">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-slate-700">Benchmark Tier Stratification</Label>
+                    <Badge className={`${TIER_CONFIGS[singleTier].badgeClass} text-[10px]`}>
+                      {TIER_CONFIGS[singleTier].icon} {TIER_CONFIGS[singleTier].shortLabel}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {TIER_ORDER.map((tierKey) => {
+                      const cfg = TIER_CONFIGS[tierKey];
+                      const isSelected = singleTier === tierKey;
+                      return (
+                        <button
+                          key={tierKey}
+                          type="button"
+                          onClick={() => setSingleTier(tierKey)}
+                          disabled={isRunning}
+                          className={`flex items-start gap-2 p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                            isSelected
+                              ? `${cfg.badgeClass} ring-2 ring-indigo-500 font-semibold shadow-xs`
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          <span className="text-base leading-none mt-0.5">{cfg.icon}</span>
+                          <div className="truncate">
+                            <div className="font-bold text-[11px] leading-tight truncate">{cfg.shortLabel}</div>
+                            <div className="text-[9px] text-slate-400 truncate mt-0.5">{cfg.description}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Model Selector */}
@@ -855,9 +1121,11 @@ ${rows}
                         <TableHeader className="bg-slate-50">
                           <TableRow className="border-b border-slate-200">
                             <TableHead className="text-xs font-semibold">Model</TableHead>
-                            <TableHead className="text-xs font-semibold text-emerald-800 bg-emerald-50/50">2-Turn CLIP</TableHead>
-                            <TableHead className="text-xs font-semibold text-blue-800 bg-blue-50/50">1-Turn Direct</TableHead>
+                            <TableHead className="text-xs font-semibold text-emerald-800 bg-emerald-50/50">2-Turn CLIP (Pred & Cost)</TableHead>
+                            <TableHead className="text-xs font-semibold text-blue-800 bg-blue-50/50">1-Turn Direct (Pred & Cost)</TableHead>
                             <TableHead className="text-xs font-semibold text-center">Verdict</TableHead>
+                            <TableHead className="text-xs font-semibold text-center">Tokens (CLIP / Direct)</TableHead>
+                            <TableHead className="text-xs font-semibold text-center">Cost Comparison</TableHead>
                             <TableHead className="text-xs font-semibold text-center">Latency</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -874,7 +1142,15 @@ ${rows}
                                     ) : (
                                       <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
                                     )}
-                                    <span className="font-medium text-slate-800 truncate max-w-[120px]">{r.predicted_clip}</span>
+                                    <div>
+                                      <span className="font-medium text-slate-800 truncate max-w-[120px] block">{r.predicted_clip}</span>
+                                      <span className="text-[10px] text-emerald-700 font-mono">${(r.cost_clip ?? 0).toFixed(6)}</span>
+                                      {!r.correct_clip && r.failure_mode_clip && (
+                                        <span className="text-[9px] text-amber-700 bg-amber-50 px-1 rounded block mt-0.5 font-medium">
+                                          {FAILURE_MODE_CONFIGS[r.failure_mode_clip]?.shortLabel}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-xs bg-blue-50/20">
@@ -884,11 +1160,31 @@ ${rows}
                                     ) : (
                                       <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
                                     )}
-                                    <span className="font-medium text-slate-800 truncate max-w-[120px]">{r.predicted_noclip}</span>
+                                    <div>
+                                      <span className="font-medium text-slate-800 truncate max-w-[120px] block">{r.predicted_noclip}</span>
+                                      <span className="text-[10px] text-blue-700 font-mono">${(r.cost_noclip ?? 0).toFixed(6)}</span>
+                                      {!r.correct_noclip && r.failure_mode_noclip && (
+                                        <span className="text-[9px] text-amber-700 bg-amber-50 px-1 rounded block mt-0.5 font-medium">
+                                          {FAILURE_MODE_CONFIGS[r.failure_mode_noclip]?.shortLabel}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-center">
                                   {verdictBadge(verdict)}
+                                </TableCell>
+                                <TableCell className="text-center font-mono text-[11px] text-slate-700">
+                                  <span className="text-emerald-700 font-bold">{r.tokens_clip ?? 0}</span>
+                                  <span className="text-slate-400"> / </span>
+                                  <span className="text-blue-700 font-bold">{r.tokens_noclip ?? 0}</span>
+                                </TableCell>
+                                <TableCell className="text-center font-mono text-[11px]">
+                                  <span className={`font-bold block ${(r.delta_cost ?? 0) >= 0 ? "text-emerald-700" : "text-amber-700"}`}>
+                                    {(r.delta_cost ?? 0) >= 0
+                                      ? `CLIP saves $${Math.abs(r.delta_cost ?? 0).toFixed(6)}`
+                                      : `+${Math.abs(r.delta_cost ?? 0).toFixed(6)} overhead`}
+                                  </span>
                                 </TableCell>
                                 <TableCell className="text-center font-mono text-[11px] text-slate-600">
                                   {r.latency_clip}ms / {r.latency_noclip}ms
@@ -922,6 +1218,7 @@ ${rows}
                     <TableHeader className="bg-slate-50 sticky top-0 z-10">
                       <TableRow className="border-b border-slate-200">
                         <TableHead className="text-[11px] font-semibold">Image</TableHead>
+                        <TableHead className="text-[11px] font-semibold">Tier</TableHead>
                         <TableHead className="text-[11px] font-semibold">Model</TableHead>
                         <TableHead className="text-[11px] font-semibold">Ground Truth</TableHead>
                         <TableHead className="text-[11px] font-semibold">CLIP Pred</TableHead>
@@ -935,17 +1232,37 @@ ${rows}
                         return (
                           <TableRow key={i} className="border-b border-slate-100 text-xs">
                             <TableCell className="font-mono text-[10px] text-slate-500 truncate max-w-[100px]">{row.image_name}</TableCell>
+                            <TableCell>
+                              {(() => {
+                                const cfg = TIER_CONFIGS[normalizeTier(row.tier)];
+                                return (
+                                  <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                    {cfg.icon} {cfg.shortLabel}
+                                  </Badge>
+                                );
+                              })()}
+                            </TableCell>
                             <TableCell className="font-medium text-slate-800">{row.model}</TableCell>
                             <TableCell className="text-slate-700 truncate max-w-[110px]">{row.ground_truth}</TableCell>
                             <TableCell>
-                              <span className={isTruthy(row.correct_clip) ? "text-emerald-700 font-semibold" : "text-rose-600"}>
+                              <span className={isTruthy(row.correct_clip) ? "text-emerald-700 font-semibold" : "text-rose-600 block"}>
                                 {row.predicted_clip}
                               </span>
+                              {!isTruthy(row.correct_clip) && row.failure_mode_clip && row.failure_mode_clip !== "none" && (
+                                <span className="text-[9px] text-amber-700 bg-amber-50 px-1 rounded inline-block mt-0.5">
+                                  {FAILURE_MODE_CONFIGS[row.failure_mode_clip]?.shortLabel}
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell>
-                              <span className={isTruthy(row.correct_noclip) ? "text-emerald-700 font-semibold" : "text-rose-600"}>
+                              <span className={isTruthy(row.correct_noclip) ? "text-emerald-700 font-semibold" : "text-rose-600 block"}>
                                 {row.predicted_noclip}
                               </span>
+                              {!isTruthy(row.correct_noclip) && row.failure_mode_noclip && row.failure_mode_noclip !== "none" && (
+                                <span className="text-[9px] text-amber-700 bg-amber-50 px-1 rounded inline-block mt-0.5">
+                                  {FAILURE_MODE_CONFIGS[row.failure_mode_noclip]?.shortLabel}
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell className="text-center">{verdictBadge(v)}</TableCell>
                           </TableRow>

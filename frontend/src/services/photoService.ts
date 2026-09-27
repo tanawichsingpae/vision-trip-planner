@@ -686,6 +686,24 @@ async function fetchFromWikidata(query: string, originalPlaceName: string = ""):
       const fileName = p18Claim?.mainsnak?.datavalue?.value;
 
       if (fileName && typeof fileName === "string") {
+        try {
+          const infoUrl = `https://commons.wikimedia.org/w/api.php?action=query&titles=File:${encodeURIComponent(
+            fileName
+          )}&prop=imageinfo&iiprop=url&iiurlwidth=1000&format=json&origin=*`;
+          const infoRes = await fetch(infoUrl, { headers: { "User-Agent": "PixineraryTravelApp/2.0" } });
+          if (infoRes.ok) {
+            const infoData = await infoRes.json();
+            const pages = infoData.query?.pages;
+            const firstPage = pages ? (Object.values(pages)[0] as any) : null;
+            const directUrl = firstPage?.imageinfo?.[0]?.thumburl || firstPage?.imageinfo?.[0]?.url;
+            if (directUrl && typeof directUrl === "string") {
+              return directUrl;
+            }
+          }
+        } catch {
+          // Fall back to Special:FilePath
+        }
+
         return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(
           fileName
         )}?width=1000`;

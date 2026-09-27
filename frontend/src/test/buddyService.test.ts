@@ -519,6 +519,102 @@ describe("Pixo Travel Buddy Service", () => {
         global.fetch = originalFetch;
       }
     });
+
+    it("should parse disaster_alert and hazard details in fetchLiveBuddyInsights", async () => {
+      const originalFetch = global.fetch;
+
+      global.fetch = vi.fn().mockImplementation(() => {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              has_disruption: true,
+              transit_status: "critical",
+              notice_type: "disaster_alert",
+              disaster_alert: {
+                has_disaster: true,
+                disaster_type: "flood",
+                severity: "critical",
+                headline: "เตือนภัยน้ำท่วมขังรอการระบายในกรุงเทพฯ",
+                affected_areas: ["สุขุมวิท", "รามคำแหง"],
+                action_advice: "หลีกเลี่ยงการสัญจรทางถนน ใช้รถไฟฟ้า BTS/MRT แทน",
+              },
+              title: "เตือนภัยน้ำท่วมขัง",
+              summary: "พบน้ำท่วมขังหลายจุดบนผิวถนน",
+            }),
+        });
+      }) as any;
+
+      try {
+        const res = await fetchLiveBuddyInsights("กรุงเทพมหานคร", ["ถนนสุขุมวิท"], "2026-09-27", "th");
+        expect(res.hasDisruption).toBe(true);
+        expect(res.noticeType).toBe("disaster_alert");
+        expect(res.transitStatus).toBe("critical");
+        expect(res.disasterAlert).toBeDefined();
+        expect(res.disasterAlert?.hasDisaster).toBe(true);
+        expect(res.disasterAlert?.disasterType).toBe("flood");
+        expect(res.disasterAlert?.affectedAreas).toContain("สุขุมวิท");
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("should propose smart indoor substitution when activity is in a flooded disaster area", () => {
+      const mockDay: DayPlan = {
+        day: 1,
+        date: "Day 1",
+        activities: [
+          {
+            id: "act-sukhumvit",
+            time: "10:00",
+            title: "สุขุมวิท คาเฟ่ฮอปปิ้ง",
+            description: "เดินเที่ยวคาเฟ่ริมถนนสุขุมวิท",
+            type: "food",
+            lat: 13.73,
+            lng: 100.58,
+          },
+          {
+            id: "act-siam",
+            time: "14:00",
+            title: "Siam Paragon Shopping",
+            description: "ห้างสรรพสินค้าสยามพารากอน",
+            type: "shopping",
+            lat: 13.74,
+            lng: 100.53,
+          },
+        ],
+      };
+
+      const mockLiveStatus: LiveTransitStatus = {
+        hasDisruption: true,
+        transitStatus: "critical",
+        noticeType: "disaster_alert",
+        disasterAlert: {
+          hasDisaster: true,
+          disasterType: "flood",
+          severity: "critical",
+          headline: "น้ำท่วมขังเสมอทางเท้าถนนสุขุมวิท",
+          affectedAreas: ["สุขุมวิท"],
+          actionAdvice: "เลี่ยงการเดินทางบนถนนสุขุมวิท",
+        },
+        title: "เตือนน้ำท่วมขัง",
+        summary: "น้ำท่วมขังถนนสุขุมวิท",
+        disruptions: [],
+        weatherTrafficAlert: "",
+        adviceForTravelers: "",
+        sources: [],
+        tips: [],
+        liveUpdates: [],
+        sourceCount: 1,
+      };
+
+      const proposal = evaluateSmartReroute(mockDay, 0, [], mockLiveStatus, "กรุงเทพมหานคร", "th");
+      expect(proposal).not.toBeNull();
+      expect(proposal?.type).toBe("SUBSTITUTE");
+      expect(proposal?.fromActivityTitle).toContain("สุขุมวิท");
+      expect(proposal?.pixMessage).toContain("เลี่ยงการไป");
+      expect(proposal?.alternatives?.length).toBeGreaterThan(0);
+    });
   });
 
   describe("Pixo Pose Metadata & Localization", () => {

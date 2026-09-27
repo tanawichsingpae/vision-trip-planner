@@ -10,10 +10,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
-import { useLanguage } from "@/context/LanguageContext";
-import { analyzeImage, type VisionResult } from "@/services/aiService";
-import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import { analyzeImageDirect, type VisionResult } from "@/services/aiService";
+import {
+  evaluatePredictionWithAliases,
+  classifyErrorCategory,
+  FailureMode,
+  FAILURE_MODE_CONFIGS,
+} from "@/utils/evaluationMetrics";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
+import {
+  VPRTier,
+  TIER_CONFIGS,
+  TIER_OPTIONS,
+  TIER_ORDER,
+  detectTierFromFilename,
+  normalizeTier,
+} from "@/types/experimentTiers";
 import {
   Upload,
   Sparkles,
@@ -56,12 +68,14 @@ interface RobustnessImageItem {
   preview: string;
   category: string;
   label: string;
+  tier: VPRTier;
 }
 
 interface Exp3Result {
   image_name: string;
   condition_category: string;
   condition_label: string;
+  tier?: VPRTier;
   model: AIModelType;
   modelLabel: string;
   predicted: string;
@@ -69,6 +83,13 @@ interface Exp3Result {
   time_ms: number;
   is_correct: boolean;
   matched_alias?: string | null;
+  failure_mode?: FailureMode;
+  temperature?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  tokens_per_sec?: number;
 }
 
 interface Exp3History {
@@ -77,11 +98,19 @@ interface Exp3History {
   image_name: string;
   condition_category: string;
   condition_label: string;
+  tier: VPRTier;
   model: string;
   predicted: string;
   confidence: number | string;
   time_ms: number | string;
   is_correct: string | boolean;
+  failure_mode?: FailureMode;
+  temperature?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  tokens_per_sec?: number;
 }
 
 const CONDITION_CATEGORIES = [
@@ -131,7 +160,6 @@ function isTruthy(v: string | boolean | undefined): boolean {
 }
 
 export default function Exp3RobustnessTest() {
-  const { isThai, t } = useLanguage();
   const [groundTruth, setGroundTruth] = useState<string>("");
   const [imageList, setImageList] = useState<RobustnessImageItem[]>([]);
   const [selectedModels, setSelectedModels] = useState<AIModelType[]>([
@@ -159,11 +187,19 @@ export default function Exp3RobustnessTest() {
           image_name: row["Image Name"] || row.image_name || "",
           condition_category: row["Condition Category"] || row.condition_category || "",
           condition_label: row["Condition Label"] || row.condition_label || "",
+          tier: normalizeTier(row["Tier"] || row.tier || "tier1_iconic"),
           model: row["Model"] || row.model || "",
           predicted: row["Predicted Place"] || row.predicted || "",
           confidence: row["Confidence"] !== undefined ? row["Confidence"] : row.confidence,
           time_ms: row["Time MS"] !== undefined ? row["Time MS"] : row.time_ms,
           is_correct: row["Is Correct"] !== undefined ? row["Is Correct"] : row.is_correct,
+          failure_mode: (row["Failure Mode"] || row.failure_mode || "none") as FailureMode,
+          temperature: row["Temperature"] !== undefined ? Number(row["Temperature"]) : 0.0,
+          prompt_tokens: row["Prompt Tokens"] !== undefined ? Number(row["Prompt Tokens"]) : row.prompt_tokens,
+          completion_tokens: row["Completion Tokens"] !== undefined ? Number(row["Completion Tokens"]) : row.completion_tokens,
+          total_tokens: row["Total Tokens"] !== undefined ? Number(row["Total Tokens"]) : row.total_tokens,
+          cost_usd: row["Cost USD"] !== undefined ? Number(row["Cost USD"]) : row.cost_usd,
+          tokens_per_sec: row["Tokens Per Sec"] !== undefined ? Number(row["Tokens Per Sec"]) : row.tokens_per_sec,
         }));
         setDbLogs(mapped);
       }
@@ -185,6 +221,7 @@ export default function Exp3RobustnessTest() {
         preview: URL.createObjectURL(file),
         category: "Lighting",
         label: "daytime",
+        tier: detectTierFromFilename(file.name),
       }));
       setImageList((prev) => [...prev, ...newItems]);
       if (!groundTruth) {
@@ -205,6 +242,10 @@ export default function Exp3RobustnessTest() {
 
   const updateImageLabel = (id: string, label: string) => {
     setImageList((prev) => prev.map((item) => (item.id === id ? { ...item, label } : item)));
+  };
+
+  const updateImageTier = (id: string, tier: VPRTier) => {
+    setImageList((prev) => prev.map((item) => (item.id === id ? { ...item, tier } : item)));
   };
 
   const runRobustnessTest = async () => {
@@ -231,7 +272,12 @@ export default function Exp3RobustnessTest() {
         const start = performance.now();
         let res: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
         try {
-          res = await analyzeImage(item.file, modelId, true);
+          res = await analyzeImageDirect(
+            item.file,
+            modelId,
+            (step) => setProgressLabel(`[${label}] ${step}`),
+            { allowFallback: false, temperature: 0.0 }
+          );
         } catch (err) {
           console.error("Exp3 error:", err);
         }
@@ -242,17 +288,34 @@ export default function Exp3RobustnessTest() {
         // Automated multi-alias evaluation
         const match = evaluatePredictionWithAliases(pred, groundTruth, res.similar_locations || [], 0.70);
 
+        // Failure Mode Taxonomy (3 Symptoms)
+        const failureMode = classifyErrorCategory(pred, groundTruth, {
+          isCorrect: match.isCorrect,
+          confidence: res.confidence || 0.0,
+          tier: item.tier,
+          conditionCategory: item.category,
+          conditionLabel: item.label,
+        });
+
         temp.push({
           image_name: item.file.name,
           condition_category: item.category,
           condition_label: item.label,
+          tier: item.tier,
           model: modelId,
           modelLabel: label,
           predicted: pred,
           confidence: res.confidence || 0.0,
-          time_ms: duration,
+          time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
           is_correct: match.isCorrect,
           matched_alias: match.matchedAlias,
+          failure_mode: failureMode,
+          temperature: 0.1,
+          prompt_tokens: res.metrics?.prompt_tokens ?? 0,
+          completion_tokens: res.metrics?.completion_tokens ?? 0,
+          total_tokens: res.metrics?.total_tokens ?? 0,
+          cost_usd: res.metrics?.cost_usd ?? 0.0,
+          tokens_per_sec: res.metrics?.tokens_per_sec ?? 0.0,
         });
 
         setCurrentResults([...temp]);
@@ -267,7 +330,12 @@ export default function Exp3RobustnessTest() {
   const updateCorrectness = (index: number, value: boolean) => {
     setCurrentResults((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], is_correct: value };
+      const prevMode = updated[index].failure_mode;
+      updated[index] = {
+        ...updated[index],
+        is_correct: value,
+        failure_mode: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
+      };
       return updated;
     });
   };
@@ -277,15 +345,24 @@ export default function Exp3RobustnessTest() {
 
     const payload = {
       ground_truth: groundTruth,
+      temperature: 0.1,
       results: currentResults.map((r) => ({
         image_name: r.image_name,
         condition_category: r.condition_category,
         condition_label: r.condition_label,
+        tier: r.tier || "tier1_iconic",
         model: r.model,
         predicted: r.predicted,
         confidence: r.confidence,
         time_ms: r.time_ms,
         is_correct: r.is_correct,
+        temperature: 0.1,
+        failure_mode: r.failure_mode || "none",
+        prompt_tokens: r.prompt_tokens ?? 0,
+        completion_tokens: r.completion_tokens ?? 0,
+        total_tokens: r.total_tokens ?? 0,
+        cost_usd: r.cost_usd ?? 0.0,
+        tokens_per_sec: r.tokens_per_sec ?? 0.0,
       })),
     };
 
@@ -384,25 +461,16 @@ export default function Exp3RobustnessTest() {
       (dbLogs.filter((r) => isTruthy(r.is_correct)).length / dbLogs.length) * 100
     );
 
-    // 4-Axis Robustness Radar Data with Thai translation support
-    const radarData = CONDITION_CATEGORIES.map((cat) => {
-      let subjectLabel = cat.name.split(" / ")[0];
-      if (isThai) {
-        if (cat.id === "Lighting") subjectLabel = "สภาพแสง (Lighting)";
-        else if (cat.id === "Weather") subjectLabel = "สภาพอากาศ (Weather)";
-        else if (cat.id === "ViewAngle") subjectLabel = "มุมมองภาพ (Perspective)";
-        else if (cat.id === "Quality") subjectLabel = "คุณภาพรูป (Quality)";
-      }
-      return {
-        subject: subjectLabel,
-        accuracy: catMap[cat.id]?.total > 0 ? Math.round((catMap[cat.id].correct / catMap[cat.id].total) * 100) : 0,
-        baseline: 100, // Ideal reference baseline
-        fullMark: 100,
-      };
-    });
+    // 4-Axis Robustness Radar Data
+    const radarData = CONDITION_CATEGORIES.map((cat) => ({
+      subject: cat.name.split(" / ")[0],
+      accuracy: catMap[cat.id]?.total > 0 ? Math.round((catMap[cat.id].correct / catMap[cat.id].total) * 100) : 0,
+      baseline: 100, // Ideal reference baseline
+      fullMark: 100,
+    }));
 
     return { labelBreakdown, categoryBreakdown, modelBreakdown, radarData, overallAcc, total: dbLogs.length };
-  }, [dbLogs, isThai]);
+  }, [dbLogs]);
 
   const copyRobustnessLatex = () => {
     if (!analytics) return;
@@ -439,17 +507,14 @@ ${catRows}
           <div className="text-left">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                {t("Experiment 3: การทดสอบความทนทานต่อสภาพแวดล้อม (Robustness)", "Experiment 3: Environmental Robustness & Degradation")}
+                Experiment 3: Environmental Robustness & Degradation
               </h2>
               <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-xs font-semibold">
-                {t("วิทยานิพนธ์ บทที่ 4.3", "Thesis Chap. 4.3")}
+                Thesis Chap. 4.3
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {t(
-                "ทดสอบความทนทานต่อความแปรผันของแสง สภาพอากาศสุดขั้ว มุมมองภาพที่แปลกตา และสิ่งบดบัง/สัญญาณรบกวน",
-                "Stress-test VPR performance under variable lighting, extreme weather, camera viewpoints, and occlusion noise."
-              )}
+              Stress-test VPR performance under variable lighting, extreme weather, camera viewpoints, and occlusion noise.
             </p>
           </div>
 
@@ -462,7 +527,7 @@ ${catRows}
               className="text-xs bg-white text-amber-700 border-amber-200 hover:bg-amber-50 shadow-2xs h-8"
             >
               {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-amber-600" />}
-              {copiedLatex ? t("คัดลอก LaTeX สำเร็จ", "Copied LaTeX") : t("ส่งออกตาราง LaTeX", "Export Robustness LaTeX")}
+              {copiedLatex ? "Copied LaTeX" : "Export Robustness LaTeX"}
             </Button>
           </div>
         </div>
@@ -479,13 +544,13 @@ ${catRows}
               <Card className="bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-xs text-left col-span-2 md:col-span-1">
                 <CardContent className="p-4">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    {t("ความทนทานรวม (Overall)", "Overall Robustness")}
+                    Overall Robustness
                   </span>
                   <p className="text-3xl font-extrabold text-white mt-2">
                     {analytics.overallAcc}%
                   </p>
                   <p className="text-[11px] text-slate-400 mt-1 font-mono">
-                    {analytics.total} {t("การทดสอบทั้งหมด", "total trials evaluated")}
+                    {analytics.total} total trials evaluated
                   </p>
                 </CardContent>
               </Card>
@@ -498,15 +563,7 @@ ${catRows}
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold text-slate-700 truncate max-w-[110px]" title={cat.category}>
-                          {isThai
-                            ? cat.categoryId === "Lighting"
-                              ? "สภาพแสง"
-                              : cat.categoryId === "Weather"
-                              ? "สภาพอากาศ"
-                              : cat.categoryId === "ViewAngle"
-                              ? "มุมมองภาพ"
-                              : "คุณภาพรูป"
-                            : cat.category.split(" / ")[0]}
+                          {cat.category.split(" / ")[0]}
                         </span>
                         <Icon className="w-4 h-4" style={{ color: cat.color }} />
                       </div>
@@ -520,7 +577,7 @@ ${catRows}
                         />
                       </div>
                       <p className="text-[10px] text-slate-400 mt-1 font-mono">
-                        {cat.correct}/{cat.total} {t("ถูกต้อง", "correct")}
+                        {cat.correct}/{cat.total} correct
                       </p>
                     </CardContent>
                   </Card>
@@ -538,19 +595,13 @@ ${catRows}
                       <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                         <TrendingDown className="w-4 h-4 text-amber-600" />
                         {chartView === "radar"
-                          ? t("เรดาร์โปรไฟล์ความทนทาน 4 มิติ", "Multi-Axis Environmental Robustness Radar")
-                          : t("อันดับการลดลงของความแม่นยำ (Degradation)", "Degradation Ranking by Label")}
+                          ? "Multi-Axis Environmental Robustness Radar"
+                          : "Degradation Ranking by Label"}
                       </CardTitle>
                       <CardDescription className="text-xs text-slate-500">
                         {chartView === "radar"
-                          ? t(
-                              "โปรไฟล์ความทนทาน 4 มิติ (สภาพแสง, อากาศ, มุมมอง, คุณภาพรูปภาพ)",
-                              "4-dimensional resilience profile (Lighting, Weather, Perspective, Quality)."
-                            )
-                          : t(
-                              "เรียงลำดับจากจุดที่ความแม่นยำต่ำสุดไปสูงสุด เพื่อชี้ชัดจุดเปราะบางของระบบ",
-                              "Ordered from lowest accuracy to highest — highlights failure modes and vulnerabilities."
-                            )}
+                          ? "4-dimensional resilience profile (Lighting, Weather, Camera Angles, Image Quality)."
+                          : "Ordered from lowest accuracy to highest — highlights failure modes and vulnerabilities."}
                       </CardDescription>
                     </div>
 
@@ -563,7 +614,7 @@ ${catRows}
                           chartView === "radar" ? "bg-white text-amber-700 shadow-xs hover:bg-white" : "text-slate-600"
                         }`}
                       >
-                        {t("สไปเดอร์เรดาร์", "Radar Profile")}
+                        Radar Profile
                       </Button>
                       <Button
                         variant={chartView === "degradation" ? "default" : "ghost"}
@@ -573,7 +624,7 @@ ${catRows}
                           chartView === "degradation" ? "bg-white text-amber-700 shadow-xs hover:bg-white" : "text-slate-600"
                         }`}
                       >
-                        {t("กราฟแท่งความเสื่อมถอย", "Degradation Bar")}
+                        Degradation Bar
                       </Button>
                     </div>
                   </div>
@@ -587,12 +638,12 @@ ${catRows}
                           <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: "#475569", fontWeight: 600 }} />
                           <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 9 }} stroke="#94a3b8" />
                           <RechartsTooltip
-                            formatter={(v: any) => [`${v}%`, isThai ? "ความแม่นยำ" : "Accuracy"]}
+                            formatter={(v: any) => [`${v}%`, "Accuracy"]}
                             contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px", border: "1px solid #e2e8f0" }}
                           />
                           {/* Ideal Reference Baseline Radar */}
                           <Radar
-                            name={isThai ? "เกณฑ์อุดมคติ (100%)" : "Ideal Baseline (100%)"}
+                            name="Ideal Baseline (100%)"
                             dataKey="baseline"
                             stroke="#cbd5e1"
                             strokeDasharray="3 3"
@@ -600,7 +651,7 @@ ${catRows}
                             fillOpacity={0.1}
                           />
                           <Radar
-                            name={isThai ? "ความทนทานจริง" : "Empirical Robustness"}
+                            name="Empirical Robustness"
                             dataKey="accuracy"
                             stroke="#f59e0b"
                             fill="#f59e0b"
@@ -621,7 +672,7 @@ ${catRows}
                           <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} />
                           <YAxis type="category" dataKey="label" tick={{ fontSize: 10 }} width={75} />
                           <RechartsTooltip
-                            formatter={(v: number) => [`${v}%`, isThai ? "ความแม่นยำ" : "Accuracy"]}
+                            formatter={(v: number) => [`${v}%`, "Accuracy"]}
                             contentStyle={{ fontSize: "11px", backgroundColor: "#fff", borderRadius: "8px", borderColor: "#e2e8f0" }}
                           />
                           <Bar dataKey="accuracy" radius={[0, 4, 4, 0]}>
@@ -704,7 +755,7 @@ ${catRows}
                   <Input
                     value={groundTruth}
                     onChange={(e) => setGroundTruth(e.target.value)}
-                    placeholder="e.g. Wat Pho | วัดโพธิ์ | Temple of the Reclining Buddha"
+                    placeholder="e.g. Wat Pho | Temple of the Reclining Buddha | Wat Arun"
                     className="bg-white text-xs border-slate-200 text-slate-900"
                     disabled={isRunning}
                   />
@@ -747,7 +798,7 @@ ${catRows}
                           <img src={item.preview} alt="" className="w-12 h-12 object-cover rounded-lg shrink-0 border border-slate-200" />
                           <div className="min-w-0 flex-1 space-y-1.5">
                             <p className="text-xs font-mono text-slate-700 truncate">{item.file.name}</p>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-3 gap-1.5">
                               <Select
                                 value={item.category}
                                 onValueChange={(v) => updateImageCategory(item.id, v)}
@@ -779,6 +830,26 @@ ${catRows}
                                       {lbl}
                                     </SelectItem>
                                   ))}
+                                </SelectContent>
+                              </Select>
+
+                              <Select
+                                value={item.tier}
+                                onValueChange={(v) => updateImageTier(item.id, v as VPRTier)}
+                                disabled={isRunning}
+                              >
+                                <SelectTrigger className="h-6 text-[10px] bg-white">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {TIER_ORDER.map((tierKey) => {
+                                    const cfg = TIER_CONFIGS[tierKey];
+                                    return (
+                                      <SelectItem key={tierKey} value={tierKey} className="text-xs">
+                                        {cfg.icon} {cfg.shortLabel}
+                                      </SelectItem>
+                                    );
+                                  })}
                                 </SelectContent>
                               </Select>
                             </div>
@@ -895,7 +966,11 @@ ${catRows}
                           <TableHead className="py-2.5">Condition</TableHead>
                           <TableHead className="py-2.5">Model</TableHead>
                           <TableHead className="py-2.5">Prediction</TableHead>
+                          <TableHead className="py-2.5 text-center">Tokens (In / Out)</TableHead>
+                          <TableHead className="py-2.5 text-center">Cost ($)</TableHead>
+                          <TableHead className="py-2.5 text-center">Latency</TableHead>
                           <TableHead className="py-2.5 text-center">Status</TableHead>
+                          <TableHead className="py-2.5 text-center">Failure Mode</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -912,6 +987,15 @@ ${catRows}
                               {r.matched_alias && (
                                 <span className="text-[10px] text-emerald-600 block">Matched: "{r.matched_alias}"</span>
                               )}
+                            </TableCell>
+                            <TableCell className="text-center font-mono text-[11px] text-slate-700 py-2">
+                              {r.prompt_tokens ?? 0} / {r.completion_tokens ?? 0}
+                            </TableCell>
+                            <TableCell className="text-center font-mono text-[11px] text-emerald-700 font-semibold py-2">
+                              ${(r.cost_usd ?? 0).toFixed(6)}
+                            </TableCell>
+                            <TableCell className="text-center font-mono text-[11px] text-slate-600 py-2">
+                              {r.time_ms}ms
                             </TableCell>
                             <TableCell className="text-center py-2">
                               <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
@@ -934,6 +1018,23 @@ ${catRows}
                                   ✗
                                 </button>
                               </div>
+                            </TableCell>
+                            <TableCell className="text-center py-2">
+                              {r.is_correct ? (
+                                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 text-[10px] border-emerald-200">
+                                  ✓ None
+                                </Badge>
+                              ) : (
+                                (() => {
+                                  const fm = (r.failure_mode as FailureMode) || "visual_confusion";
+                                  const cfg = FAILURE_MODE_CONFIGS[fm] || FAILURE_MODE_CONFIGS["visual_confusion"];
+                                  return (
+                                    <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                      {cfg.icon} {cfg.shortLabel}
+                                    </Badge>
+                                  );
+                                })()
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -959,8 +1060,10 @@ ${catRows}
                     <TableHeader className="bg-slate-50 sticky top-0 z-10">
                       <TableRow className="border-b border-slate-200 text-xs">
                         <TableHead className="py-2">Condition</TableHead>
+                        <TableHead className="py-2">Tier</TableHead>
                         <TableHead className="py-2">Model</TableHead>
                         <TableHead className="py-2">Prediction</TableHead>
+                        <TableHead className="py-2 text-center">Failure Mode</TableHead>
                         <TableHead className="py-2 text-right">Result</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -970,8 +1073,33 @@ ${catRows}
                           <TableCell className="py-2 font-mono text-[10px] text-slate-600">
                             {row.condition_label}
                           </TableCell>
+                          <TableCell className="py-2">
+                            {(() => {
+                              const cfg = TIER_CONFIGS[normalizeTier(row.tier)];
+                              return (
+                                <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                  {cfg.icon} {cfg.shortLabel}
+                                </Badge>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell className="py-2 font-medium text-slate-800">{row.model}</TableCell>
                           <TableCell className="py-2 text-slate-700 truncate max-w-[120px]">{row.predicted}</TableCell>
+                          <TableCell className="py-2 text-center">
+                            {isTruthy(row.is_correct) ? (
+                              <span className="text-slate-400 text-xs font-mono">-</span>
+                            ) : (
+                              (() => {
+                                const fm = (row.failure_mode as FailureMode) || "visual_confusion";
+                                const cfg = FAILURE_MODE_CONFIGS[fm] || FAILURE_MODE_CONFIGS["visual_confusion"];
+                                return (
+                                  <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                    {cfg.icon} {cfg.shortLabel}
+                                  </Badge>
+                                );
+                              })()
+                            )}
+                          </TableCell>
                           <TableCell className="py-2 text-right">
                             {isTruthy(row.is_correct) ? (
                               <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px]">✓ Correct</Badge>

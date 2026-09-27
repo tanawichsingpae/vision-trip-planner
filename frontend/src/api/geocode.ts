@@ -1,5 +1,23 @@
 import { isFoursquareRateLimited, setFoursquareRateLimited } from "./foursquareClient";
 
+// ---------------------------------------------------------------------------
+// Script / Language Detection Helpers
+// ---------------------------------------------------------------------------
+
+/** Returns true if the string contains Thai Unicode characters (U+0E00–U+0E7F) */
+export function containsThaiScript(text: string): boolean {
+  return /[\u0E00-\u0E7F]/.test(text);
+}
+
+/** Returns the dominant script of a query: "th", "en", or "mixed" */
+function detectQueryLanguage(text: string): "th" | "en" | "mixed" {
+  const hasThai = containsThaiScript(text);
+  const hasLatin = /[a-zA-Z]/.test(text);
+  if (hasThai && hasLatin) return "mixed";
+  if (hasThai) return "th";
+  return "en";
+}
+
 export interface Coordinates {
   lat: number;
   lng: number;
@@ -11,6 +29,7 @@ export interface GeocodePlaceResult extends Coordinates {
   userRatingsTotal?: number | null;
   placeId?: string | null;
   formattedAddress?: string | null;
+  isFallback?: boolean;
 }
 
 const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY as string;
@@ -43,12 +62,16 @@ export function distanceMetres(a: Coordinates, b: Coordinates): number {
 // ---------------------------------------------------------------------------
 function cleanPlaceName(title: string): string {
   const prefixPatterns = [
+    // English action verb prefixes
     /^(Explore|Visit|See|Tour|Check out|Discover|Experience|Enjoy|Attend|Watch|Ride|Take a|Catch a|Walk around|Walk through|Walk in|Walk|Stroll around|Stroll through|Stroll|Hike up|Hike|Climb|Swim at|Snorkel at|Dive at|Relax at|Relax in|Chill at|Rest at|Wander around|Wander through|Shopping at|Shopping in|Head to|Go to|Travel to|Arrive at)\s+/i,
     /^(Breakfast|Lunch|Dinner|Brunch|Supper|Snack|Coffee|Tea)\s+(at|in|near|by|around|along|by the)\s+/i,
     /^(Grab|Have|Try|Eat|Taste|Sample)\s+(breakfast|lunch|dinner|brunch|coffee|tea|a meal|food|snacks?)\s+(at|in|near|by|around)?\s*/i,
     /^(Night|Morning|Evening|Afternoon|Sunset|Sunrise)\s+(view|visit|walk|cruise|tour|market|show|performance|activity)\s+(of|at|in|near|along)?\s*/i,
     /^(Traditional|Local|Authentic|Classic|Famous|Typical)\s+[\w\s]*(Lunch|Dinner|Breakfast|Brunch|Food|Market|Street Food)\s+(at|in|near)?\s*/i,
     /^(at|in|near|by|around|along|the)\s+/i,
+    // Thai action verb prefixes (mirroring cleanVenueSearchQuery in places.ts)
+    /^(ชมวิวพระอาทิตย์ตกที่|ชมวิวที่|ชมความงามของ|ชมวิว|เที่ยวชม|เที่ยว|แวะเที่ยว|แวะชม|แวะถ่ายรูปที่|แวะถ่ายรูป|แวะ|ไหว้พระที่|ไหว้พระ|สักการะที่|สักการะ)\s*/,
+    /^(ทานอาหารกลางวันที่|ทานอาหารมื้อค่ำที่|ทานอาหารเย็นที่|ทานอาหารที่|ทานมื้อเที่ยงที่|ทานมื้อค่ำที่|กินข้าวกลางวันที่|กินข้าวเที่ยงที่|กินข้าวเย็นที่|กินข้าวที่|กินอาหารที่|กิน|จิบกาแฟที่|ดื่มกาแฟที่|นั่งชิลที่)\s*/,
   ];
 
   let cleaned = title.trim();
@@ -306,7 +329,13 @@ async function geocodeWithGeoapify(query: string, bias?: Coordinates): Promise<G
   if (!GEOAPIFY_API_KEY) return null;
 
   try {
-    let url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(query)}&apiKey=${GEOAPIFY_API_KEY}&limit=5&lang=en`;
+    // Use the correct response language based on query script:
+    // Thai queries → lang=th so Geoapify returns Thai-script formatted addresses
+    // English/mixed queries → lang=en (default)
+    const queryLang = detectQueryLanguage(query);
+    const langParam = queryLang === "th" ? "th" : "en";
+
+    let url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(query)}&apiKey=${GEOAPIFY_API_KEY}&limit=5&lang=${langParam}`;
     if (bias && bias.lat && bias.lng) {
       url += `&bias=proximity:${bias.lng},${bias.lat}`;
       url += `&filter=circle:${bias.lng},${bias.lat},100000`; // Limit to 100km radius around destination
@@ -329,11 +358,17 @@ async function geocodeWithGeoapify(query: string, bias?: Coordinates): Promise<G
 
       const coords = selectedFeat.geometry?.coordinates;
       if (coords && coords.length >= 2) {
+        // For mixed-script queries, prefer the English name field if available
+        // so displayed addresses stay consistent regardless of query language
+        const props = selectedFeat.properties || {};
+        const formattedAddress =
+          (queryLang === "mixed" ? (props.name || props.formatted) : props.formatted) || null;
+
         const result: GeocodePlaceResult = {
           lng: coords[0],
           lat: coords[1],
-          formattedAddress: selectedFeat.properties?.formatted || null,
-          placeId: selectedFeat.properties?.place_id || null,
+          formattedAddress,
+          placeId: props.place_id || null,
           photoUrl: null,
           rating: null,
           userRatingsTotal: null,
@@ -363,14 +398,17 @@ async function geocodeWithGeoapify(query: string, bias?: Coordinates): Promise<G
 async function geocodeWithNominatim(query: string, bias?: Coordinates): Promise<GeocodePlaceResult | null> {
   if (isNominatimExhausted) return null;
   try {
-    let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5`;
+    let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&accept-language=en`;
     if (bias && bias.lat && bias.lng) {
       // 1 degree latitude ~ 111 km, bound search tightly to destination area
       url += `&viewbox=${bias.lng - 0.9},${bias.lat + 0.9},${bias.lng + 0.9},${bias.lat - 0.9}&bounded=1`;
     }
 
     const res = await fetch(url, {
-      headers: { "User-Agent": "PixineraryApp/1.0" },
+      headers: {
+        "User-Agent": "PixineraryApp/1.0",
+        "Accept-Language": "en",
+      },
     });
     if (res.status === 429) {
       console.warn("[geocodeWithNominatim] Nominatim rate limit (429) reached. Activating circuit breaker.");
@@ -435,12 +473,11 @@ export async function getCoordinates(
 
   const cleaned = cleanPlaceName(placeName);
   const keyword = extractKeyword(cleaned || placeName);
-  const city = cityName ? `, ${cityName}` : "";
 
   // 0. Instant Disambiguation for World-Famous / Landmark Namesakes
   const rawKey = placeName.toLowerCase().trim().replace(/,\s*(thailand|ประเทศไทย)$/i, "").trim();
   const cleanedKey = cleaned.toLowerCase().trim().replace(/,\s*(thailand|ประเทศไทย)$/i, "").trim();
-  
+
   for (const [knownName, disambig] of Object.entries(FAMOUS_LANDMARK_DISAMBIGUATION)) {
     if (rawKey === knownName || cleanedKey === knownName || rawKey.includes(knownName) || knownName.includes(rawKey)) {
       if (!bias || distanceMetres(disambig, bias) <= 150_000) {
@@ -457,17 +494,51 @@ export async function getCoordinates(
     }
   }
 
-  // Prioritize city-specific queries first when cityName is known!
-  const candidates = [
-    cityName ? `${cleaned}${city}` : null,
-    cityName ? `${placeName}${city}` : null,
-    cityName ? `${keyword}${city}` : null,
-    cleaned,
-    placeName,
-    keyword,
-  ].filter((q): q is string => Boolean(q && q.trim().length > 0));
+  // ------------------------------------------------------------------
+  // Build ordered candidate queries — CRITICAL FOR ACCURACY:
+  // Rule: Never combine a Thai place name with an English city name (or vice versa)
+  //       in the same query string, as this creates malformed hybrid queries that
+  //       confuse geocoders (e.g. "วัดโพธิ์, Bangkok" → Geoapify returns wrong pin).
+  //
+  // Strategy:
+  //   1. Pure-same-script combos (English place + English city, Thai place + Thai city)
+  //   2. Place-only (no city) in same script
+  //   3. Cross-script combos only as last resort
+  // ------------------------------------------------------------------
+  const placeScript = detectQueryLanguage(cleaned || placeName);
+  const cityScript = cityName ? detectQueryLanguage(cityName) : null;
 
-  const uniqueCandidates = Array.from(new Set(candidates));
+  const candidateList: Array<string | null> = [];
+
+  if (cityName) {
+    // Same-script combos first (avoids hybrid query issues)
+    if (placeScript !== "th" && cityScript !== "th") {
+      // Both English/mixed → safe to combine
+      candidateList.push(`${cleaned}, ${cityName}`);
+      candidateList.push(`${placeName}, ${cityName}`);
+      if (keyword !== cleaned && keyword !== placeName) candidateList.push(`${keyword}, ${cityName}`);
+    } else if (placeScript === "th" && cityScript === "th") {
+      // Both Thai → safe to combine
+      candidateList.push(`${cleaned} ${cityName}`);
+      candidateList.push(`${placeName} ${cityName}`);
+    } else {
+      // Mixed scripts → don't combine; query place-only first, city-only second
+      candidateList.push(cleaned);
+      candidateList.push(placeName);
+      // Then fallback to cross-script combos
+      candidateList.push(`${cleaned}, ${cityName}`);
+      candidateList.push(`${placeName}, ${cityName}`);
+    }
+  }
+
+  // Place-only candidates (always include)
+  candidateList.push(cleaned);
+  candidateList.push(placeName);
+  if (keyword && keyword !== cleaned && keyword !== placeName) candidateList.push(keyword);
+
+  const uniqueCandidates = Array.from(
+    new Set(candidateList.filter((q): q is string => Boolean(q && q.trim().length > 0)))
+  );
 
   // If determining destination coordinates (no bias provided), check Geoapify first
   // because Geoapify ranks real POIs/amenities above generic streets/alleyways
@@ -504,7 +575,7 @@ export async function getCoordinates(
     }
   }
 
-  // Strategy 4: Fallback to OpenStreetMap Nominatim bounded viewbox
+  // Strategy 4: Fallback to OpenStreetMap Nominatim bounded viewbox (with accept-language=en)
   for (const q of uniqueCandidates) {
     const res = await geocodeWithNominatim(q, bias);
     if (res) {
@@ -533,8 +604,175 @@ export async function getCoordinates(
       photoUrl: null,
       rating: 4.5,
       userRatingsTotal: 25,
+      isFallback: true,
     });
   }
 
   throw new Error(`All geocoding strategies exhausted for: "${placeName}"`);
+}
+
+// ---------------------------------------------------------------------------
+// Google Maps URL Builder — Always uses coords + English name for accuracy
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the most accurate Google Maps URL for a place.
+ *
+ * Priority:
+ *   1. If real lat/lng exist → `maps/place/EnglishName/@lat,lng,17z`
+ *      (opens a labelled pin at the exact geocoded location)
+ *   2. If only name exists → `maps/search/?query=EnglishName`
+ *      (lets Google Maps search and resolve the place itself)
+ *
+ * Always uses the English name for the query so Google Maps can correctly
+ * identify the place regardless of the user's UI language setting.
+ */
+export function buildGoogleMapsUrl(options: {
+  lat?: number | null;
+  lng?: number | null;
+  /** Prefer English name for reliable Google Maps lookup */
+  englishName?: string | null;
+  /** Fallback name (may be Thai or native language) */
+  placeName?: string | null;
+  /** City/country context for search disambiguation */
+  cityName?: string | null;
+  /** Whether coordinates were verified from a real POI (false if jitter fallback) */
+  isCoordsVerified?: boolean;
+  /** Mode: "directions" | "search" | "streetview" */
+  mode?: "directions" | "search" | "streetview";
+}): string {
+  const { lat, lng, englishName, placeName, cityName, isCoordsVerified = true, mode = "search" } = options;
+
+  const hasCoords =
+    lat != null && lng != null && !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+
+  // Prefer English name because Google Maps English indexing is universal worldwide
+  // If englishName is absent, use placeName (which might be Thai or native language)
+  let primaryName = (englishName || "").trim();
+  if (!primaryName) {
+    primaryName = (placeName || "").trim();
+  }
+
+  // Disambiguate with city context if not already included in place name
+  let searchQuery = primaryName;
+  if (cityName && cityName.trim()) {
+    const cityClean = cityName.trim();
+    if (!searchQuery.toLowerCase().includes(cityClean.toLowerCase())) {
+      searchQuery = searchQuery ? `${searchQuery}, ${cityClean}` : cityClean;
+    }
+  }
+
+  if (mode === "directions") {
+    // If coords are valid AND verified by POI, navigate directly to exact GPS coordinates
+    if (hasCoords && isCoordsVerified) {
+      return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    }
+    // If coords are missing or unverified/jitter fallback, navigate to place name so Google Maps resolves the real spot
+    if (searchQuery) {
+      return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(searchQuery)}`;
+    }
+    if (hasCoords) {
+      return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    }
+    return `https://www.google.com/maps/dir/?api=1`;
+  }
+
+  if (mode === "streetview") {
+    if (hasCoords && isCoordsVerified) {
+      return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
+    }
+    if (searchQuery) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
+    }
+    if (hasCoords) {
+      return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
+    }
+    return `https://www.google.com/maps`;
+  }
+
+  // "search" mode (default): opens rich Google Maps place card (reviews, photos, opening hours)
+  if (searchQuery) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
+  }
+  if (hasCoords) {
+    return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  }
+  return `https://www.google.com/maps`;
+}
+
+// ---------------------------------------------------------------------------
+// Coordinate Validation — Reverse-geocode to confirm a real POI exists nearby
+// ---------------------------------------------------------------------------
+
+/** Cache to avoid repeated Nominatim reverse calls for the same coordinate */
+const reverseGeocodeCache = new Map<string, boolean>();
+
+/**
+ * Verifies that a given lat/lng has a real named POI within `radiusM` metres
+ * using Nominatim reverse geocoding.
+ *
+ * Returns true if:
+ *   - Nominatim finds a result tagged as amenity/tourism/leisure/historic/building, OR
+ *   - The result display_name contains the place name (fuzzy match)
+ *
+ * Returns false (hallucinated / wrong pin) if:
+ *   - Nominatim only returns a generic road / suburb / city result with no POI tag
+ *   - Nominatim returns an error / unable to geocode
+ *
+ * Uses a simple in-memory cache so repeated renders don't hammer Nominatim.
+ */
+export async function verifyCoordinatesHaveNearbyPOI(
+  lat: number,
+  lng: number,
+  placeName?: string,
+  radiusM: number = 200
+): Promise<boolean> {
+  if (!lat || !lng || lat === 0 || lng === 0) return false;
+
+  const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  if (reverseGeocodeCache.has(cacheKey)) {
+    return reverseGeocodeCache.get(cacheKey)!;
+  }
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=17&accept-language=en`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "PixineraryApp/1.0",
+        "Accept-Language": "en",
+      },
+    });
+    if (!res.ok) {
+      reverseGeocodeCache.set(cacheKey, true); // Don't block on API errors
+      return true;
+    }
+    const data = await res.json();
+    if (data.error || !data.osm_id) {
+      reverseGeocodeCache.set(cacheKey, false);
+      return false;
+    }
+
+    const osmClass: string = (data.class || "").toLowerCase();
+    const displayName: string = (data.display_name || "").toLowerCase();
+
+    // Accept: amenity, tourism, leisure, historic, building, shop, office, natural, man_made
+    const VALID_CLASSES = ["amenity", "tourism", "leisure", "historic", "building", "shop", "office", "natural", "man_made"];
+    const isRealPOI = VALID_CLASSES.includes(osmClass);
+
+    // Reject generic road / suburb / administrative results
+    const GENERIC_CLASSES = ["highway", "place", "boundary", "landuse", "waterway"];
+    const isGeneric = GENERIC_CLASSES.includes(osmClass);
+
+    // Fuzzy name match: if the place name appears in the Nominatim display_name → valid
+    const nameMatches = placeName
+      ? displayName.includes(placeName.toLowerCase().trim().split(" ")[0])
+      : false;
+
+    const isValid = isRealPOI || nameMatches || (!isGeneric && Boolean(data.osm_id));
+    reverseGeocodeCache.set(cacheKey, isValid);
+    return isValid;
+  } catch {
+    reverseGeocodeCache.set(cacheKey, true); // Fail open to avoid blocking
+    return true;
+  }
 }

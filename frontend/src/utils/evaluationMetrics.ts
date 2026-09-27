@@ -553,3 +553,139 @@ export function generateMarkdownTable(data: ModelBenchmarkRow[]): string {
 
   return `${headerLine}\n${alignLine}\n${rows}`;
 }
+
+
+// ==========================================
+// 7. Error Analysis / Failure Mode Taxonomy (3 Core Symptoms)
+// ==========================================
+
+export type FailureMode = "none" | "visual_confusion" | "hallucination" | "degradation_rejection";
+
+export interface FailureModeConfig {
+  id: FailureMode;
+  labelEn: string;
+  labelTh: string;
+  shortName: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  textColor: string;
+  badge: string;
+  descriptionTh: string;
+  descriptionEn: string;
+}
+
+export const FAILURE_MODE_CONFIGS: Record<FailureMode, FailureModeConfig> = {
+  none: {
+    id: "none",
+    labelEn: "Correct Prediction",
+    labelTh: "ทายถูกต้อง",
+    shortName: "Correct",
+    color: "#10b981",
+    bgColor: "bg-emerald-50",
+    borderColor: "border-emerald-200",
+    textColor: "text-emerald-700",
+    badge: "Correct ✓",
+    descriptionTh: "ผลการทำนายตรงกับสถานที่เป้าหมาย",
+    descriptionEn: "Prediction matches ground truth landmark.",
+  },
+  visual_confusion: {
+    id: "visual_confusion",
+    labelEn: "Visual / Spatial Confusion",
+    labelTh: "สับสนทางสายตา / สถาปัตยกรรมคล้ายกัน",
+    shortName: "Visual Confusion",
+    color: "#8b5cf6",
+    bgColor: "bg-purple-50",
+    borderColor: "border-purple-200",
+    textColor: "text-purple-700",
+    badge: "Visual Confusion",
+    descriptionTh: "โมเดลเข้าใจว่าเป็นสถานที่จริง แต่สับสนเพราะรูปทรง หน้าตา หรือสถานที่ข้างเคียงคล้ายกัน",
+    descriptionEn: "Confused with a visually or architecturally similar real landmark.",
+  },
+  hallucination: {
+    id: "hallucination",
+    labelEn: "Hallucination / Generic",
+    labelTh: "เพ้อเจ้อ / กุชื่อที่ไม่มีจริง",
+    shortName: "Hallucination",
+    color: "#f59e0b",
+    bgColor: "bg-amber-50",
+    borderColor: "border-amber-200",
+    textColor: "text-amber-700",
+    badge: "Hallucination",
+    descriptionTh: "โมเดลตอบชื่อที่ไม่มีอยู่จริงในโลกกายภาพ หรือตอบชื่อกว้างๆ ที่ระบุพิกัดไม่ได้",
+    descriptionEn: "Fabricated non-existent location or overly generic unlocatable phrase.",
+  },
+  degradation_rejection: {
+    id: "degradation_rejection",
+    labelEn: "Degradation / Rejection",
+    labelTh: "ภาพตกมาตรฐาน / ปฏิเสธการตอบ",
+    shortName: "Degradation",
+    color: "#ef4444",
+    bgColor: "bg-rose-50",
+    borderColor: "border-rose-200",
+    textColor: "text-rose-700",
+    badge: "Degraded / Refusal",
+    descriptionTh: "ความผิดพลาดจากปัจจัยภาพถ่าย (มืด/เบลอ/ย้อนแสง/บดบัง) หรือโมเดลปฏิเสธภาพ",
+    descriptionEn: "Failed due to severe image degradation (blur/lighting/occlusion) or model abstention.",
+  },
+};
+
+export const FAILURE_MODE_OPTIONS: FailureMode[] = [
+  "visual_confusion",
+  "hallucination",
+  "degradation_rejection",
+];
+
+/**
+ * Automatically classifies the failure symptom into 3 core categories:
+ * 1. visual_confusion: Real landmark confused with visually/spatially similar place
+ * 2. hallucination: Non-existent invented place or overly generic placeholder
+ * 3. degradation_rejection: Unidentifiable image, dark/blur/occlusion artifact, or refusal
+ */
+export function classifyErrorCategory(
+  predicted: string,
+  groundTruth: string,
+  context: {
+    isCorrect: boolean;
+    confidence: number;
+    isIdentifiablePlace?: boolean;
+    conditionCategory?: string; // e.g. "Lighting", "Quality", "Weather", "ViewAngle"
+    conditionLabel?: string;    // e.g. "blurred", "low_res", "nighttime", "harsh_shadows"
+    tier?: string;              // e.g. "tier4_ugc"
+  }
+): FailureMode {
+  if (context.isCorrect) return "none";
+
+  const pNorm = (predicted || "").toLowerCase().trim();
+
+  // 1. Degradation / Rejection
+  if (
+    context.isIdentifiablePlace === false ||
+    pNorm.includes("ไม่ระบุสถานที่") ||
+    pNorm.includes("unknown") ||
+    pNorm.includes("unidentifiable") ||
+    pNorm.includes("n/a") ||
+    context.conditionCategory === "Quality" ||
+    (context.conditionLabel && ["blurred", "low_res", "noisy", "nighttime", "harsh_shadows"].includes(context.conditionLabel)) ||
+    (context.tier === "tier4_ugc" && context.confidence < 0.35)
+  ) {
+    return "degradation_rejection";
+  }
+
+  // 2. Hallucination / Generic Placeholder
+  const genericKeywords = [
+    "วัด", "วัดไทย", "วัดโบราณ", "ชายหาด", "ภูเขา", "เกาะ", "น้ำตก", "ตลาด",
+    "temple", "thai temple", "ancient temple", "beach", "mountain", "island", "market",
+    "tourist attraction", "landmark", "park", "city", "place", "historic site"
+  ];
+  const isGeneric = genericKeywords.some(
+    g => pNorm === g || pNorm === `a ${g}` || pNorm === `the ${g}`
+  );
+  if (isGeneric || pNorm.length < 3 || pNorm.startsWith("ภาพ") || pNorm.startsWith("รูป")) {
+    return "hallucination";
+  }
+
+  // 3. Visual Confusion (Default for mistaken real landmark candidates)
+  return "visual_confusion";
+}
+

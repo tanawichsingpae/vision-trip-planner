@@ -8,10 +8,24 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AIModelType, AI_MODEL_OPTIONS } from "@/context/AIProviderContext";
-import { analyzeImage, VisionResult } from "@/services/aiService";
-import { evaluatePredictionWithAliases, calculateHaversineDistance } from "@/utils/evaluationMetrics";
+import { analyzeImage, analyzeImageDirect, VisionResult } from "@/services/aiService";
+import {
+  evaluatePredictionWithAliases,
+  calculateHaversineDistance,
+  classifyErrorCategory,
+  FailureMode,
+  FAILURE_MODE_CONFIGS,
+} from "@/utils/evaluationMetrics";
+import {
+  VPRTier,
+  TIER_CONFIGS,
+  TIER_OPTIONS,
+  detectTierFromFilename,
+  normalizeTier,
+} from "@/types/experimentTiers";
 import {
   FolderArchive,
   Upload,
@@ -34,12 +48,14 @@ export interface BatchDatasetItem {
   file: File;
   preview: string;
   name: string;
-  groundTruth: string; // May contain multi-aliases like "Wat Arun | วัดอรุณ"
+  groundTruth: string; // May contain multi-aliases like "Wat Arun | Temple of Dawn"
+  tier: VPRTier;
 }
 
 export interface BatchItemResult {
   image_name: string;
   ground_truth: string;
+  tier: VPRTier;
   model: AIModelType;
   modelLabel: string;
   predicted: string;
@@ -49,11 +65,19 @@ export interface BatchItemResult {
   recall_rank: number; // 1 for top-1, 2 for top-2, etc. 0 if not matched
   match_score: number;
   matched_alias: string | null;
+  failure_mode?: FailureMode;
+  temperature?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  tokens_per_sec?: number;
 }
 
 interface BatchEvaluationCardProps {
   selectedModels: AIModelType[];
   useClip: boolean;
+  temperature?: number;
   onBatchComplete: (results: BatchItemResult[]) => void;
   onSingleItemLogged?: (record: any) => void;
 }
@@ -61,6 +85,7 @@ interface BatchEvaluationCardProps {
 export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
   selectedModels,
   useClip,
+  temperature = 0.0,
   onBatchComplete,
   onSingleItemLogged,
 }) => {
@@ -109,17 +134,20 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
         .substring(0, file.name.lastIndexOf(".") > 0 ? file.name.lastIndexOf(".") : file.name.length)
         .replace(/[-_]/g, " ");
 
+      const detectedTier = detectTierFromFilename(file.name);
+
       newItems.push({
         id: `${file.name}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
         file,
         preview: URL.createObjectURL(file),
         name: file.name,
         groundTruth: guessedName,
+        tier: detectedTier,
       });
     });
 
     setItems((prev) => [...prev, ...newItems]);
-    toast.success(`Added ${newItems.length} images to batch dataset.`);
+    toast.success(`Added ${newItems.length} images to batch dataset with auto-detected tiers.`);
   };
 
   // Handle ZIP Archive upload
@@ -148,7 +176,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
       }
 
       // 2. Parse CSV if present
-      const labelLookup: Record<string, string> = {};
+      const labelLookup: Record<string, { gt: string; tier?: VPRTier }> = {};
       if (csvContent) {
         const lines = csvContent.split(/\r?\n/);
         lines.forEach((line, idx) => {
@@ -158,8 +186,16 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
             // Check if header row
             if (idx === 0 && (cols[0].toLowerCase().includes("file") || cols[0].toLowerCase().includes("image"))) return;
             const imgKey = cols[0];
-            const gt = cols.slice(1).join(" | "); // Combine aliases
-            labelLookup[imgKey] = gt;
+            let tierVal: VPRTier | undefined = undefined;
+            let gt = "";
+
+            if (cols.length >= 3 && /tier|t1|t2|t3|t4|iconic|tail|nature|ugc/i.test(cols[cols.length - 1])) {
+              tierVal = normalizeTier(cols[cols.length - 1]);
+              gt = cols.slice(1, -1).join(" | ");
+            } else {
+              gt = cols.slice(1).join(" | ");
+            }
+            labelLookup[imgKey] = { gt, tier: tierVal };
           }
         });
       }
@@ -170,7 +206,9 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
           .substring(0, imgName.lastIndexOf(".") > 0 ? imgName.lastIndexOf(".") : imgName.length)
           .replace(/[-_]/g, " ");
 
-        const gt = labelLookup[imgName] || guessedName;
+        const parsed = labelLookup[imgName];
+        const gt = parsed?.gt || guessedName;
+        const tier = parsed?.tier || detectTierFromFilename(imgName);
 
         newItems.push({
           id: `${imgName}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -178,6 +216,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
           preview: URL.createObjectURL(imgFile),
           name: imgName,
           groundTruth: gt,
+          tier: tier,
         });
       });
 
@@ -195,7 +234,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
     }
   };
 
-  // Parse CSV to apply ground truth labels to images
+  // Parse CSV to apply ground truth labels & tier to images
   const parseAndApplyCsv = (file: File, pendingImages?: File[]) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -203,45 +242,70 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
       if (!text) return;
 
       const lines = text.split(/\r?\n/);
-      const labelMap: Record<string, string> = {};
+      const labelMap: Record<string, { gt: string; tier?: VPRTier }> = {};
 
       lines.forEach((line, idx) => {
         if (!line.trim()) return;
         const cols = line.split(",").map((s) => s.trim().replace(/^["']|["']$/g, ""));
         if (cols.length >= 2) {
           if (idx === 0 && (cols[0].toLowerCase().includes("file") || cols[0].toLowerCase().includes("image"))) return;
-          labelMap[cols[0]] = cols.slice(1).join(" | ");
+          const imgKey = cols[0];
+          let tierVal: VPRTier | undefined = undefined;
+          let gt = "";
+
+          if (cols.length >= 3 && /tier|t1|t2|t3|t4|iconic|tail|nature|ugc/i.test(cols[cols.length - 1])) {
+            tierVal = normalizeTier(cols[cols.length - 1]);
+            gt = cols.slice(1, -1).join(" | ");
+          } else {
+            gt = cols.slice(1).join(" | ");
+          }
+          labelMap[imgKey] = { gt, tier: tierVal };
         }
       });
 
       if (pendingImages && pendingImages.length > 0) {
         const newItems: BatchDatasetItem[] = pendingImages.map((img) => {
           const guessed = img.name.substring(0, img.name.lastIndexOf(".")).replace(/[-_]/g, " ");
+          const parsed = labelMap[img.name];
           return {
             id: `${img.name}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
             file: img,
             preview: URL.createObjectURL(img),
             name: img.name,
-            groundTruth: labelMap[img.name] || guessed,
+            groundTruth: parsed?.gt || guessed,
+            tier: parsed?.tier || detectTierFromFilename(img.name),
           };
         });
         setItems((prev) => [...prev, ...newItems]);
       } else {
         // Update existing items
         setItems((prev) =>
-          prev.map((item) => ({
-            ...item,
-            groundTruth: labelMap[item.name] || item.groundTruth,
-          }))
+          prev.map((item) => {
+            const parsed = labelMap[item.name];
+            return {
+              ...item,
+              groundTruth: parsed?.gt || item.groundTruth,
+              tier: parsed?.tier || item.tier,
+            };
+          })
         );
       }
-      toast.success("Applied ground truth labels from CSV file.");
+      toast.success("Applied ground truth labels and tier tags from CSV file.");
     };
     reader.readAsText(file);
   };
 
   const updateItemGroundTruth = (id: string, newGt: string) => {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, groundTruth: newGt } : item)));
+  };
+
+  const updateItemTier = (id: string, newTier: VPRTier) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, tier: newTier } : item)));
+  };
+
+  const setAllItemsTier = (newTier: VPRTier) => {
+    setItems((prev) => prev.map((item) => ({ ...item, tier: newTier })));
+    toast.success(`Set all ${items.length} images to ${TIER_CONFIGS[newTier].shortName}`);
   };
 
   const removeItem = (id: string) => {
@@ -256,10 +320,17 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
   };
 
   // Helper to commit a single image result to backend immediately
-  const saveSingleImageToBackend = async (imageName: string, groundTruth: string, results: BatchItemResult[]) => {
+  const saveSingleImageToBackend = async (
+    imageName: string,
+    groundTruth: string,
+    tier: VPRTier,
+    results: BatchItemResult[]
+  ) => {
     const payload = {
       image_name: imageName,
       ground_truth: groundTruth,
+      tier: tier,
+      temperature: temperature,
       results: results.map((r) => ({
         model: r.model,
         predicted: r.predicted,
@@ -268,6 +339,14 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
         is_correct: r.is_correct,
         recall_rank: r.recall_rank,
         matched_alias: r.matched_alias,
+        temperature: r.temperature ?? temperature,
+        failure_mode: r.failure_mode ?? "none",
+        tier: r.tier || tier,
+        prompt_tokens: r.prompt_tokens,
+        completion_tokens: r.completion_tokens,
+        total_tokens: r.total_tokens,
+        cost_usd: r.cost_usd,
+        tokens_per_sec: r.tokens_per_sec,
       })),
     };
 
@@ -333,12 +412,20 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
 
         const tStart = performance.now();
         try {
-          const res: VisionResult = await analyzeImage(
-            item.file,
-            modelId,
-            useClip,
-            (step) => setCurrentStepText(`[${modelLabel}] ${step}`)
-          );
+          const res: VisionResult = useClip
+            ? await analyzeImage(
+                item.file,
+                modelId,
+                true,
+                (step) => setCurrentStepText(`[${modelLabel}] ${step}`),
+                { allowFallback: false, temperature }
+              )
+            : await analyzeImageDirect(
+                item.file,
+                modelId,
+                (step) => setCurrentStepText(`[${modelLabel}] ${step}`),
+                { allowFallback: false, temperature }
+              );
           const tEnd = performance.now();
           const duration = Math.round(tEnd - tStart);
 
@@ -350,18 +437,37 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
             0.70
           );
 
+          const failureMode = classifyErrorCategory(
+            res.place || "Unknown",
+            item.groundTruth,
+            {
+              isCorrect: matchResult.isCorrect,
+              confidence: res.confidence || 0.0,
+              isIdentifiablePlace: res.is_identifiable_place,
+              tier: item.tier,
+            }
+          );
+
           const itemRes: BatchItemResult = {
             image_name: item.name,
             ground_truth: item.groundTruth,
+            tier: item.tier,
             model: modelId,
             modelLabel,
             predicted: res.place || "Unknown",
             confidence: res.confidence || 0.0,
-            time_ms: duration,
+            time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
             is_correct: matchResult.isCorrect,
             recall_rank: matchResult.rank,
             match_score: matchResult.matchScore,
             matched_alias: matchResult.matchedAlias,
+            failure_mode: failureMode,
+            temperature: temperature,
+            prompt_tokens: res.metrics?.prompt_tokens ?? (res as any).prompt_tokens ?? 0,
+            completion_tokens: res.metrics?.completion_tokens ?? (res as any).completion_tokens ?? 0,
+            total_tokens: res.metrics?.total_tokens ?? (res as any).total_tokens ?? 0,
+            cost_usd: res.metrics?.cost_usd ?? (res as any).cost_usd ?? 0.0,
+            tokens_per_sec: res.metrics?.tokens_per_sec ?? (res as any).tokens_per_sec ?? 0.0,
           };
 
           itemResults.push(itemRes);
@@ -378,7 +484,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
 
       // Automatically save to backend after each image completes
       if (itemResults.length > 0) {
-        await saveSingleImageToBackend(item.name, item.groundTruth, itemResults);
+        await saveSingleImageToBackend(item.name, item.groundTruth, item.tier, itemResults);
       }
     }
 
@@ -523,7 +629,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
                   Dataset Queue: {items.length} Images ({totalTrials} Model Trials)
                 </span>
                 <span className="text-[10px] text-slate-400">
-                  Tip: Multi-alias separated by | (e.g. <i>Wat Arun | วัดอรุณ</i>)
+                  Tip: Multi-alias separated by | (e.g. <i>Wat Arun | Temple of Dawn</i>)
                 </span>
               </div>
               {!isRunning && (
@@ -539,6 +645,30 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
               )}
             </div>
 
+            {/* Quick Set All Tier bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+              <div className="flex items-center gap-1.5 text-slate-700">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="font-semibold text-xs">Batch Set All Items Tier:</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {TIER_OPTIONS.map((opt) => (
+                  <Button
+                    key={opt.value}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isRunning}
+                    onClick={() => setAllItemsTier(opt.value)}
+                    className="h-6 text-[10px] px-2 bg-white hover:bg-slate-100 font-medium"
+                    style={{ borderColor: `${opt.color}40`, color: opt.color }}
+                  >
+                    {opt.shortName}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white max-h-56">
               <Table>
                 <TableHeader className="bg-slate-50 sticky top-0 z-10">
@@ -547,6 +677,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
                     <TableHead className="text-slate-500 text-[11px] py-2 w-16">Preview</TableHead>
                     <TableHead className="text-slate-500 text-[11px] py-2 text-left">Filename</TableHead>
                     <TableHead className="text-slate-500 text-[11px] py-2 text-left">Ground Truth Label(s)</TableHead>
+                    <TableHead className="text-slate-500 text-[11px] py-2 w-36 text-left">Benchmark Tier</TableHead>
                     <TableHead className="text-slate-500 text-[11px] py-2 w-12 text-center"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -570,8 +701,26 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
                           onChange={(e) => updateItemGroundTruth(item.id, e.target.value)}
                           disabled={isRunning}
                           className="h-7 text-xs bg-slate-50 border-slate-200 text-slate-900 focus-visible:bg-white"
-                          placeholder="e.g. Wat Arun | วัดอรุณ | Temple of Dawn"
+                          placeholder="e.g. Wat Arun | Temple of Dawn"
                         />
+                      </TableCell>
+                      <TableCell className="py-1.5 text-left">
+                        <Select
+                          value={item.tier}
+                          onValueChange={(val) => updateItemTier(item.id, val as VPRTier)}
+                          disabled={isRunning}
+                        >
+                          <SelectTrigger className="h-7 text-[11px] bg-slate-50 border-slate-200">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {TIER_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                                <span className="font-bold" style={{ color: opt.color }}>{opt.shortName}</span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </TableCell>
                       <TableCell className="text-center py-1.5">
                         {!isRunning && (

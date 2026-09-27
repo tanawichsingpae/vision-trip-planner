@@ -676,10 +676,21 @@ export interface LiveSpecialEvent {
   highlight: string;
 }
 
+export interface DisasterAlertInfo {
+  hasDisaster: boolean;
+  disasterType: "flood" | "storm" | "earthquake" | "transit_strike" | "air_quality" | "protest" | "general_disaster" | "none";
+  severity: "critical" | "warning" | "info" | "none";
+  headline: string;
+  affectedAreas: string[];
+  actionAdvice: string;
+  isImmediate?: boolean;
+}
+
 export interface LiveTransitStatus {
   hasDisruption: boolean;
   transitStatus: "normal" | "warning" | "critical";
-  noticeType?: "live_incident" | "scheduled_maintenance" | "regular_advisory";
+  noticeType?: "disaster_alert" | "live_incident" | "scheduled_maintenance" | "regular_advisory";
+  disasterAlert?: DisasterAlertInfo;
   title: string;
   summary: string;
   disruptions: Array<{
@@ -699,17 +710,26 @@ export interface LiveTransitStatus {
 }
 
 /**
- * Calls backend Search RAG endpoint to get live city traffic/weather/transit/attraction insights via OpenRouter Gemini online search.
+ * Calls backend Search RAG endpoint to get live city traffic/weather/transit/attraction/disaster insights via OpenRouter Gemini online search.
  */
 export async function fetchLiveBuddyInsights(
   cityName: string,
   places: string[] = [],
-  targetDate?: Date | string
+  targetDate?: Date | string,
+  language: "th" | "en" = "th"
 ): Promise<LiveTransitStatus> {
   const defaultStatus: LiveTransitStatus = {
     hasDisruption: false,
     transitStatus: "normal",
     noticeType: "regular_advisory",
+    disasterAlert: {
+      hasDisaster: false,
+      disasterType: "none",
+      severity: "none",
+      headline: "",
+      affectedAreas: [],
+      actionAdvice: "",
+    },
     title: "",
     summary: "",
     disruptions: [],
@@ -749,6 +769,7 @@ export async function fetchLiveBuddyInsights(
         city: cityName,
         places: places.slice(0, 5),
         date: dateStr,
+        language: language || "th",
       }),
     });
 
@@ -761,6 +782,15 @@ export async function fetchLiveBuddyInsights(
       hasDisruption: Boolean(data.has_disruption),
       transitStatus: data.transit_status || "normal",
       noticeType: data.notice_type || (Boolean(data.has_disruption) ? "live_incident" : "regular_advisory"),
+      disasterAlert: data.disaster_alert ? {
+        hasDisaster: Boolean(data.disaster_alert.has_disaster),
+        disasterType: data.disaster_alert.disaster_type || "none",
+        severity: data.disaster_alert.severity || "none",
+        headline: data.disaster_alert.headline || "",
+        affectedAreas: Array.isArray(data.disaster_alert.affected_areas) ? data.disaster_alert.affected_areas : [],
+        actionAdvice: data.disaster_alert.action_advice || "",
+        isImmediate: data.disaster_alert.is_immediate ?? true,
+      } : defaultStatus.disasterAlert,
       title: data.title || "",
       summary: data.summary || "",
       disruptions: Array.isArray(data.disruptions) ? data.disruptions : [],
@@ -848,6 +878,49 @@ export function evaluateSmartReroute(
   if (!day || !day.activities || day.activities.length < 2) return null;
   const isTh = language === "th";
   const acts = day.activities;
+
+  // 0. Check for Disaster / Flood Hazard in today's places
+  if (liveStatus?.disasterAlert?.hasDisaster && liveStatus.disasterAlert.affectedAreas && liveStatus.disasterAlert.affectedAreas.length > 0) {
+    const disaster = liveStatus.disasterAlert;
+    for (let i = 0; i < acts.length; i++) {
+      const act = acts[i];
+      const matchArea = disaster.affectedAreas.find(
+        (area) =>
+          act.title.toLowerCase().includes(area.toLowerCase()) ||
+          area.toLowerCase().includes(act.title.toLowerCase()) ||
+          (act.description && act.description.toLowerCase().includes(area.toLowerCase()))
+      );
+
+      if (matchArea) {
+        const alternatives: SmartRerouteAlternative[] = [
+          {
+            title: isTh ? `ศูนย์การค้าและคอมมูนิตี้ในร่ม ${cityName}` : `${cityName} Indoor Lifestyle Complex`,
+            category: "indoor",
+            distanceKm: 1.5,
+            reason: isTh ? "สถานที่ในร่ม ปลอดภัย หลบน้ำท่วม/สภาพอากาศ" : "Safe indoor venue away from flood-prone roads",
+          },
+          {
+            title: isTh ? `พิพิธภัณฑ์ศิลปวัฒนธรรม ${cityName}` : `${cityName} Cultural Museum & Gallery`,
+            category: "culture",
+            distanceKm: 2.0,
+            reason: isTh ? "อยู่ในอาคารติดสถานีรถไฟฟ้า เดินทางปลอดภัย" : "Indoor gallery with direct rapid transit connectivity",
+          },
+        ];
+
+        return {
+          type: "SUBSTITUTE",
+          dayIndex,
+          fromActivityIndex: i,
+          fromActivityTitle: act.title,
+          reason: disaster.headline || (isTh ? `พบรายงานภัยพิบัติ/น้ำท่วมขังในย่าน ${matchArea}` : `Hazard alert near ${matchArea}`),
+          pixMessage: isTh
+            ? `⚠️ คุณครับ ในย่าน '${matchArea}' มีรายงานแจ้งเตือน (${disaster.headline || "มีน้ำท่วมขัง/เส้นทางสัญจรไม่สะดวก"}) พิกโซ่แนะนำให้เลี่ยงการไป '${act.title}' แล้วแวะสถานที่ในร่มที่ปลอดภัยเหล่านี้แทนครับ! 🛡️`
+            : `⚠️ Heads up! There is an active alert near '${matchArea}' (${disaster.headline || "Flooding or road disruption"}). Pixo recommends staying safe and visiting these indoor alternatives instead! 🛡️`,
+          alternatives,
+        };
+      }
+    }
+  }
 
   // 1. Check for Attraction Closures or Restrictions in today's places
   if (liveStatus?.attractionAlerts && liveStatus.attractionAlerts.length > 0) {

@@ -6,6 +6,7 @@ import { type DayPlan, type Activity } from "./TravelItinerary";
 import { fetchPlaceDetails } from "@/api/places";
 import { haversineDistance } from "@/api/spatialPlanner";
 import { useLanguage } from "@/context/LanguageContext";
+import { buildGoogleMapsUrl } from "@/api/geocode";
 
 interface MapSectionProps {
   location: LocationData;
@@ -442,12 +443,26 @@ const MapSection = ({
               : ""
           }
           <div style="display: flex; gap: 6px; margin-top: 8px;">
-            <a href="https://www.google.com/maps/dir/?api=1&destination=${m.originalLat},${m.originalLng}" target="_blank" rel="noopener noreferrer" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 10px; border-radius: 6px; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 600; text-decoration: none; box-shadow: 0 1px 3px rgba(37,99,235,0.25);">
+            <a href="${buildGoogleMapsUrl({
+              lat: m.originalLat,
+              lng: m.originalLng,
+              englishName: m.activity.english_name,
+              placeName: m.activity.title,
+              cityName: (location as any).city || location.name,
+              isCoordsVerified: m.activity.isCoordsVerified,
+              mode: 'directions',
+            })}" target="_blank" rel="noopener noreferrer" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 10px; border-radius: 6px; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 600; text-decoration: none; box-shadow: 0 1px 3px rgba(37,99,235,0.25);">
               <span>${navBtnText}</span>
             </a>
-            <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-              spotTitle
-            )}" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; padding: 6px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; font-size: 11px; font-weight: 500; text-decoration: none; border: 1px solid #cbd5e1;" title="${searchTooltip}">
+            <a href="${buildGoogleMapsUrl({
+              lat: m.originalLat,
+              lng: m.originalLng,
+              englishName: m.activity.english_name,
+              placeName: m.activity.title,
+              cityName: (location as any).city || location.name,
+              isCoordsVerified: m.activity.isCoordsVerified,
+              mode: 'search',
+            })}" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; padding: 6px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; font-size: 11px; font-weight: 500; text-decoration: none; border: 1px solid #cbd5e1;" title="${searchTooltip}">
               <span>${searchBtnText}</span>
             </a>
           </div>
@@ -612,7 +627,13 @@ const MapSection = ({
             <div style="font-weight: 700; font-size: 13px; color: #1e40af;">📍 ${title}</div>
             <div style="font-size: 11px; color: #64748b; margin-top: 3px;">Selected from Itinerary</div>
             <div style="margin-top: 8px;">
-              <a href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 10px; border-radius: 6px; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 600; text-decoration: none; box-shadow: 0 1px 3px rgba(37,99,235,0.25);">
+              <a href="${buildGoogleMapsUrl({
+                lat,
+                lng,
+                placeName: title,
+                cityName: (location as any).city || location.name,
+                mode: 'directions',
+              })}" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 10px; border-radius: 6px; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 600; text-decoration: none; box-shadow: 0 1px 3px rgba(37,99,235,0.25);">
                 <span>🚗 นำทาง (Google Maps)</span>
               </a>
             </div>

@@ -494,7 +494,12 @@ export function generateItineraryHtml(
 
           <!-- INTERACTIVE ROUTE MAP -->
           <div class="relative h-[220px] w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 print:h-[220px] shadow-xs">
-            <div id="interactive-route-map"></div>
+            ${
+              trip.route?.imageUrl
+                ? `<img id="static-map-fallback" src="${escapeHtml(trip.route.imageUrl)}" alt="Route map" class="absolute inset-0 h-full w-full object-cover z-0" onerror="this.style.display='none'" />`
+                : ""
+            }
+            <div id="interactive-route-map" class="relative z-10 h-full w-full"></div>
             <div class="absolute bottom-3 right-3 z-[400] rounded-lg bg-white/95 backdrop-blur-sm px-2.5 py-1 text-[9px] font-bold text-slate-700 shadow-sm border border-slate-200 pointer-events-none">
               Route preview · ${routeDistance}
             </div>
@@ -551,6 +556,11 @@ export function generateItineraryHtml(
         btnPrint.classList.remove('bg-white', 'text-slate-900', 'shadow-sm');
         btnPrint.classList.add('text-slate-400');
       }
+      if (window.__routeMap) {
+        setTimeout(function() {
+          window.__routeMap.invalidateSize();
+        }, 150);
+      }
     }
 
     function initInteractiveRouteMap() {
@@ -562,11 +572,34 @@ export function generateItineraryHtml(
         attributionControl: false,
         scrollWheelZoom: false
       });
+      window.__routeMap = map;
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      var mapboxToken = ${JSON.stringify(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || "")};
+      var geoapifyKey = ${JSON.stringify(import.meta.env.VITE_GEOAPIFY_API_KEY || "")};
+
+      var tileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+      var tileOptions = {
         maxZoom: 19,
-        subdomains: 'abcd'
-      }).addTo(map);
+        attribution: 'Tiles &copy; Esri'
+      };
+
+      if (mapboxToken) {
+        tileUrl = 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=' + mapboxToken;
+        tileOptions = {
+          maxZoom: 19,
+          tileSize: 512,
+          zoomOffset: -1,
+          attribution: 'Tiles &copy; Mapbox'
+        };
+      } else if (geoapifyKey) {
+        tileUrl = 'https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=' + geoapifyKey;
+        tileOptions = {
+          maxZoom: 19,
+          attribution: 'Powered by Geoapify'
+        };
+      }
+
+      L.tileLayer(tileUrl, tileOptions).addTo(map);
 
       var allLatLngs = [];
       var tripMapData = ${JSON.stringify(mapData)};
@@ -636,6 +669,12 @@ export function generateItineraryHtml(
         map.invalidateSize();
       }, 250);
     }
+
+    window.addEventListener('resize', function() {
+      if (window.__routeMap) {
+        window.__routeMap.invalidateSize();
+      }
+    });
 
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', initInteractiveRouteMap);

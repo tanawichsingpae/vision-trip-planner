@@ -31,13 +31,32 @@ const RoutePreview: React.FC<RoutePreviewProps> = ({ trip }) => {
     });
     mapInstanceRef.current = map;
 
-    L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-      {
+    const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+    const geoapifyKey = import.meta.env.VITE_GEOAPIFY_API_KEY;
+
+    let tileUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
+    let tileOptions: L.TileLayerOptions = {
+      maxZoom: 19,
+      attribution: "Tiles &copy; Esri",
+    };
+
+    if (mapboxToken) {
+      tileUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${mapboxToken}`;
+      tileOptions = {
         maxZoom: 19,
-        subdomains: "abcd",
-      }
-    ).addTo(map);
+        tileSize: 512,
+        zoomOffset: -1,
+        attribution: 'Tiles &copy; <a href="https://www.mapbox.com/" target="_blank">Mapbox</a>',
+      };
+    } else if (geoapifyKey) {
+      tileUrl = `https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=${geoapifyKey}`;
+      tileOptions = {
+        maxZoom: 19,
+        attribution: 'Powered by <a href="https://www.geoapify.com/" target="_blank">Geoapify</a>',
+      };
+    }
+
+    L.tileLayer(tileUrl, tileOptions).addTo(map);
 
     const allLatLngs: L.LatLngExpression[] = [];
 
@@ -130,7 +149,17 @@ const RoutePreview: React.FC<RoutePreviewProps> = ({ trip }) => {
 
   return (
     <div className="relative h-[220px] w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 print:h-[220px] shadow-xs">
-      <div ref={mapContainerRef} className="h-full w-full z-0" />
+      {trip.route?.imageUrl && (
+        <img
+          src={trip.route.imageUrl}
+          alt="Route map fallback"
+          className="absolute inset-0 h-full w-full object-cover z-0"
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = "none";
+          }}
+        />
+      )}
+      <div ref={mapContainerRef} className="relative z-10 h-full w-full" />
       <div className="absolute bottom-3 right-3 z-[400] rounded-lg bg-white/95 backdrop-blur-sm px-2.5 py-1 text-[9px] font-bold text-slate-700 shadow-sm border border-slate-200 pointer-events-none">
         Route preview · {routeDistance}
       </div>

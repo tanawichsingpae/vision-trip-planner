@@ -156,7 +156,7 @@ export const BuddyDayBriefingCard: React.FC<BuddyDayBriefingCardProps> = ({
     if (!targetCity && (!places || places.length === 0)) return;
 
     setIsLoadingLive(true);
-    fetchLiveBuddyInsights(targetCity || "", places || [], dayDate)
+    fetchLiveBuddyInsights(targetCity || "", places || [], dayDate, isTh ? "th" : "en")
       .then((status) => {
         if (isMounted) {
           setLiveTransit(status);
@@ -173,27 +173,40 @@ export const BuddyDayBriefingCard: React.FC<BuddyDayBriefingCardProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [cityName, placesKey, dateStr]);
-
-  const mascotUrl = getPixoMascotUrl(dominantPose);
+  }, [cityName, placesKey, dateStr, isTh]);
 
   // Section existence flags
-  const hasTransitAlert = Boolean(liveTransit && liveTransit.hasDisruption);
+  const hasDisasterAlert = Boolean(liveTransit?.disasterAlert?.hasDisaster);
+  const disasterInfo = liveTransit?.disasterAlert;
+  const hasTransitAlert = Boolean(liveTransit && liveTransit.hasDisruption && !hasDisasterAlert);
   const hasAttractionAlert = Boolean(
     liveTransit?.attractionAlerts &&
     liveTransit.attractionAlerts.some((a) => a.status === "closed" || a.status === "restricted" || a.status === "crowded")
   );
   const hasEventsAlert = Boolean(liveTransit?.specialEvents && liveTransit.specialEvents.length > 0);
   const hasRulesAlert = Boolean(liveTransit?.localTipsAndRules && cleanTextNoise(liveTransit.localTipsAndRules).length > 0);
-  const hasAnyAlertSection = hasTransitAlert || hasAttractionAlert || hasEventsAlert || hasRulesAlert;
+  const hasAnyAlertSection = hasDisasterAlert || hasTransitAlert || hasAttractionAlert || hasEventsAlert || hasRulesAlert;
+
+  // Dynamic Mascot Pose based on live disaster conditions
+  const mascotUrl = useMemo(() => {
+    if (hasDisasterAlert && disasterInfo) {
+      if (disasterInfo.disasterType === "flood" || disasterInfo.disasterType === "storm") {
+        return getPixoMascotUrl("rainy");
+      }
+      return getPixoMascotUrl("warning");
+    }
+    return getPixoMascotUrl(dominantPose);
+  }, [hasDisasterAlert, disasterInfo, dominantPose]);
 
   // Status Indicator Level: 'critical' (red) | 'warning' (amber) | 'info' (sky/indigo) | 'normal' (emerald)
   const statusLevel = useMemo(() => {
+    if (hasDisasterAlert && disasterInfo?.severity === "critical") return "critical";
+    if (hasDisasterAlert && disasterInfo?.severity === "warning") return "critical";
     if (hasTransitAlert && liveTransit?.noticeType !== "scheduled_maintenance") return "critical";
-    if (hasTransitAlert || hasAttractionAlert || dressCodeWarning) return "warning";
+    if (hasDisasterAlert || hasTransitAlert || hasAttractionAlert || dressCodeWarning) return "warning";
     if (hasEventsAlert || weatherSummary?.toLowerCase().includes("ฝน") || weatherSummary?.toLowerCase().includes("rain")) return "info";
     return "normal";
-  }, [hasTransitAlert, hasAttractionAlert, dressCodeWarning, hasEventsAlert, weatherSummary, liveTransit]);
+  }, [hasDisasterAlert, disasterInfo, hasTransitAlert, hasAttractionAlert, dressCodeWarning, hasEventsAlert, weatherSummary, liveTransit]);
 
   const statusDotClass = {
     critical: "bg-rose-500 animate-pulse",
@@ -204,6 +217,12 @@ export const BuddyDayBriefingCard: React.FC<BuddyDayBriefingCardProps> = ({
 
   // Synthesized Smart One-Liner (Deduplicated single summary line)
   const smartHeadline = useMemo(() => {
+    // 0. Highest Priority: Disaster Alert (Floods, Storms, Earthquakes)
+    if (hasDisasterAlert && disasterInfo) {
+      const icon = disasterInfo.disasterType === "flood" ? "🌊" : (disasterInfo.disasterType === "storm" ? "⛈️" : "🚨");
+      const h = disasterInfo.headline || liveTransit?.summary;
+      return `${icon} ${isTh ? "เตือนภัยด่วน" : "Hazard Alert"}: ${cleanTextNoise(h)}`;
+    }
     // 1. If transit disruption, prioritize transit notice
     if (hasTransitAlert && liveTransit?.summary) {
       const isSched = liveTransit.noticeType === "scheduled_maintenance";
@@ -233,11 +252,27 @@ export const BuddyDayBriefingCard: React.FC<BuddyDayBriefingCardProps> = ({
       return `${trafficSummary} • ${weatherSummary || (isTh ? "พร้อมเที่ยวตามแผน" : "Ready to explore")}`;
     }
     return isTh ? "การเดินทางราบรื่น • พิกโซ่พร้อมดูแลทริปของคุณ!" : "Smooth travels • Pixo is ready for your trip!";
-  }, [hasTransitAlert, liveTransit, hasEventsAlert, weatherSummary, dressCodeWarning, trafficSummary, isTh]);
+  }, [hasDisasterAlert, disasterInfo, hasTransitAlert, liveTransit, hasEventsAlert, weatherSummary, dressCodeWarning, trafficSummary, isTh]);
 
   // Deduplicated Compact Pills (Max 3 items, strictly preventing duplicate meanings)
   const compactPills = useMemo(() => {
     const list: Array<{ id: string; icon: string; label: string; isAlert?: boolean }> = [];
+
+    // 0. Disaster Pill (Top Priority if present)
+    if (hasDisasterAlert && disasterInfo) {
+      const icon = disasterInfo.disasterType === "flood" ? "🌊" : (disasterInfo.disasterType === "storm" ? "⛈️" : "🚨");
+      const label = disasterInfo.disasterType === "flood"
+        ? (isTh ? "เตือนน้ำท่วม" : "Flood Alert")
+        : (disasterInfo.disasterType === "storm"
+          ? (isTh ? "เตือนพายุ" : "Storm Alert")
+          : (isTh ? "เตือนภัยด่วน" : "Hazard Alert"));
+      list.push({
+        id: "disaster",
+        icon,
+        label,
+        isAlert: true,
+      });
+    }
 
     // 1. Transit Status Pill (Choose ONE: Disruption OR Rush Hour OR Normal)
     if (hasTransitAlert && liveTransit) {
@@ -254,7 +289,7 @@ export const BuddyDayBriefingCard: React.FC<BuddyDayBriefingCardProps> = ({
         icon: "🚗",
         label: isTh ? "ชั่วโมงเร่งด่วน" : "Rush Hour",
       });
-    } else {
+    } else if (!hasDisasterAlert) {
       list.push({
         id: "transit",
         icon: "🟢",
@@ -403,6 +438,45 @@ export const BuddyDayBriefingCard: React.FC<BuddyDayBriefingCardProps> = ({
 
             {/* Unified Information List - No nested colored boxes */}
             <div className="rounded-xl bg-muted/30 border border-border/40 divide-y divide-border/30 overflow-hidden text-[11px]">
+              {/* 0. Disaster & Emergency Alert (Highest Priority) */}
+              {hasDisasterAlert && disasterInfo && (
+                <div className="p-2.5 sm:p-3 flex items-start gap-2.5 bg-rose-500/10 dark:bg-rose-500/15 border-b border-rose-500/30">
+                  <span className="shrink-0 text-base mt-0.5">
+                    {disasterInfo.disasterType === "flood" ? "🌊" : (disasterInfo.disasterType === "storm" ? "⛈️" : "🚨")}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1 flex-wrap">
+                      <span className="font-bold text-rose-800 dark:text-rose-200">
+                        {disasterInfo.headline || (isTh ? "แจ้งเตือนภัยพิบัติฉุกเฉิน" : "Hazard Alert")}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] px-1.5 py-0 h-3.5 border-rose-500/50 bg-rose-500/20 text-rose-800 dark:text-rose-200 font-bold"
+                      >
+                        {disasterInfo.severity === "critical"
+                          ? (isTh ? "วิกฤต / ด่วนที่สุด" : "Critical Alert")
+                          : (isTh ? "เตือนภัยระวัง" : "Warning")}
+                      </Badge>
+                    </div>
+                    {disasterInfo.actionAdvice && (
+                      <p className="text-rose-700 dark:text-rose-300 mt-1 leading-relaxed font-medium">
+                        {cleanTextNoise(disasterInfo.actionAdvice)}
+                      </p>
+                    )}
+                    {disasterInfo.affectedAreas && disasterInfo.affectedAreas.length > 0 && (
+                      <div className="mt-1.5 flex items-center gap-1 flex-wrap text-[10px] text-rose-700 dark:text-rose-300">
+                        <span className="font-semibold">{isTh ? "พื้นที่เสี่ยง:" : "Affected:"}</span>
+                        {disasterInfo.affectedAreas.map((area, idx) => (
+                          <span key={idx} className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-800 dark:text-rose-200 font-medium">
+                            📍 {area}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* 1. Transit & Commute */}
               {(hasTransitAlert || trafficSummary) && (
                 <div className="p-2 sm:p-2.5 flex items-start gap-2.5">
@@ -628,6 +702,38 @@ export const BuddyDayBriefingCard: React.FC<BuddyDayBriefingCardProps> = ({
             <div className="p-3 rounded-xl bg-muted/40 border border-border/50 text-foreground font-medium leading-relaxed">
               💬 {greeting}
             </div>
+
+            {/* 0. Disaster & Emergency Section */}
+            {hasDisasterAlert && disasterInfo && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 dark:bg-rose-500/15 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-rose-800 dark:text-rose-200 flex items-center gap-1.5 text-sm">
+                    <span>{disasterInfo.disasterType === "flood" ? "🌊" : (disasterInfo.disasterType === "storm" ? "⛈️" : "🚨")}</span>
+                    <span>{disasterInfo.headline || (isTh ? "แจ้งเตือนภัยพิบัติฉุกเฉิน" : "Emergency Hazard Alert")}</span>
+                  </span>
+                  <Badge variant="outline" className="text-[10px] border-rose-500/50 bg-rose-500/20 text-rose-800 dark:text-rose-200 font-bold animate-pulse">
+                    {disasterInfo.severity === "critical"
+                      ? (isTh ? "วิกฤต / ด่วนที่สุด" : "Critical Alert")
+                      : (isTh ? "เตือนภัยระวัง" : "Warning")}
+                  </Badge>
+                </div>
+                {disasterInfo.actionAdvice && (
+                  <p className="text-rose-700 dark:text-rose-300 leading-relaxed font-medium">
+                    {cleanTextNoise(disasterInfo.actionAdvice)}
+                  </p>
+                )}
+                {disasterInfo.affectedAreas && disasterInfo.affectedAreas.length > 0 && (
+                  <div className="pt-1 flex items-center gap-1.5 flex-wrap text-[11px] text-rose-700 dark:text-rose-300">
+                    <span className="font-semibold">{isTh ? "พื้นที่เสี่ยงที่ได้รับผลกระทบ:" : "Affected areas:"}</span>
+                    {disasterInfo.affectedAreas.map((area, idx) => (
+                      <span key={idx} className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-800 dark:text-rose-200 font-medium">
+                        📍 {area}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* 1. Transit Section */}
             {(hasTransitAlert || trafficSummary) && (

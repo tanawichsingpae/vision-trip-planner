@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Calendar, Clock, Trash2, Plus, Edit2, Check, MapPin, GripVertical, RefreshCw, Phone, Globe, Car, Sparkles, Search, Loader2, Camera, ChevronDown, Navigation, AlertTriangle, AlertCircle } from "lucide-react";
 import { getPlaceImage } from "@/utils/getPlaceImage";
-import { fetchWikimediaPhoto } from "@/api/geocode";
+import { fetchWikimediaPhoto, buildGoogleMapsUrl } from "@/api/geocode";
 import { getCuratedFallbackPhoto } from "@/services/photoService";
 import { getFallbackOpeningHours } from "@/api/places";
 import { Input } from "@/components/ui/input";
@@ -75,6 +75,7 @@ export interface Activity {
   priceLevel?: number | null;
   website?: string | null;
   phoneNumber?: string | null;
+  isCoordsVerified?: boolean;
 }
 
 export interface DayPlan {
@@ -810,66 +811,60 @@ const SortableCard = ({
         {/* Navigation & Map Action Buttons */}
         <div className="mt-3 pt-2.5 border-t border-border/50 flex flex-col gap-2 pdf-hidden">
           {/* Row 1: Primary Action - Full-width Turn-by-turn Navigation */}
-          {activity.lat != null && activity.lng != null && activity.lat !== 0 && activity.lng !== 0 ? (
-            <a
-              href={`https://www.google.com/maps/dir/?api=1&destination=${activity.lat},${activity.lng}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white text-xs font-semibold shadow-xs transition-all duration-150"
-              title={language === "th" ? "เปิดแอป Google Maps เพื่อเริ่มนำทางแบบ Turn-by-turn ทันที" : "Open Google Maps for turn-by-turn navigation"}
-            >
-              <Navigation className="w-3.5 h-3.5 fill-white text-white" />
-              <span>{language === "th" ? "นำทาง (Google Maps)" : "Directions"}</span>
-            </a>
-          ) : (
-            <a
-              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activity.english_name || activity.title)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white text-xs font-semibold shadow-xs transition-all duration-150"
-              title={language === "th" ? "เปิดแอป Google Maps เพื่อเริ่มนำทาง" : "Open Google Maps for directions"}
-            >
-              <Navigation className="w-3.5 h-3.5 fill-white text-white" />
-              <span>{language === "th" ? "นำทาง (Google Maps)" : "Directions"}</span>
-            </a>
-          )}
+          <a
+            href={buildGoogleMapsUrl({
+              lat: activity.lat,
+              lng: activity.lng,
+              englishName: activity.english_name,
+              placeName: activity.title,
+              cityName: cityName,
+              isCoordsVerified: activity.isCoordsVerified,
+              mode: "directions",
+            })}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white text-xs font-semibold shadow-xs transition-all duration-150"
+            title={language === "th" ? "เปิดแอป Google Maps เพื่อเริ่มนำทางแบบ Turn-by-turn ทันที" : "Open Google Maps for turn-by-turn navigation"}
+          >
+            <Navigation className="w-3.5 h-3.5 fill-white text-white" />
+            <span>{language === "th" ? "นำทาง (Google Maps)" : "Directions"}</span>
+          </a>
 
           {/* Row 2: Symmetrical 2-Column Grid (Street View & View on Map) */}
           <div className="grid grid-cols-2 gap-2">
-            {activity.lat != null && activity.lng != null && activity.lat !== 0 && activity.lng !== 0 ? (
-              <a
-                href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${activity.lat},${activity.lng}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[11px] font-medium bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-all duration-150 hover:border-primary/40 hover:text-primary"
-                title={language === "th" ? "เปิดชมภาพจำลอง 360° Street View บน Google Maps ทันที" : "Open 360° Street View on Google Maps"}
-              >
-                <Car className="w-3.5 h-3.5 shrink-0 text-sky-500" />
-                <span>Street View</span>
-              </a>
-            ) : (
-              <a
-                href={`https://www.google.com/maps/@?api=1&map_action=pano&query=${encodeURIComponent(activity.english_name || activity.title)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[11px] font-medium bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-all duration-150 hover:border-primary/40 hover:text-primary"
-                title={language === "th" ? "เปิดชมภาพจำลอง 360° Street View บน Google Maps ทันที" : "Open 360° Street View on Google Maps"}
-              >
-                <Car className="w-3.5 h-3.5 shrink-0 text-sky-500" />
-                <span>Street View</span>
-              </a>
-            )}
+            <a
+              href={buildGoogleMapsUrl({
+                lat: activity.lat,
+                lng: activity.lng,
+                englishName: activity.english_name,
+                placeName: activity.title,
+                cityName: cityName,
+                isCoordsVerified: activity.isCoordsVerified,
+                mode: "streetview",
+              })}
+              target="_blank"
+              rel="noopener noreferrer"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-[11px] font-medium bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 transition-all duration-150 hover:border-primary/40 hover:text-primary"
+              title={language === "th" ? "เปิดชมภาพจำลอง 360° Street View บน Google Maps ทันที" : "Open 360° Street View on Google Maps"}
+            >
+              <Car className="w-3.5 h-3.5 shrink-0 text-sky-500" />
+              <span>Street View</span>
+            </a>
 
             <a
-              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activity.english_name || activity.title)}`}
+              href={buildGoogleMapsUrl({
+                lat: activity.lat,
+                lng: activity.lng,
+                englishName: activity.english_name,
+                placeName: activity.title,
+                cityName: cityName,
+                isCoordsVerified: activity.isCoordsVerified,
+                mode: "search",
+              })}
               target="_blank"
               rel="noopener noreferrer"
               onPointerDown={(e) => e.stopPropagation()}

@@ -19,20 +19,49 @@ interface LatexExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   benchmarkData: ModelBenchmarkRow[];
+  tierMatrixRows?: Array<{
+    model: string;
+    modelLabel: string;
+    tier1_iconic?: number | null;
+    tier2_longtail?: number | null;
+    tier3_nature?: number | null;
+    tier4_ugc?: number | null;
+    overall?: number;
+  }>;
 }
 
 export const LatexExportModal: React.FC<LatexExportModalProps> = ({
   isOpen,
   onClose,
   benchmarkData,
+  tierMatrixRows = [],
 }) => {
   const [caption, setCaption] = useState("Visual Place Recognition (VPR) Model Benchmark Performance");
   const [label, setLabel] = useState("tab:vpr_benchmark");
   const [copiedLatex, setCopiedLatex] = useState(false);
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
+  const [copiedTierLatex, setCopiedTierLatex] = useState(false);
 
   const latexCode = generateLatexTable(benchmarkData, caption, label);
   const markdownCode = generateMarkdownTable(benchmarkData);
+
+  const tierLatexCode = `\\begin{table}[htbp]
+  \\centering
+  \\caption{Stratified Multi-Tier Visual Place Recognition Evaluation (Head vs. Tail vs. Nature vs. UGC)}
+  \\label{tab:vpr_stratified_tiers}
+  \\begin{tabular}{l r r r r r}
+    \\toprule
+    \\textbf{Model} & \\textbf{T1: Iconic (\\%)} & \\textbf{T2: Long-Tail (\\%)} & \\textbf{T3: Nature (\\%)} & \\textbf{T4: UGC (\\%)} & \\textbf{Overall (\\%)} \\\\
+    \\midrule
+${tierMatrixRows
+  .map(
+    (r) =>
+      `    ${r.modelLabel} & ${r.tier1_iconic !== null && r.tier1_iconic !== undefined ? `${r.tier1_iconic}\\%` : "-"} & ${r.tier2_longtail !== null && r.tier2_longtail !== undefined ? `${r.tier2_longtail}\\%` : "-"} & ${r.tier3_nature !== null && r.tier3_nature !== undefined ? `${r.tier3_nature}\\%` : "-"} & ${r.tier4_ugc !== null && r.tier4_ugc !== undefined ? `${r.tier4_ugc}\\%` : "-"} & ${r.overall ?? 0}\\% \\\\`
+  )
+  .join("\n")}
+    \\bottomrule
+  \\end{tabular}
+\\end{table}`;
 
   const copyLatex = () => {
     navigator.clipboard.writeText(latexCode);
@@ -46,6 +75,13 @@ export const LatexExportModal: React.FC<LatexExportModalProps> = ({
     setCopiedMarkdown(true);
     toast.success("Markdown table copied to clipboard!");
     setTimeout(() => setCopiedMarkdown(false), 2000);
+  };
+
+  const copyTierLatex = () => {
+    navigator.clipboard.writeText(tierLatexCode);
+    setCopiedTierLatex(true);
+    toast.success("Stratified 4-Tier LaTeX table copied to clipboard!");
+    setTimeout(() => setCopiedTierLatex(false), 2000);
   };
 
   return (
@@ -86,8 +122,12 @@ export const LatexExportModal: React.FC<LatexExportModalProps> = ({
           </div>
         </div>
 
-        <Tabs defaultValue="latex" className="mt-4">
-          <TabsList className="grid w-full grid-cols-2 bg-slate-100 p-1">
+        <Tabs defaultValue="tier_latex" className="mt-4">
+          <TabsList className="grid w-full grid-cols-3 bg-slate-100 p-1">
+            <TabsTrigger value="tier_latex" className="text-xs flex items-center gap-1.5 data-[state=active]:bg-white data-[state=active]:text-slate-900">
+              <FileCode2 className="w-3.5 h-3.5 text-purple-600" />
+              Stratified 4-Tier LaTeX
+            </TabsTrigger>
             <TabsTrigger value="latex" className="text-xs flex items-center gap-1.5 data-[state=active]:bg-white data-[state=active]:text-slate-900">
               <FileCode2 className="w-3.5 h-3.5 text-blue-600" />
               LaTeX Code (Booktabs)
@@ -97,6 +137,25 @@ export const LatexExportModal: React.FC<LatexExportModalProps> = ({
               Markdown Table
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="tier_latex" className="space-y-3 mt-3">
+            <div className="relative">
+              <pre className="p-4 bg-slate-900 text-slate-100 rounded-xl text-[11px] font-mono overflow-x-auto max-h-72 border border-slate-800 leading-relaxed text-left">
+                {tierLatexCode}
+              </pre>
+              <Button
+                size="sm"
+                onClick={copyTierLatex}
+                className="absolute top-2 right-2 text-xs bg-purple-600 hover:bg-purple-700 text-white shadow-sm flex items-center gap-1 h-7 px-2.5"
+              >
+                {copiedTierLatex ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                {copiedTierLatex ? "Copied" : "Copy 4-Tier LaTeX"}
+              </Button>
+            </div>
+            <p className="text-[11px] text-slate-500 text-left">
+              💡 <strong>Thesis Chap. 4.1 Recommendation:</strong> Reports model breakdown across Head (Iconic), Tail (Long-tail), Nature, and UGC domain shifts.
+            </p>
+          </TabsContent>
 
           <TabsContent value="latex" className="space-y-3 mt-3">
             <div className="relative">

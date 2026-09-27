@@ -11,10 +11,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType, MODEL_ID_MAP } from "@/context/AIProviderContext";
-import { useLanguage } from "@/context/LanguageContext";
 import { safeFetch } from "@/utils/apiUtils";
-import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import {
+  evaluatePredictionWithAliases,
+  classifyErrorCategory,
+  FailureMode,
+  FAILURE_MODE_CONFIGS,
+} from "@/utils/evaluationMetrics";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
+import {
+  VPRTier,
+  TIER_CONFIGS,
+  TIER_OPTIONS,
+  TIER_ORDER,
+  detectTierFromFilename,
+  normalizeTier,
+} from "@/types/experimentTiers";
 import {
   Upload,
   Sliders,
@@ -52,49 +64,70 @@ interface PromptVariant {
   name: string;
   tag: string;
   description: string;
+  /** Academic citation for thesis documentation */
+  academicRef: string;
   promptText: (gt: string) => string;
 }
 
+/**
+ * 5 Canonical Prompt Paradigms for VPR Evaluation
+ * ─────────────────────────────────────────────────
+ * Each paradigm tests a distinct, non-overlapping dimension of model capability:
+ *
+ * P1 — Zero-Shot Baseline       : Pure capability, no guidance (Brown et al., 2020)
+ * P2 — Persona / Role Prompting : Role-framing effect on VPR accuracy (Reynolds & McDonell, 2021)
+ * P3 — Chain-of-Thought (CoT)   : Intermediate reasoning chain benefit (Wei et al., 2022)
+ * P4 — Cross-Lingual (TH)       : Language-controlled: same structure as P1, Thai only (Shi et al., 2022)
+ * P5 — Few-Shot ICL             : In-context learning with exemplar demonstrations (Brown et al., 2020)
+ *
+ * Design principle: single-variable isolation — only ONE dimension changes between paradigms.
+ * P4 is an isomorphic Thai translation of P1 to isolate the language variable strictly.
+ */
 const PROMPT_VARIANTS: PromptVariant[] = [
   {
     id: "P1",
-    name: "P1: Direct Concise (EN)",
+    name: "P1: Zero-Shot Direct (EN)",
     tag: "Zero-Shot",
-    description: "Short direct query asking strictly for the place name in JSON.",
+    academicRef: "Brown et al., 2020 (GPT-3 / NeurIPS)",
+    description: "Minimal direct query — measures pure model baseline capability with zero guidance.",
     promptText: () =>
-      `What specific landmark, city, or place is in this image? Return strictly valid JSON format: {"place": "Name", "country": "Country", "ai_reasoning": ["feature"]}.`,
+      `What specific landmark, city, or place is shown in this image? Return strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["key visual feature"]}.`,
   },
   {
     id: "P2",
-    name: "P2: 5-Candidates Ranked",
-    tag: "Multi-Candidate",
-    description: "Prompts the model to rank 5 potential candidates before deciding.",
+    name: "P2: Expert Persona (Role)",
+    tag: "Persona Prompting",
+    academicRef: "Reynolds & McDonell, 2021; White et al., 2023 (Prompt Patterns Catalog)",
+    description: "Assigns an expert geographer role to the model — tests whether role-framing improves VPR accuracy.",
     promptText: () =>
-      `Analyze this image and provide a list of 5 specific potential landmark or city matches. Include the most likely one first. Return strictly valid JSON format: {"places": ["place1","place2","place3","place4","place5"]}.`,
+      `You are an expert geographer and visual landmark recognition specialist with encyclopedic knowledge of world landmarks, architecture, and travel destinations. Analyze this image and identify the specific landmark or place shown. Return strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["key visual feature"]}.`,
   },
   {
     id: "P3",
     name: "P3: Chain-of-Thought (CoT)",
-    tag: "Reasoning Step",
-    description: "Forces visual feature breakdown, comparison, and systematic deduction.",
+    tag: "Chain-of-Thought",
+    academicRef: "Wei et al., 2022 (Chain-of-Thought Prompting / NeurIPS)",
+    description: "Forces step-by-step visual feature decomposition before final answer — tests reasoning chain benefit.",
     promptText: () =>
-      `Analyze this image step-by-step: 1. Identify architectural style, landscape, or signage. 2. Compare with known global landmarks. 3. Conclude the place. Return strictly valid JSON format: {"place": "Name", "country": "Country", "ai_reasoning": ["step 1 visual detail", "step 2 comparison", "conclusion"]}.`,
+      `Analyze this image step-by-step:\n1. Identify the dominant architectural style, landscape type, or visible signage.\n2. List distinctive visual features (materials, shape, color, scale).\n3. Compare with known world landmarks matching those features.\n4. Conclude with the most likely specific place.\nReturn strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["step 1 observation", "step 2 distinctive feature", "step 3 comparison", "step 4 conclusion"]}.`,
   },
   {
     id: "P4",
-    name: "P4: Thai Language Prompt",
-    tag: "Multilingual",
-    description: "Native Thai prompt to test multilingual visual alignment.",
+    name: "P4: Cross-Lingual Thai (TH)",
+    tag: "Cross-Lingual",
+    academicRef: "Shi et al., 2022 (Language Models are Multilingual CoT Reasoners / ICLR 2023)",
+    description: "Isomorphic Thai translation of P1 — structure is identical, only language changes. Isolates language variable strictly.",
     promptText: () =>
-      `โปรดวิเคราะห์รูปภาพนี้แล้วระบุชื่อสถานที่ท่องเที่ยวหรือเมืองสำคัญ คืนค่าเป็น JSON รูปแบบนี้เท่านั้น: {"place": "ชื่อสถานที่", "country": "ประเทศ", "ai_reasoning": ["เหตุผล"]}`,
+      `สถานที่ท่องเที่ยว เมือง หรือแลนด์มาร์กใดปรากฏในภาพนี้? คืนค่าเป็น JSON ที่ถูกต้องเท่านั้น: {"place": "ชื่อสถานที่", "country": "ประเทศ", "ai_reasoning": ["ลักษณะภาพที่สำคัญ"]}.`,
   },
   {
     id: "P5",
-    name: "P5: Few-Shot In-Context",
-    tag: "Few-Shot",
-    description: "Provides 2 paired exemplar demonstrations in the prompt context.",
+    name: "P5: Few-Shot In-Context (ICL)",
+    tag: "Few-Shot ICL",
+    academicRef: "Brown et al., 2020 (GPT-3); Min et al., 2022 (Rethinking ICL / EMNLP)",
+    description: "2-shot exemplar demonstrations before the target image — tests in-context learning from landmark examples.",
     promptText: () =>
-      `Here are examples:\nInput: [Image of iron lattice tower in Paris] -> Output: {"place": "Eiffel Tower", "country": "France"}\nInput: [Image of white marble mausoleum in Agra] -> Output: {"place": "Taj Mahal", "country": "India"}\n\nNow analyze the provided image and return strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["reason"]}.`,
+      `Here are two landmark identification examples:\nExample 1 — Input: [Image of an iron lattice tower with Paris cityscape behind it] → Output: {"place": "Eiffel Tower", "country": "France", "ai_reasoning": ["iron lattice structure", "Seine river visible", "Paris cityscape background"]}\nExample 2 — Input: [Image of a white marble mausoleum with reflecting pool, Agra India] → Output: {"place": "Taj Mahal", "country": "India", "ai_reasoning": ["white marble dome", "four minarets at corners", "ornate Mughal architecture"]}\n\nNow analyze the provided image using the same approach. Return strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["reason 1", "reason 2"]}.`,
   },
 ];
 
@@ -116,13 +149,22 @@ interface Exp4Result {
   time_ms: number;
   is_correct: boolean;
   reasoning: string;
+  tier?: VPRTier;
   matched_alias?: string | null;
+  failure_mode?: FailureMode;
+  temperature?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  tokens_per_sec?: number;
 }
 
 interface Exp4History {
   timestamp: string;
   image_name: string;
   ground_truth: string;
+  tier: VPRTier;
   model: string;
   variant_id: string;
   variant_name: string;
@@ -131,6 +173,13 @@ interface Exp4History {
   time_ms: number | string;
   is_correct: string | boolean;
   reasoning: string;
+  failure_mode?: FailureMode;
+  temperature?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  tokens_per_sec?: number;
 }
 
 function isTruthy(v: string | boolean | undefined): boolean {
@@ -138,10 +187,10 @@ function isTruthy(v: string | boolean | undefined): boolean {
 }
 
 export default function Exp4PromptSensitivity() {
-  const { isThai, t } = useLanguage();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [groundTruth, setGroundTruth] = useState<string>("");
+  const [singleTier, setSingleTier] = useState<VPRTier>("tier1_iconic");
   const [selectedModel, setSelectedModel] = useState<AIModelType>("google-gemini-38-flash");
   const [selectedVariants, setSelectedVariants] = useState<string[]>(["P1", "P2", "P3", "P4", "P5"]);
 
@@ -162,6 +211,7 @@ export default function Exp4PromptSensitivity() {
           timestamp: row["Timestamp"] || row.timestamp || "",
           image_name: row["Image Name"] || row.image_name || "",
           ground_truth: row["Ground Truth"] || row.ground_truth || "",
+          tier: normalizeTier(row["Tier"] || row.tier || "tier1_iconic"),
           model: row["Model"] || row.model || "",
           variant_id: row["Prompt Variant ID"] || row.variant_id || "",
           variant_name: row["Prompt Variant Name"] || row.variant_name || "",
@@ -170,6 +220,13 @@ export default function Exp4PromptSensitivity() {
           time_ms: row["Time MS"] !== undefined ? row["Time MS"] : row.time_ms,
           is_correct: row["Is Correct"] !== undefined ? row["Is Correct"] : row.is_correct,
           reasoning: row["AI Reasoning"] || row.reasoning || "",
+          failure_mode: (row["Failure Mode"] || row.failure_mode || "none") as FailureMode,
+          temperature: row["Temperature"] !== undefined ? Number(row["Temperature"]) : 0.0,
+          prompt_tokens: row["Prompt Tokens"] !== undefined ? Number(row["Prompt Tokens"]) : row.prompt_tokens,
+          completion_tokens: row["Completion Tokens"] !== undefined ? Number(row["Completion Tokens"]) : row.completion_tokens,
+          total_tokens: row["Total Tokens"] !== undefined ? Number(row["Total Tokens"]) : row.total_tokens,
+          cost_usd: row["Cost USD"] !== undefined ? Number(row["Cost USD"]) : row.cost_usd,
+          tokens_per_sec: row["Tokens Per Sec"] !== undefined ? Number(row["Tokens Per Sec"]) : row.tokens_per_sec,
         }));
         setDbLogs(mapped);
       }
@@ -189,6 +246,7 @@ export default function Exp4PromptSensitivity() {
       setImagePreview(URL.createObjectURL(file));
       const guessed = file.name.substring(0, file.name.lastIndexOf(".")).replace(/[-_]/g, " ");
       setGroundTruth(guessed);
+      setSingleTier(detectTierFromFilename(file.name));
       setCurrentResults([]);
     }
   };
@@ -230,6 +288,7 @@ export default function Exp4PromptSensitivity() {
 
       let pred = "Unknown";
       let reasoningText = "";
+      let callMetrics: any = null;
 
       try {
         const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/ai`, {
@@ -247,8 +306,11 @@ export default function Exp4PromptSensitivity() {
               },
             ],
             expect_json: true,
+            allow_fallback: false,
+            temperature: 0.1,
           }),
         });
+        callMetrics = data?.metrics;
 
         const raw = data.text?.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim() || "";
         let parsed: any = {};
@@ -258,10 +320,9 @@ export default function Exp4PromptSensitivity() {
           parsed = { place: raw };
         }
 
+        // All 5 paradigms now return {"place": ...} — no special-case needed
         if (parsed.place) {
-          pred = parsed.place;
-        } else if (Array.isArray(parsed.places) && parsed.places.length > 0) {
-          pred = parsed.places[0];
+          pred = String(parsed.place);
         }
 
         if (parsed.ai_reasoning) {
@@ -278,17 +339,32 @@ export default function Exp4PromptSensitivity() {
       // Automated Multi-alias evaluation
       const match = evaluatePredictionWithAliases(pred, groundTruth, [], 0.70);
 
+      // Failure Mode Taxonomy (3 Symptoms)
+      const failureMode = classifyErrorCategory(pred, groundTruth, {
+        isCorrect: match.isCorrect,
+        confidence: 0,
+        tier: singleTier,
+      });
+
       temp.push({
         variant_id: vObj.id,
         variant_name: vObj.name,
+        tier: singleTier,
         model: selectedModel,
         modelLabel,
         predicted: pred,
         confidence: 0,
-        time_ms: duration,
+        time_ms: callMetrics?.latency_ms ? Math.round(callMetrics.latency_ms) : duration,
         is_correct: match.isCorrect,
         reasoning: reasoningText,
         matched_alias: match.matchedAlias,
+        failure_mode: failureMode,
+        temperature: 0.1,
+        prompt_tokens: callMetrics?.prompt_tokens ?? 0,
+        completion_tokens: callMetrics?.completion_tokens ?? 0,
+        total_tokens: callMetrics?.total_tokens ?? 0,
+        cost_usd: callMetrics?.cost_usd ?? 0.0,
+        tokens_per_sec: callMetrics?.tokens_per_sec ?? 0.0,
       });
 
       setCurrentResults([...temp]);
@@ -302,7 +378,12 @@ export default function Exp4PromptSensitivity() {
   const updateCorrectness = (index: number, value: boolean) => {
     setCurrentResults((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], is_correct: value };
+      const prevMode = updated[index].failure_mode;
+      updated[index] = {
+        ...updated[index],
+        is_correct: value,
+        failure_mode: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
+      };
       return updated;
     });
   };
@@ -313,15 +394,25 @@ export default function Exp4PromptSensitivity() {
     const payload = {
       image_name: imageFile?.name || "image.jpg",
       ground_truth: groundTruth,
+      tier: singleTier,
+      temperature: 0.1,
       results: currentResults.map((r) => ({
         variant_id: r.variant_id,
         variant_name: r.variant_name,
+        tier: r.tier || singleTier,
         model: r.model,
         predicted: r.predicted,
         confidence: r.confidence,
         time_ms: r.time_ms,
         is_correct: r.is_correct,
         reasoning: r.reasoning,
+        temperature: 0.1,
+        failure_mode: r.failure_mode || "none",
+        prompt_tokens: r.prompt_tokens ?? 0,
+        completion_tokens: r.completion_tokens ?? 0,
+        total_tokens: r.total_tokens ?? 0,
+        cost_usd: r.cost_usd ?? 0.0,
+        tokens_per_sec: r.tokens_per_sec ?? 0.0,
       })),
     };
 
@@ -403,21 +494,28 @@ export default function Exp4PromptSensitivity() {
 
   const copyPromptLatex = () => {
     if (!analytics) return;
+
+    // Build lookup from PROMPT_VARIANTS for academic refs
+    const variantMap = Object.fromEntries(PROMPT_VARIANTS.map((v) => [v.id, v]));
+
     const rows = analytics.variantBreakdown.map((v) => {
-      return `    ${v.name} & ${v.tag} & ${v.total} & ${v.accuracy}\\% & ${v.avgTime} \\\\`;
+      const ref = variantMap[v.id]?.academicRef ?? "";
+      return `    ${v.id} & ${v.tag} & ${v.total} & ${v.accuracy}\\% & ${v.avgTime} & \\cite{${ref}} \\\\`;
     }).join("\n");
 
     const latex = `\\begin{table}[htbp]
   \\centering
-  \\caption{Prompt Sensitivity Analysis: Comparison of Prompt Formulation Strategies}
-  \\label{tab:prompt_sensitivity}
-  \\begin{tabular}{l l r r r}
+  \\caption{Experiment 4: Prompt Paradigm Sensitivity Analysis for Visual Place Recognition (VPR). Five canonical prompting strategies are compared across accuracy (Top-1) and average latency. P1 (Zero-Shot) serves as the baseline.}
+  \\label{tab:exp4_prompt_sensitivity}
+  \\begin{tabular}{l l r r r l}
     \\toprule
-    \\textbf{Prompt Strategy} & \\textbf{Paradigm} & \\textbf{N} & \\textbf{Accuracy (\\%)} & \\textbf{Avg Latency (ms)} \\\\
+    \\textbf{ID} & \\textbf{Paradigm} & \\textbf{N} & \\textbf{Acc. (\\%)} & \\textbf{Latency (ms)} & \\textbf{Reference} \\\\
     \\midrule
 ${rows}
     \\bottomrule
   \\end{tabular}
+  \\medskip\\par
+  \\small\\textit{Note: All runs use temperature = 0.1 for reproducibility. P1 acts as the Zero-Shot baseline for $\\Delta$Acc comparisons.}
 \\end{table}`;
 
     navigator.clipboard.writeText(latex);
@@ -434,17 +532,14 @@ ${rows}
           <div className="text-left">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                {t("Experiment 4: การวิเคราะห์ความไวต่อรูปแบบ Prompt (Prompt Sensitivity)", "Experiment 4: Prompt Engineering & Sensitivity Analysis")}
+                Experiment 4: Prompt Engineering & Sensitivity Analysis
               </h2>
               <Badge className="bg-purple-50 text-purple-700 border-purple-200 text-xs font-semibold">
-                {t("วิทยานิพนธ์ บทที่ 4.4", "Thesis Chap. 4.4")}
+                Thesis Chap. 4.4
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {t(
-                "ประเมินประสิทธิภาพของเทคนิค Prompt ต่างๆ (ถามตรง, คัด 5 ตัวเลือก, Chain-of-Thought, ภาษาไทย และ Few-Shot)",
-                "Evaluate how Prompt Formulations (Direct, Chain-of-Thought, Thai, Few-Shot) alter recognition accuracy and latency."
-              )}
+              Compare 5 canonical prompt paradigms: Zero-Shot, Persona, Chain-of-Thought, Cross-Lingual, Few-Shot — each testing a distinct dimension of VLM capability.
             </p>
           </div>
 
@@ -457,7 +552,7 @@ ${rows}
               className="text-xs bg-white text-purple-700 border-purple-200 hover:bg-purple-50 shadow-2xs h-8"
             >
               {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-purple-600" />}
-              {copiedLatex ? t("คัดลอก LaTeX สำเร็จ", "Copied LaTeX") : t("ส่งออกตาราง LaTeX", "Export Prompt LaTeX")}
+              {copiedLatex ? "Copied LaTeX" : "Export Prompt LaTeX"}
             </Button>
           </div>
         </div>
@@ -474,7 +569,7 @@ ${rows}
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                        {v.id} {isThai ? "กลยุทธ์" : "Strategy"}
+                        {v.id} Strategy
                       </span>
                       <Badge className="text-[9px] font-mono px-1.5 py-0" style={{ backgroundColor: `${v.color}15`, color: v.color, borderColor: `${v.color}30` }}>
                         {v.tag}
@@ -484,7 +579,7 @@ ${rows}
                       {v.accuracy}%
                     </p>
                     <p className="text-[10px] text-slate-400 mt-1 font-mono">
-                      {isThai ? "เฉลี่ย" : "Avg"}: {v.avgTime} ms ({v.total} {t("การทดสอบ", "tests")})
+                      Avg: {v.avgTime} ms ({v.total} tests)
                     </p>
                   </CardContent>
                 </Card>
@@ -500,8 +595,8 @@ ${rows}
                     <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                       <BarChart3 className="w-4 h-4 text-purple-600" />
                       {promptView === "bar"
-                        ? t("เปรียบเทียบความแม่นยำตามรูปแบบ Prompt", "Accuracy by Prompt Formulation")
-                        : t("เมทริกซ์ Model × กลยุทธ์ Prompt", "Model × Prompt Strategy Matrix Heatmap")}
+                        ? "Accuracy by Prompt Formulation"
+                        : "Model × Prompt Strategy Matrix Heatmap"}
                     </CardTitle>
 
                     <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
@@ -513,7 +608,7 @@ ${rows}
                           promptView === "bar" ? "bg-white text-purple-700 shadow-xs hover:bg-white" : "text-slate-600"
                         }`}
                       >
-                        {t("กราฟแท่ง", "Bar Chart")}
+                        Bar Chart
                       </Button>
                       <Button
                         variant={promptView === "matrix" ? "default" : "ghost"}
@@ -523,7 +618,7 @@ ${rows}
                           promptView === "matrix" ? "bg-white text-purple-700 shadow-xs hover:bg-white" : "text-slate-600"
                         }`}
                       >
-                        {t("ตารางเมทริกซ์", "Model Matrix")}
+                        Model Matrix
                       </Button>
                     </div>
                   </div>
@@ -539,7 +634,7 @@ ${rows}
                             stroke="#6366f1"
                             strokeDasharray="3 3"
                             label={{
-                              value: isThai ? "P1 Baseline" : "P1 Baseline",
+                              value: "P1 Baseline",
                               position: "right",
                               fill: "#6366f1",
                               fontSize: 9,
@@ -560,11 +655,11 @@ ${rows}
                                       </Badge>
                                     </div>
                                     <p className="text-purple-600 font-semibold flex items-center justify-between">
-                                      <span>{isThai ? "ความแม่นยำ:" : "Accuracy:"}</span>
+                                      <span>Accuracy:</span>
                                       <span className="font-bold font-mono">{data.accuracy}%</span>
                                     </p>
                                     <p className="text-slate-600 font-mono flex items-center justify-between gap-4">
-                                      <span>{isThai ? "เวลาเฉลี่ย:" : "Avg Latency:"}</span>
+                                      <span>Avg Latency:</span>
                                       <span>{data.avgTime} ms</span>
                                     </p>
                                     <p className="text-[10px] text-slate-500 pt-1 leading-relaxed">
@@ -709,10 +804,45 @@ ${rows}
                   <Input
                     value={groundTruth}
                     onChange={(e) => setGroundTruth(e.target.value)}
-                    placeholder="e.g. Wat Arun | วัดอรุณ"
+                    placeholder="e.g. Wat Arun | Temple of Dawn"
                     className="bg-white text-xs border-slate-200 text-slate-900"
                     disabled={isRunning}
                   />
+                </div>
+
+                {/* Benchmark Tier Category Selector */}
+                <div className="space-y-1.5 text-left">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-slate-700">Benchmark Tier Stratification</Label>
+                    <Badge className={`${TIER_CONFIGS[singleTier].badgeClass} text-[10px]`}>
+                      {TIER_CONFIGS[singleTier].icon} {TIER_CONFIGS[singleTier].shortLabel}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {TIER_ORDER.map((tierKey) => {
+                      const cfg = TIER_CONFIGS[tierKey];
+                      const isSelected = singleTier === tierKey;
+                      return (
+                        <button
+                          key={tierKey}
+                          type="button"
+                          onClick={() => setSingleTier(tierKey)}
+                          disabled={isRunning}
+                          className={`flex items-start gap-2 p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                            isSelected
+                              ? `${cfg.badgeClass} ring-2 ring-purple-500 font-semibold shadow-xs`
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          <span className="text-base leading-none mt-0.5">{cfg.icon}</span>
+                          <div className="truncate">
+                            <div className="font-bold text-[11px] leading-tight truncate">{cfg.shortLabel}</div>
+                            <div className="text-[9px] text-slate-400 truncate mt-0.5">{cfg.description}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Model Selector */}
@@ -770,6 +900,7 @@ ${rows}
                             </Badge>
                           </div>
                           <p className="text-[10px] text-slate-400 mt-1 pl-6">{v.description}</p>
+                          <p className="text-[9px] text-slate-300 mt-0.5 pl-6 font-mono italic">📚 {v.academicRef}</p>
                         </div>
                       );
                     })}
@@ -828,9 +959,12 @@ ${rows}
                         <TableRow className="border-b border-slate-200 text-xs">
                           <TableHead className="py-2.5">Variant</TableHead>
                           <TableHead className="py-2.5">Prediction</TableHead>
-                          <TableHead className="py-2.5 text-center">Reasoning</TableHead>
+                          <TableHead className="py-2.5 text-center">Tokens (In / Out)</TableHead>
+                          <TableHead className="py-2.5 text-center">Cost ($)</TableHead>
                           <TableHead className="py-2.5 text-center">Latency</TableHead>
+                          <TableHead className="py-2.5 text-center">Reasoning</TableHead>
                           <TableHead className="py-2.5 text-center">Result</TableHead>
+                          <TableHead className="py-2.5 text-center">Failure Mode</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -846,22 +980,31 @@ ${rows}
                                 <span className="text-[10px] text-emerald-600 block">Matched: "{r.matched_alias}"</span>
                               )}
                             </TableCell>
-                            <TableCell className="text-center py-2.5">
-                              {r.reasoning ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setActiveReasoning({ name: r.variant_name, text: r.reasoning })}
-                                  className="h-6 text-[10px] px-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                                >
-                                  <Eye className="w-3 h-3 mr-1" /> View
-                                </Button>
-                              ) : (
-                                <span className="text-slate-400 text-[10px]">-</span>
-                              )}
+                            <TableCell className="text-center font-mono text-[11px] text-slate-700 py-2.5">
+                              <span className="font-semibold text-slate-800">{r.prompt_tokens ?? 0}</span>
+                              <span className="text-slate-400"> / </span>
+                              <span className="font-semibold text-blue-600">{r.completion_tokens ?? 0}</span>
+                            </TableCell>
+                            <TableCell className="text-center font-mono text-[11px] text-emerald-700 font-semibold py-2.5">
+                              ${(r.cost_usd ?? 0).toFixed(6)}
                             </TableCell>
                             <TableCell className="text-center font-mono text-[11px] text-slate-600 py-2.5">
                               {r.time_ms} ms
+                            </TableCell>
+                            <TableCell className="text-center py-2.5">
+                              {r.reasoning ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setActiveReasoning({ name: r.variant_name, text: r.reasoning })}
+                                  className="h-6 text-[10px] px-2 text-purple-600 hover:bg-purple-50"
+                                >
+                                  <Eye className="w-3 h-3 mr-1" />
+                                  Inspect
+                                </Button>
+                              ) : (
+                                <span className="text-slate-300">-</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-center py-2.5">
                               <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
@@ -884,6 +1027,23 @@ ${rows}
                                   ✗
                                 </button>
                               </div>
+                            </TableCell>
+                            <TableCell className="text-center py-2.5">
+                              {r.is_correct ? (
+                                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 text-[10px] border-emerald-200">
+                                  ✓ None
+                                </Badge>
+                              ) : (
+                                (() => {
+                                  const fm = (r.failure_mode as FailureMode) || "visual_confusion";
+                                  const cfg = FAILURE_MODE_CONFIGS[fm] || FAILURE_MODE_CONFIGS["visual_confusion"];
+                                  return (
+                                    <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                      {cfg.icon} {cfg.shortLabel}
+                                    </Badge>
+                                  );
+                                })()
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -909,8 +1069,10 @@ ${rows}
                     <TableHeader className="bg-slate-50 sticky top-0 z-10">
                       <TableRow className="border-b border-slate-200 text-xs">
                         <TableHead className="py-2">Variant</TableHead>
+                        <TableHead className="py-2">Tier</TableHead>
                         <TableHead className="py-2">Model</TableHead>
                         <TableHead className="py-2">Prediction</TableHead>
+                        <TableHead className="py-2 text-center">Failure Mode</TableHead>
                         <TableHead className="py-2 text-right">Result</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -920,8 +1082,33 @@ ${rows}
                           <TableCell className="py-2 font-bold" style={{ color: VARIANT_COLORS[row.variant_id] || "#6366f1" }}>
                             {row.variant_id}
                           </TableCell>
+                          <TableCell className="py-2">
+                            {(() => {
+                              const cfg = TIER_CONFIGS[normalizeTier(row.tier)];
+                              return (
+                                <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                  {cfg.icon} {cfg.shortLabel}
+                                </Badge>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell className="py-2 font-medium text-slate-800">{row.model}</TableCell>
                           <TableCell className="py-2 text-slate-700 truncate max-w-[130px]">{row.predicted}</TableCell>
+                          <TableCell className="py-2 text-center">
+                            {isTruthy(row.is_correct) ? (
+                              <span className="text-slate-400 text-xs font-mono">-</span>
+                            ) : (
+                              (() => {
+                                const fm = (row.failure_mode as FailureMode) || "visual_confusion";
+                                const cfg = FAILURE_MODE_CONFIGS[fm] || FAILURE_MODE_CONFIGS["visual_confusion"];
+                                return (
+                                  <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                    {cfg.icon} {cfg.shortLabel}
+                                  </Badge>
+                                );
+                              })()
+                            )}
+                          </TableCell>
                           <TableCell className="py-2 text-right">
                             {isTruthy(row.is_correct) ? (
                               <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px]">✓ Correct</Badge>

@@ -1,5 +1,5 @@
 import { validateApiKey } from "@/utils/apiUtils";
-import { fetchWikimediaPhoto, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres } from "./geocode";
+import { fetchWikimediaPhoto, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres, containsThaiScript } from "./geocode";
 import { getCuratedFallbackPhoto, fetchSmartPhoto } from "@/services/photoService";
 import { foursquareSearch, foursquareGetPhotos, isFoursquareRateLimited, setFoursquareRateLimited } from "./foursquareClient";
 
@@ -221,7 +221,12 @@ export async function fetchPlaceDetails(
   category?: string,
   cityName?: string,
   searchKeyword?: string,
-  extraOptions?: { countryName?: string; wikiTitle?: string; indexOffset?: number }
+  extraOptions?: {
+    countryName?: string;
+    wikiTitle?: string;
+    indexOffset?: number;
+    englishName?: string;
+  }
 ): Promise<PlaceDetails> {
   const empty: PlaceDetails = {
     photo_url: null,
@@ -251,8 +256,9 @@ export async function fetchPlaceDetails(
 
     // 0. Check Famous Landmark Disambiguation first (Exact Pinpoint Match)
     const normKey = placeName.toLowerCase().trim().replace(/,\s*(thailand|ประเทศไทย)$/i, "").trim();
+    const enNormKey = extraOptions?.englishName ? extraOptions.englishName.toLowerCase().trim().replace(/,\s*(thailand|ประเทศไทย)$/i, "").trim() : "";
     const disambigMatch = Object.entries(FAMOUS_LANDMARK_DISAMBIGUATION).find(
-      ([k]) => normKey === k || normKey.includes(k) || k.includes(normKey)
+      ([k]) => normKey === k || normKey.includes(k) || k.includes(normKey) || (enNormKey && (enNormKey === k || enNormKey.includes(k) || k.includes(enNormKey)))
     );
     if (disambigMatch) {
       const [, d] = disambigMatch;
@@ -280,7 +286,10 @@ export async function fetchPlaceDetails(
 
     // 2. Fetch high-quality place info from Foursquare (if key available and not rate limited)
     if (FOURSQUARE_API_KEY && !isFoursquareRateLimited()) {
-      const fsqData = await fetchFoursquarePlaceDetails(placeName, bias);
+      let fsqData = await fetchFoursquarePlaceDetails(placeName, bias);
+      if ((!fsqData || fsqData.lat === null) && extraOptions?.englishName && extraOptions.englishName !== placeName) {
+        fsqData = await fetchFoursquarePlaceDetails(extraOptions.englishName, bias);
+      }
       if (fsqData && fsqData.lat !== null && fsqData.lng !== null) {
         const resolvedPhoto = await smartPhotoPromise;
         const fallbackPhoto = getCuratedFallbackPhoto(category, placeName, {
@@ -299,17 +308,23 @@ export async function fetchPlaceDetails(
     // 3. Fetch place info from Geoapify
     if (GEOAPIFY_API_KEY) {
       const cleanedName = cleanVenueSearchQuery(placeName);
+      const cleanedEn = extraOptions?.englishName ? cleanVenueSearchQuery(extraOptions.englishName) : null;
       const geoCandidates = [
         cleanedName,
+        extraOptions?.englishName,
+        cleanedEn,
         extraOptions?.wikiTitle,
         searchKeyword,
         placeName,
       ].filter((q): q is string => Boolean(q && q.trim().length > 0));
 
       for (const currentGeoQuery of Array.from(new Set(geoCandidates))) {
+        // Use query-script-aware language for Geoapify:
+        // Thai queries → lang=th (matching script), English/mixed → lang=en
+        const geoLang = containsThaiScript(currentGeoQuery) && !/[a-zA-Z]/.test(currentGeoQuery) ? "th" : "en";
         let url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(
           currentGeoQuery
-        )}&apiKey=${GEOAPIFY_API_KEY}&limit=5&lang=en`;
+        )}&apiKey=${GEOAPIFY_API_KEY}&limit=5&lang=${geoLang}`;
 
         if (bias && bias.lat && bias.lng) {
           url += `&bias=proximity:${bias.lng},${bias.lat}&filter=circle:${bias.lng},${bias.lat},100000`;
@@ -411,7 +426,10 @@ export async function fetchPlaceDetails(
       osmUrl += `&viewbox=${bias.lng - 0.9},${bias.lat + 0.9},${bias.lng + 0.9},${bias.lat - 0.9}&bounded=1`;
     }
     const osmRes = await fetch(osmUrl, {
-      headers: { "User-Agent": "PixineraryApp/1.0" },
+      headers: {
+        "User-Agent": "PixineraryApp/1.0",
+        "Accept-Language": "en",
+      },
     });
     if (osmRes.ok) {
       const osmData = await osmRes.json();

@@ -54,6 +54,19 @@ export interface VisionResult {
   detailed_description?: string;
   suggested_action?: string;
   non_travel_category?: string;
+  metrics?: AIMetrics;
+}
+
+export interface AIMetrics {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  latency_ms: number;
+  latency_sec?: number;
+  cost_usd: number;
+  tokens_per_sec: number;
+  model_used?: string;
+  openrouter_id?: string;
 }
 
 export interface ImageCandidate {
@@ -366,14 +379,135 @@ export async function generateMoreAccommodations(
   return callOpenRouterMoreAccommodations(prompt, modelId);
 }
 
+export interface VisionAnalysisOptions {
+  temperature?: number;
+  top_p?: number;
+  allowFallback?: boolean;
+}
+
+/**
+ * Direct 1-Turn Zero-Shot VLM Inference (Pure Model Capability)
+ * Designed for Academic Benchmarks (Exp 1, Exp 2 Baseline, Exp 3, Exp 5).
+ * - 1 single multimodal request directly to the model
+ * - NO candidate generation loop
+ * - NO Google Places API lookups (eliminates external latency and API cost)
+ * - NO CLIP embedding computation
+ */
+export async function analyzeImageDirect(
+  file: File,
+  model: AIModelType,
+  onProgress?: (step: string) => void,
+  options?: VisionAnalysisOptions
+): Promise<VisionResult> {
+  const modelId = MODEL_ID_MAP[model];
+  onProgress?.(`[Direct 1-Turn] Sending image to ${modelId}...`);
+
+  const base64Image = await fileToBase64(file);
+  const base64Data = base64Image.split(",")[1];
+
+  const directPrompt = `Analyze this image carefully. You are an expert Visual Place Recognition (VPR) AI for travel landmarks and geographical locations.
+Determine the specific physical travel destination, landmark, temple, museum, natural site, park, beach, tourist attraction, or venue shown in this image.
+
+If this image is a recognizable place or landmark:
+Return strictly valid JSON with this exact schema:
+{
+  "is_identifiable_place": true,
+  "place": "Exact Specific Landmark or Place Name (e.g. Wat Arun)",
+  "city": "City or Province (e.g. Bangkok)",
+  "country": "Country (e.g. Thailand)",
+  "type": "temple | nature | museum | landmark | attraction | other",
+  "confidence": 0.95,
+  "similar_locations": [
+    {"name": "Alternative Candidate 2", "similarity": 0.85},
+    {"name": "Alternative Candidate 3", "similarity": 0.75}
+  ],
+  "ai_reasoning": ["Key visual feature 1", "Key visual feature 2"]
+}
+
+If this image is NOT a recognizable place, or is an unidentifiable object, selfie, food close-up, receipt, or screenshot:
+Return strictly valid JSON:
+{
+  "is_identifiable_place": false,
+  "place": "ภาพไม่ระบุสถานที่",
+  "city": "-",
+  "country": "-",
+  "type": "non_travel",
+  "confidence": 0.0,
+  "similar_locations": [],
+  "ai_reasoning": ["Reason why this image cannot be identified as a place"]
+}
+Do not output any conversational prose, markdown code blocks, or text outside JSON.`;
+
+  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: directPrompt },
+            { type: "image_url", image_url: { url: `data:${file.type};base64,${base64Data}` } }
+          ],
+        }
+      ],
+      expect_json: true,
+      allow_fallback: options?.allowFallback !== undefined ? options.allowFallback : false,
+      // NOTE: temperature=0.0 causes "model output error" on Anthropic Claude via OpenRouter.
+      // Minimum safe value is 0.1 — functionally near-deterministic and accepted by all providers.
+      temperature: options?.temperature !== undefined ? options.temperature : 0.1,
+      top_p: options?.top_p !== undefined ? options.top_p : undefined,
+    }),
+  });
+
+  const raw = data.text?.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim() || "";
+  let parsed: any;
+  try {
+    parsed = safeParseJson<any>(raw);
+  } catch (e) {
+    console.error("Failed to parse JSON from Direct Vision API:", raw, e);
+    parsed = {
+      is_identifiable_place: false,
+      place: raw || "Unknown",
+      city: "-",
+      country: "-",
+      confidence: 0.0,
+      similar_locations: [],
+      ai_reasoning: [raw]
+    };
+  }
+
+  const placeName = parsed.place || (Array.isArray(parsed.places) && parsed.places[0]) || "Unknown";
+  const isIdentifiable = parsed.is_identifiable_place !== false && !placeName.includes("ไม่ระบุสถานที่") && placeName !== "Unknown";
+  const confidence = typeof parsed.confidence === "number" ? parsed.confidence : (isIdentifiable ? 0.8 : 0.0);
+
+  const similar = Array.isArray(parsed.similar_locations)
+    ? parsed.similar_locations.map((s: any) => typeof s === "string" ? { name: s, similarity: 0.7 } : { name: s.name || "", similarity: Number(s.similarity || 0.7) })
+    : [];
+
+  return {
+    place: placeName,
+    city: parsed.city || "-",
+    country: parsed.country || "-",
+    type: parsed.type || (isIdentifiable ? "landmark" : "non_travel"),
+    confidence,
+    similar_locations: similar,
+    ai_reasoning: Array.isArray(parsed.ai_reasoning) ? parsed.ai_reasoning : [parsed.ai_reasoning || ""],
+    is_identifiable_place: isIdentifiable,
+    metrics: data.metrics,
+  };
+}
+
 export async function analyzeImage(
   file: File,
   model: AIModelType,
   useClip: boolean = true,
-  onProgress?: (step: string) => void
+  onProgress?: (step: string) => void,
+  options?: VisionAnalysisOptions
 ): Promise<VisionResult> {
   const modelId = MODEL_ID_MAP[model];
-  console.log(`Starting Retrieval-LLM pipeline (OpenRouter model: ${modelId}, CLIP: ${useClip})...`);
+  console.log(`Starting Retrieval-LLM pipeline (OpenRouter model: ${modelId}, CLIP: ${useClip}, temp: ${options?.temperature}, fallback: ${options?.allowFallback})...`);
 
   // 2. Get initial candidates from LLM (to narrow down search & guard against non-travel images)
   const base64Image = await fileToBase64(file);
@@ -422,7 +556,7 @@ Allowed non_travel_category values when is_identifiable_place is false:
 Ensure "detected_content", "detailed_description", and "suggested_action" are written in clear, polite, natural Thai.
 Do not return markdown or explanations outside JSON.`;
 
-  const initialGuessResult = await getInitialGuessesOpenRouter(base64Data, file.type, candidatePrompt, modelId);
+  const initialGuessResult = await getInitialGuessesOpenRouter(base64Data, file.type, candidatePrompt, modelId, options);
   console.log("Initial evaluation from LLM:", initialGuessResult);
 
   // Short-circuit: If the image is not a recognizable travel place, skip Google Places API and CLIP
@@ -448,6 +582,7 @@ Do not return markdown or explanations outside JSON.`;
       detailed_description: initialGuessResult.detailedDescription,
       suggested_action: initialGuessResult.suggestedAction,
       non_travel_category: initialGuessResult.nonTravelCategory,
+      metrics: initialGuessResult.metrics,
     };
   }
 
@@ -537,7 +672,21 @@ Do not return markdown or explanations outside JSON.`;
   }
   (Note: "city" must be the city, province, or metropolitan area where this landmark is situated, e.g. "Bangkok", "Chiang Rai", "Chiang Mai", "Tokyo", "Paris")`;
 
-  const finalResult = await analyzeImageOpenRouter(base64Data, file.type, reasoningPrompt, modelId);
+  const finalResult = await analyzeImageOpenRouter(base64Data, file.type, reasoningPrompt, modelId, options);
+
+  const m1 = initialGuessResult.metrics;
+  const m2 = finalResult.metrics;
+  const combinedMetrics: AIMetrics | undefined = (m1 || m2) ? {
+    prompt_tokens: (m1?.prompt_tokens ?? 0) + (m2?.prompt_tokens ?? 0),
+    completion_tokens: (m1?.completion_tokens ?? 0) + (m2?.completion_tokens ?? 0),
+    total_tokens: (m1?.total_tokens ?? 0) + (m2?.total_tokens ?? 0),
+    latency_ms: (m1?.latency_ms ?? 0) + (m2?.latency_ms ?? 0),
+    latency_sec: Number((((m1?.latency_ms ?? 0) + (m2?.latency_ms ?? 0)) / 1000).toFixed(3)),
+    cost_usd: Number(((m1?.cost_usd ?? 0) + (m2?.cost_usd ?? 0)).toFixed(6)),
+    tokens_per_sec: m2?.tokens_per_sec ?? m1?.tokens_per_sec ?? 0,
+    model_used: m2?.model_used ?? m1?.model_used,
+    openrouter_id: m2?.openrouter_id || m1?.openrouter_id,
+  } : undefined;
 
   return {
     ...finalResult,
@@ -545,6 +694,7 @@ Do not return markdown or explanations outside JSON.`;
     similar_locations: topCandidates.slice(1, 3).map(c => ({ name: c.name, similarity: c.similarity })),
     initial_candidates: candidates.slice(0, 5),
     top_candidates: topCandidates,
+    metrics: combinedMetrics,
   };
 }
 
@@ -1030,7 +1180,13 @@ ${daySchemaExamples}
   return await formatResponse(parsed, destinationCity, destinationCountry);
 }
 
-async function analyzeImageOpenRouter(base64: string, mimeType: string, prompt: string, modelId: string): Promise<VisionResult> {
+async function analyzeImageOpenRouter(
+  base64: string,
+  mimeType: string,
+  prompt: string,
+  modelId: string,
+  options?: VisionAnalysisOptions
+): Promise<VisionResult> {
   const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1046,6 +1202,9 @@ async function analyzeImageOpenRouter(base64: string, mimeType: string, prompt: 
         }
       ],
       expect_json: true,
+      allow_fallback: options?.allowFallback !== undefined ? options.allowFallback : true,
+      temperature: options?.temperature !== undefined ? options.temperature : undefined,
+      top_p: options?.top_p !== undefined ? options.top_p : undefined,
     }),
   });
 
@@ -1056,7 +1215,11 @@ async function analyzeImageOpenRouter(base64: string, mimeType: string, prompt: 
     throw new Error(`AI declined to analyze this image. Try a different image or switch model.`);
   }
 
-  return safeParseJson<VisionResult>(raw);
+  const parsed = safeParseJson<VisionResult>(raw);
+  if (parsed && data.metrics) {
+    parsed.metrics = data.metrics;
+  }
+  return parsed;
 }
 
 async function chatOpenRouter(
@@ -1192,6 +1355,7 @@ export interface InitialGuessResult {
   detailedDescription?: string;
   suggestedAction?: string;
   nonTravelCategory?: string;
+  metrics?: AIMetrics;
 }
 
 export function inferFallbackNonTravelContent(category?: string, reason?: string): {
@@ -1288,7 +1452,8 @@ async function getInitialGuessesOpenRouter(
   base64: string,
   mimeType: string,
   prompt: string,
-  modelId: string
+  modelId: string,
+  options?: VisionAnalysisOptions
 ): Promise<InitialGuessResult> {
   const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
@@ -1305,6 +1470,9 @@ async function getInitialGuessesOpenRouter(
         }
       ],
       expect_json: true,
+      allow_fallback: options?.allowFallback !== undefined ? options.allowFallback : true,
+      temperature: options?.temperature !== undefined ? options.temperature : undefined,
+      top_p: options?.top_p !== undefined ? options.top_p : undefined,
     }),
   });
   const raw = data.text?.trim() ?? "";
@@ -1359,6 +1527,7 @@ async function getInitialGuessesOpenRouter(
     detailedDescription,
     suggestedAction,
     nonTravelCategory,
+    metrics: data.metrics,
   };
 }
 

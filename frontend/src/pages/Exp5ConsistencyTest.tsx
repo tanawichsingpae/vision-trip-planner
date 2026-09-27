@@ -9,10 +9,23 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
-import { useLanguage } from "@/context/LanguageContext";
-import { analyzeImage, type VisionResult } from "@/services/aiService";
-import { evaluatePredictionWithAliases } from "@/utils/evaluationMetrics";
+import { analyzeImageDirect, type VisionResult } from "@/services/aiService";
+import {
+  evaluatePredictionWithAliases,
+  classifyErrorCategory,
+  FailureMode,
+  FAILURE_MODE_CONFIGS,
+  FAILURE_MODE_OPTIONS,
+} from "@/utils/evaluationMetrics";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
+import {
+  VPRTier,
+  TIER_CONFIGS,
+  TIER_OPTIONS,
+  TIER_ORDER,
+  detectTierFromFilename,
+  normalizeTier,
+} from "@/types/experimentTiers";
 import {
   Upload,
   RefreshCw,
@@ -56,7 +69,14 @@ interface Exp5RunResult {
   confidence: number;
   time_ms: number;
   is_correct: boolean;
+  tier?: VPRTier;
   matched_alias?: string | null;
+  failure_mode?: FailureMode;
+  temperature?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
 }
 
 interface Exp5History {
@@ -64,6 +84,7 @@ interface Exp5History {
   session_id: string;
   image_name: string;
   ground_truth: string;
+  tier: VPRTier;
   model: string;
   run_number: number | string;
   total_runs: number | string;
@@ -71,6 +92,13 @@ interface Exp5History {
   confidence: number | string;
   time_ms: number | string;
   is_correct: string | boolean;
+  failure_mode?: FailureMode;
+  temperature?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  tokens_per_sec?: number;
 }
 
 function isTruthy(v: string | boolean | undefined): boolean {
@@ -78,12 +106,13 @@ function isTruthy(v: string | boolean | undefined): boolean {
 }
 
 export default function Exp5ConsistencyTest() {
-  const { isThai, t } = useLanguage();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [groundTruth, setGroundTruth] = useState<string>("");
+  const [singleTier, setSingleTier] = useState<VPRTier>("tier1_iconic");
   const [selectedModel, setSelectedModel] = useState<AIModelType>("google-gemini-38-flash");
   const [numRuns, setNumRuns] = useState<number>(5);
+  const [temperature, setTemperature] = useState<number>(0.7);
 
   const [isRunning, setIsRunning] = useState(false);
   const [progressLabel, setProgressLabel] = useState("");
@@ -101,6 +130,7 @@ export default function Exp5ConsistencyTest() {
           session_id: row["Session ID"] || row.session_id || "",
           image_name: row["Image Name"] || row.image_name || "",
           ground_truth: row["Ground Truth"] || row.ground_truth || "",
+          tier: normalizeTier(row["Tier"] || row.tier || "tier1_iconic"),
           model: row["Model"] || row.model || "",
           run_number: row["Run Number"] !== undefined ? row["Run Number"] : row.run_number,
           total_runs: row["Total Runs"] !== undefined ? row["Total Runs"] : row.total_runs,
@@ -108,6 +138,13 @@ export default function Exp5ConsistencyTest() {
           confidence: row["Confidence"] !== undefined ? row["Confidence"] : row.confidence,
           time_ms: row["Time MS"] !== undefined ? row["Time MS"] : row.time_ms,
           is_correct: row["Is Correct"] !== undefined ? row["Is Correct"] : row.is_correct,
+          failure_mode: (row["Failure Mode"] || row.failure_mode || "none") as FailureMode,
+          temperature: row["Temperature"] !== undefined ? Number(row["Temperature"]) : 0.7,
+          prompt_tokens: row["Prompt Tokens"] !== undefined ? Number(row["Prompt Tokens"]) : row.prompt_tokens,
+          completion_tokens: row["Completion Tokens"] !== undefined ? Number(row["Completion Tokens"]) : row.completion_tokens,
+          total_tokens: row["Total Tokens"] !== undefined ? Number(row["Total Tokens"]) : row.total_tokens,
+          cost_usd: row["Cost USD"] !== undefined ? Number(row["Cost USD"]) : row.cost_usd,
+          tokens_per_sec: row["Tokens Per Sec"] !== undefined ? Number(row["Tokens Per Sec"]) : row.tokens_per_sec,
         }));
         setDbLogs(mapped);
       }
@@ -127,6 +164,7 @@ export default function Exp5ConsistencyTest() {
       setImagePreview(URL.createObjectURL(file));
       const guessed = file.name.substring(0, file.name.lastIndexOf(".")).replace(/[-_]/g, " ");
       setGroundTruth(guessed);
+      setSingleTier(detectTierFromFilename(file.name));
       setCurrentResults([]);
     }
   };
@@ -150,7 +188,12 @@ export default function Exp5ConsistencyTest() {
       const start = performance.now();
       let res: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
       try {
-        res = await analyzeImage(imageFile, selectedModel, true);
+        res = await analyzeImageDirect(
+          imageFile,
+          selectedModel,
+          (step) => setProgressLabel(`Run ${i}/${numRuns}: ${step}`),
+          { allowFallback: false, temperature }
+        );
       } catch (err) {
         console.error(`Exp5 Run ${i} error:`, err);
       }
@@ -161,6 +204,13 @@ export default function Exp5ConsistencyTest() {
       // Automated multi-alias evaluation
       const match = evaluatePredictionWithAliases(pred, groundTruth, res.similar_locations || [], 0.70);
 
+      // Failure Mode Taxonomy (3 Symptoms)
+      const failureMode = classifyErrorCategory(pred, groundTruth, {
+        isCorrect: match.isCorrect,
+        confidence: res.confidence || 0.0,
+        tier: singleTier,
+      });
+
       temp.push({
         run_number: i,
         total_runs: numRuns,
@@ -168,9 +218,17 @@ export default function Exp5ConsistencyTest() {
         modelLabel,
         predicted: pred,
         confidence: res.confidence || 0.0,
-        time_ms: duration,
+        time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
         is_correct: match.isCorrect,
+        tier: singleTier,
         matched_alias: match.matchedAlias,
+        failure_mode: failureMode,
+        temperature,
+        prompt_tokens: res.metrics?.prompt_tokens ?? 0,
+        completion_tokens: res.metrics?.completion_tokens ?? 0,
+        total_tokens: res.metrics?.total_tokens ?? 0,
+        cost_usd: res.metrics?.cost_usd ?? 0.0,
+        tokens_per_sec: res.metrics?.tokens_per_sec ?? 0.0,
       });
 
       setCurrentResults([...temp]);
@@ -184,7 +242,23 @@ export default function Exp5ConsistencyTest() {
   const updateCorrectness = (index: number, value: boolean) => {
     setCurrentResults((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], is_correct: value };
+      const prevMode = updated[index].failure_mode;
+      updated[index] = {
+        ...updated[index],
+        is_correct: value,
+        failure_mode: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
+      };
+      return updated;
+    });
+  };
+
+  const updateFailureMode = (index: number, mode: FailureMode) => {
+    setCurrentResults((prev) => {
+      const updated = [...prev];
+      updated[index] = {
+        ...updated[index],
+        failure_mode: mode,
+      };
       return updated;
     });
   };
@@ -197,6 +271,8 @@ export default function Exp5ConsistencyTest() {
       session_id: sessionId,
       image_name: imageFile?.name || "image.jpg",
       ground_truth: groundTruth,
+      tier: singleTier,
+      temperature,
       results: currentResults.map((r) => ({
         model: r.model,
         run_number: r.run_number,
@@ -205,6 +281,14 @@ export default function Exp5ConsistencyTest() {
         confidence: r.confidence,
         time_ms: r.time_ms,
         is_correct: r.is_correct,
+        tier: r.tier || singleTier,
+        temperature,
+        failure_mode: r.failure_mode || "none",
+        prompt_tokens: r.prompt_tokens ?? 0,
+        completion_tokens: r.completion_tokens ?? 0,
+        total_tokens: r.total_tokens ?? 0,
+        cost_usd: r.cost_usd ?? 0.0,
+        tokens_per_sec: r.tokens_per_sec ?? 0.0,
       })),
     };
 
@@ -251,6 +335,19 @@ export default function Exp5ConsistencyTest() {
     const varLat = latencies.reduce((a, b) => a + Math.pow(b - meanLat, 2), 0) / N;
     const sdLat = Math.round(Math.sqrt(varLat));
 
+    const completionTokens = currentResults.map((r) => r.completion_tokens || 0);
+    const meanTokens = Math.round(completionTokens.reduce((a, b) => a + b, 0) / N);
+    const varTokens = completionTokens.reduce((a, b) => a + Math.pow(b - meanTokens, 2), 0) / (N > 1 ? N - 1 : 1);
+    const sdTokens = Number(Math.sqrt(varTokens).toFixed(1));
+    const cvTokens = meanTokens > 0 ? ((sdTokens / meanTokens) * 100).toFixed(1) : "0.0";
+
+    const costs = currentResults.map((r) => r.cost_usd || 0);
+    const totalCost = costs.reduce((a, b) => a + b, 0);
+    const meanCost = totalCost / N;
+    const varCost = costs.reduce((a, b) => a + Math.pow(b - meanCost, 2), 0) / (N > 1 ? N - 1 : 1);
+    const sdCost = Math.sqrt(varCost);
+    const cvCost = meanCost > 0 ? ((sdCost / meanCost) * 100).toFixed(1) : "0.0";
+
     // Latency timeline data
     const latencyChartData = currentResults.map((r) => ({
       run: `Run #${r.run_number}`,
@@ -273,6 +370,13 @@ export default function Exp5ConsistencyTest() {
       accuracyRate,
       meanLat: Math.round(meanLat),
       sdLat,
+      meanTokens,
+      sdTokens,
+      cvTokens,
+      totalCost,
+      meanCost,
+      sdCost,
+      cvCost,
       latencyChartData,
       distributionData,
     };
@@ -347,17 +451,14 @@ ${rows}
           <div className="text-left">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                {t("Experiment 5: การทดสอบความเสถียรและความคงเส้นคงวา (Consistency)", "Experiment 5: Model Consistency & Operational Stability")}
+                Experiment 5: Model Consistency & Operational Stability
               </h2>
               <Badge className="bg-rose-50 text-rose-700 border-rose-200 text-xs font-semibold">
-                {t("วิทยานิพนธ์ บทที่ 4.5", "Thesis Chap. 4.5")}
+                Thesis Chap. 4.5
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {t(
-                "วัดผลความแน่นอนในการตัดสินใจซ้ำ (Determinism), อัตราความสอดคล้องของคำตอบ (Agreement Rate) และการแกว่งตัวของเวลา (Latency Jitter)",
-                "Quantify multi-run determinism, response stability index (agreement rate), and latency jitter variance."
-              )}
+              Quantify multi-run determinism, response stability index (agreement rate), and latency jitter variance.
             </p>
           </div>
 
@@ -370,7 +471,7 @@ ${rows}
               className="text-xs bg-white text-rose-700 border-rose-200 hover:bg-rose-50 shadow-2xs h-8"
             >
               {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-rose-600" />}
-              {copiedLatex ? t("คัดลอก LaTeX สำเร็จ", "Copied LaTeX") : t("ส่งออกตาราง LaTeX", "Export Stability LaTeX")}
+              {copiedLatex ? "Copied LaTeX" : "Export Stability LaTeX"}
             </Button>
           </div>
         </div>
@@ -387,7 +488,7 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800">
-                      {t("ดัชนีความเสถียร (Agreement)", "Stability Index (Agreement)")}
+                      Stability Index (Agreement)
                     </span>
                     <ShieldCheck className="w-4 h-4 text-rose-600" />
                   </div>
@@ -395,7 +496,7 @@ ${rows}
                     {sessionMetrics.agreementRate}%
                   </p>
                   <p className="text-[10px] text-rose-600 mt-0.5">
-                    {sessionMetrics.consensusCount} {t("จาก", "of")} {sessionMetrics.totalRuns} {t("รอบตอบผลลัพธ์ตรงกัน", "runs gave identical output")}
+                    {sessionMetrics.consensusCount} of {sessionMetrics.totalRuns} runs gave identical output
                   </p>
                 </CardContent>
               </Card>
@@ -404,13 +505,13 @@ ${rows}
               <Card className="bg-white border-slate-200/90 shadow-xs text-left">
                 <CardContent className="p-4">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    {t("ผลลัพธ์ที่เป็นเอกฉันท์ (Consensus)", "Consensus Output")}
+                    Consensus Output
                   </span>
                   <p className="text-base font-bold text-slate-900 mt-2 truncate" title={sessionMetrics.modePred}>
                     {sessionMetrics.modePred}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
-                    {t("ความแม่นยำ:", "Accuracy:")} <strong>{sessionMetrics.accuracyRate}%</strong> {t("ตลอดทุกรอบ", "across runs")}
+                    Accuracy: <strong>{sessionMetrics.accuracyRate}%</strong> across runs
                   </p>
                 </CardContent>
               </Card>
@@ -420,7 +521,7 @@ ${rows}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      {t("เวลาเฉลี่ยและการแกว่งตัว (Jitter)", "Mean Latency & Jitter")}
+                      Mean Latency & Jitter
                     </span>
                     <Activity className="w-4 h-4 text-indigo-600" />
                   </div>
@@ -428,22 +529,22 @@ ${rows}
                     {sessionMetrics.meanLat} <span className="text-xs text-slate-400 font-normal">± {sessionMetrics.sdLat} ms</span>
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
-                    {t("ส่วนเบี่ยงเบนมาตรฐาน Jitter (σ):", "Jitter SD (σ):")} {sessionMetrics.sdLat} ms
+                    Jitter SD (σ): {sessionMetrics.sdLat} ms
                   </p>
                 </CardContent>
               </Card>
 
-              {/* Card 4: Evaluation Runs */}
+              {/* Card 4: Token & Cost Stability */}
               <Card className="bg-white border-slate-200/90 shadow-xs text-left">
                 <CardContent className="p-4">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    {t("จำนวนรอบที่รันซ้ำ", "Repetition Sample")}
+                    Token & Cost Stability
                   </span>
-                  <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">
-                    {sessionMetrics.totalRuns} {t("รอบ", "Runs")}
+                  <p className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-2 font-mono">
+                    {sessionMetrics.meanTokens} <span className="text-xs text-slate-400 font-normal">± {sessionMetrics.sdTokens} tok (CV: {sessionMetrics.cvTokens}%)</span>
                   </p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    {t("การทดสอบความแน่นอน", "Deterministic testing")}
+                  <p className="text-[10px] text-emerald-700 font-mono mt-0.5 font-semibold">
+                    ${sessionMetrics.meanCost.toFixed(6)}/req (Total: ${sessionMetrics.totalCost.toFixed(5)})
                   </p>
                 </CardContent>
               </Card>
@@ -457,17 +558,14 @@ ${rows}
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                       <Activity className="w-4 h-4 text-rose-600" />
-                      {t("ไทม์ไลน์การแกว่งตัวของเวลาประมวลผล (Latency Jitter)", "Latency Jitter Timeline (μ ± σ)")}
+                      Latency Jitter Timeline (μ ± σ)
                     </CardTitle>
                     <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] font-mono">
-                      {isThai ? "เฉลี่ย" : "Mean"}: {sessionMetrics.meanLat}ms (±{sessionMetrics.sdLat}ms)
+                      Mean: {sessionMetrics.meanLat}ms (±{sessionMetrics.sdLat}ms)
                     </Badge>
                   </div>
                   <CardDescription className="text-xs text-slate-500">
-                    {t(
-                      "ความแปรปรวนของเวลาประมวลผลในแต่ละรอบ เส้นประระบุช่วงส่วนเบี่ยงเบนมาตรฐาน (SD)",
-                      "Execution time variance across sequence. Shaded reference indicates standard deviation."
-                    )}
+                    Execution time variance across sequence. Shaded reference indicates standard deviation.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-4">
@@ -484,10 +582,10 @@ ${rows}
                               return (
                                 <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-lg text-xs space-y-1 text-left">
                                   <p className="font-bold text-slate-900 border-b border-slate-100 pb-1">
-                                    {isThai ? `รอบที่ ${data.run}` : `Run #${data.run}`}
+                                    Run #{data.run}
                                   </p>
                                   <div className="flex items-center justify-between gap-4 text-rose-600 font-semibold">
-                                    <span>{isThai ? "เวลาตอบสนอง:" : "Latency:"}</span>
+                                    <span>Latency:</span>
                                     <span className="font-mono font-bold">{data.latency} ms</span>
                                   </div>
                                 </div>
@@ -511,10 +609,10 @@ ${rows}
                 <CardHeader className="pb-2 border-b border-slate-100">
                   <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-rose-600" />
-                    {t("สัดส่วนความสอดคล้องของคำตอบ", "Response Agreement Distribution")}
+                    Response Agreement Distribution
                   </CardTitle>
                   <CardDescription className="text-xs text-slate-500">
-                    {t("ระดับความคงเส้นคงวาของโมเดลเมื่อรันภาพเดิมซ้ำหลายรอบ", "Degree of output determinism across all repetition trials.")}
+                    Degree of output determinism across all repetition trials.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-2 pb-4 flex flex-col items-center">
@@ -539,10 +637,10 @@ ${rows}
                   </div>
                   <div className="text-center mt-1">
                     <span className="text-xs font-bold text-slate-800">
-                      {sessionMetrics.agreementRate}% {t("ความสอดคล้องเอกฉันท์", "Modal Agreement")}
+                      {sessionMetrics.agreementRate}% Modal Agreement
                     </span>
                     <p className="text-[10px] text-slate-400">
-                      {sessionMetrics.consensusCount} {t("รอบตอบตรงกันจากทั้งหมด", "matching predictions out of")} {sessionMetrics.totalRuns} {t("รอบ", "runs")}
+                      {sessionMetrics.consensusCount} matching predictions out of {sessionMetrics.totalRuns} runs
                     </p>
                   </div>
                 </CardContent>
@@ -600,10 +698,45 @@ ${rows}
                   <Input
                     value={groundTruth}
                     onChange={(e) => setGroundTruth(e.target.value)}
-                    placeholder="e.g. Wat Arun | วัดอรุณ"
+                    placeholder="e.g. Wat Arun | Temple of Dawn"
                     className="bg-white text-xs border-slate-200 text-slate-900"
                     disabled={isRunning}
                   />
+                </div>
+
+                {/* Benchmark Tier Category Selector */}
+                <div className="space-y-1.5 text-left">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-slate-700">Benchmark Tier Stratification</Label>
+                    <Badge className={`${TIER_CONFIGS[singleTier].badgeClass} text-[10px]`}>
+                      {TIER_CONFIGS[singleTier].icon} {TIER_CONFIGS[singleTier].shortLabel}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {TIER_ORDER.map((tierKey) => {
+                      const cfg = TIER_CONFIGS[tierKey];
+                      const isSelected = singleTier === tierKey;
+                      return (
+                        <button
+                          key={tierKey}
+                          type="button"
+                          onClick={() => setSingleTier(tierKey)}
+                          disabled={isRunning}
+                          className={`flex items-start gap-2 p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                            isSelected
+                              ? `${cfg.badgeClass} ring-2 ring-rose-500 font-semibold shadow-xs`
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          <span className="text-base leading-none mt-0.5">{cfg.icon}</span>
+                          <div className="truncate">
+                            <div className="font-bold text-[11px] leading-tight truncate">{cfg.shortLabel}</div>
+                            <div className="text-[9px] text-slate-400 truncate mt-0.5">{cfg.description}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Model Selector */}
@@ -648,6 +781,37 @@ ${rows}
                       </Button>
                     ))}
                   </div>
+                </div>
+
+                {/* Sampling Temperature */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-slate-700">Sampling Temperature (T)</Label>
+                    <span className="text-xs font-mono font-bold text-indigo-600">T = {temperature}</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[
+                      { val: 0.0, label: "0.0 Greedy" },
+                      { val: 0.2, label: "0.2 Low" },
+                      { val: 0.7, label: "0.7 Std" },
+                      { val: 1.0, label: "1.0 High" },
+                    ].map((t) => (
+                      <Button
+                        key={t.val}
+                        type="button"
+                        variant={temperature === t.val ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setTemperature(t.val)}
+                        className={`text-[10px] h-7 px-1 ${temperature === t.val ? "bg-indigo-600 text-white" : "bg-white text-slate-700"}`}
+                        disabled={isRunning}
+                      >
+                        {t.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Set T=0.0 to test deterministic stability, or T=0.7+ to measure stochastic variance.
+                  </p>
                 </div>
 
                 {/* Run Button */}
@@ -702,7 +866,10 @@ ${rows}
                         <TableRow className="border-b border-slate-200 text-xs">
                           <TableHead className="py-2.5">Run #</TableHead>
                           <TableHead className="py-2.5">Prediction</TableHead>
+                          <TableHead className="py-2.5 text-center">Tokens (In / Out)</TableHead>
+                          <TableHead className="py-2.5 text-center">Cost ($)</TableHead>
                           <TableHead className="py-2.5 text-center">Latency</TableHead>
+                          <TableHead className="py-2.5 text-center">Failure Mode</TableHead>
                           <TableHead className="py-2.5 text-center">Verification</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -718,8 +885,38 @@ ${rows}
                                 <span className="text-[10px] text-emerald-600 block">Matched: "{r.matched_alias}"</span>
                               )}
                             </TableCell>
+                            <TableCell className="text-center font-mono text-[11px] text-slate-700 py-2.5">
+                              {r.prompt_tokens ?? 0} / {r.completion_tokens ?? 0}
+                            </TableCell>
+                            <TableCell className="text-center font-mono text-[11px] text-emerald-700 font-semibold py-2.5">
+                              ${(r.cost_usd ?? 0).toFixed(6)}
+                            </TableCell>
                             <TableCell className="text-center font-mono text-[11px] text-slate-600 py-2.5">
                               {r.time_ms} ms
+                            </TableCell>
+                            <TableCell className="text-center py-2.5">
+                              {r.is_correct ? (
+                                <span className="text-[10px] text-emerald-600 font-medium">✓ None</span>
+                              ) : (
+                                <Select
+                                  value={r.failure_mode || "visual_confusion"}
+                                  onValueChange={(val: FailureMode) => updateFailureMode(idx, val)}
+                                >
+                                  <SelectTrigger className="h-6 text-[10px] px-2 py-0 w-[130px] border-slate-200 bg-slate-50">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {FAILURE_MODE_OPTIONS.filter((o) => o !== "none").map((opt) => {
+                                      const cfg = FAILURE_MODE_CONFIGS[opt];
+                                      return (
+                                        <SelectItem key={opt} value={opt} className="text-xs">
+                                          {cfg?.shortName || opt}
+                                        </SelectItem>
+                                      );
+                                    })}
+                                  </SelectContent>
+                                </Select>
+                              )}
                             </TableCell>
                             <TableCell className="text-center py-2.5">
                               <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
@@ -767,26 +964,55 @@ ${rows}
                     <TableHeader className="bg-slate-50 sticky top-0 z-10">
                       <TableRow className="border-b border-slate-200 text-xs">
                         <TableHead className="py-2">Session</TableHead>
+                        <TableHead className="py-2">Tier</TableHead>
+                        <TableHead className="py-2">Temp</TableHead>
                         <TableHead className="py-2">Model</TableHead>
                         <TableHead className="py-2">Prediction</TableHead>
+                        <TableHead className="py-2 text-center">Failure Mode</TableHead>
                         <TableHead className="py-2 text-right">Result</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {dbLogs.map((row, i) => (
-                        <TableRow key={i} className="border-b border-slate-100 text-xs">
-                          <TableCell className="py-2 font-mono text-[10px] text-slate-500">{row.session_id}</TableCell>
-                          <TableCell className="py-2 font-medium text-slate-800">{row.model}</TableCell>
-                          <TableCell className="py-2 text-slate-700 truncate max-w-[130px]">{row.predicted}</TableCell>
-                          <TableCell className="py-2 text-right">
-                            {isTruthy(row.is_correct) ? (
-                              <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px]">✓ Correct</Badge>
-                            ) : (
-                              <Badge className="bg-rose-50 text-rose-700 border-none text-[9px]">✗ Miss</Badge>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {dbLogs.map((row, i) => {
+                        const tierCfg = TIER_CONFIGS[row.tier] || TIER_CONFIGS["tier1_iconic"];
+                        return (
+                          <TableRow key={i} className="border-b border-slate-100 text-xs">
+                            <TableCell className="py-2 font-mono text-[10px] text-slate-500">{row.session_id}</TableCell>
+                            <TableCell className="py-2">
+                              <Badge className={`${tierCfg.badgeClass} text-[9px] px-1.5 py-0.5`}>
+                                {tierCfg.icon} {tierCfg.shortLabel}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="py-2 font-mono text-[10px] text-indigo-700 font-semibold">
+                              T={row.temperature ?? 0.7}
+                            </TableCell>
+                            <TableCell className="py-2 font-medium text-slate-800">{row.model}</TableCell>
+                            <TableCell className="py-2 text-slate-700 truncate max-w-[130px]">{row.predicted}</TableCell>
+                            <TableCell className="py-2 text-center">
+                              {isTruthy(row.is_correct) ? (
+                                <span className="text-[10px] text-slate-400">-</span>
+                              ) : (
+                                (() => {
+                                  const fm = (row.failure_mode as FailureMode) || "visual_confusion";
+                                  const cfg = FAILURE_MODE_CONFIGS[fm] || FAILURE_MODE_CONFIGS["visual_confusion"];
+                                  return (
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded border ${cfg.bgColor} ${cfg.textColor} ${cfg.borderColor} font-medium inline-block`}>
+                                      {cfg.shortName}
+                                    </span>
+                                  );
+                                })()
+                              )}
+                            </TableCell>
+                            <TableCell className="py-2 text-right">
+                              {isTruthy(row.is_correct) ? (
+                                <Badge className="bg-emerald-50 text-emerald-700 border-none text-[9px]">✓ Correct</Badge>
+                              ) : (
+                                <Badge className="bg-rose-50 text-rose-700 border-none text-[9px]">✗ Miss</Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 )}
