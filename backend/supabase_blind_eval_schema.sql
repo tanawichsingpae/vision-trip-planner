@@ -45,18 +45,20 @@ CREATE INDEX IF NOT EXISTS idx_blind_evals_trip ON public.blind_evaluations(trip
 CREATE INDEX IF NOT EXISTS idx_blind_evals_model ON public.blind_evaluations(actual_model);
 CREATE INDEX IF NOT EXISTS idx_blind_evals_expert ON public.blind_evaluations(expert_id);
 
--- 3. Table: blind_comparisons (Ranking & 4 Qualitative Answers per Scenario)
+-- 3. Table: blind_comparisons (Qualitative Answers per Scenario)
 CREATE TABLE IF NOT EXISTS public.blind_comparisons (
     id TEXT PRIMARY KEY,
     scenario_id TEXT NOT NULL,
     expert_id TEXT NOT NULL,
     expert_name TEXT,
     expert_profile JSONB DEFAULT '{}'::jsonb,
-    rankings JSONB NOT NULL DEFAULT '[]'::jsonb,
-    best_for_practical_use JSONB DEFAULT '{}'::jsonb,
     qualitative_feedback JSONB NOT NULL DEFAULT '{}'::jsonb,
     submitted_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Migration to remove deprecated columns if previously created
+ALTER TABLE public.blind_comparisons DROP COLUMN IF EXISTS rankings;
+ALTER TABLE public.blind_comparisons DROP COLUMN IF EXISTS best_for_practical_use;
 
 CREATE INDEX IF NOT EXISTS idx_blind_comp_scenario ON public.blind_comparisons(scenario_id);
 CREATE INDEX IF NOT EXISTS idx_blind_comp_expert ON public.blind_comparisons(expert_id);

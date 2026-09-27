@@ -313,17 +313,6 @@ export default function EvaluationAnalytics({
       }
     });
 
-    // Calculate practical wins from comparisons
-    if (comparisonsList) {
-      comparisonsList.forEach((cmp) => {
-        const bestTripId = cmp.best_for_practical_use?.trip_id;
-        const matchedTrip = trips.find((t) => t.id === bestTripId);
-        if (matchedTrip?.actual_model && modelStats[matchedTrip.actual_model]) {
-          modelStats[matchedTrip.actual_model].wins += 1;
-        }
-      });
-    }
-
     return Object.values(modelStats).map((st: any) => {
       const c = st.count || 0;
       if (c === 0) {
@@ -561,6 +550,18 @@ export default function EvaluationAnalytics({
     const rows = resultsData.evaluations.map((ev) => {
       const d = ev.detailed_scores || ({} as any);
       const scTitle = getScenarioTitle(ev.scenario_id);
+      const matchingComp = resultsData.comparisons?.find(
+        (c) =>
+          c.scenario_id === ev.scenario_id &&
+          c.expert_id?.trim().toLowerCase() === ev.expert_id?.trim().toLowerCase()
+      );
+      const geoFam =
+        matchingComp?.geographic_familiarity ??
+        matchingComp?.expert_profile?.geographic_familiarity ??
+        ev.geographic_familiarity ??
+        ev.expert_profile?.geographic_familiarity ??
+        d.geographic_familiarity ??
+        "";
       return [
         escapeCsv(ev.id),
         escapeCsv(ev.scenario_id),
@@ -573,7 +574,7 @@ export default function EvaluationAnalytics({
         escapeCsv(ev.expert_profile?.role || ""),
         escapeCsv(ev.expert_profile?.experience || ""),
         escapeCsv(ev.expert_profile?.ai_familiarity || ""),
-        ev.geographic_familiarity ?? ev.expert_profile?.geographic_familiarity ?? d.geographic_familiarity ?? "",
+        geoFam,
         d.fa1 ?? "", d.fa2 ?? "", d.fa3 ?? "", d.fa4 ?? "", d.fa5 ?? "", d.fa_avg ?? "",
         d.cc1 ?? "", d.cc2 ?? "", d.cc3 ?? "", d.cc4 ?? "", d.cc5 ?? "", d.cc6 ?? "", d.cc_avg ?? "",
         d.pf1 ?? "", d.pf2 ?? "", d.pf3 ?? "", d.pf4 ?? "", d.pf5 ?? "", d.pf_avg ?? "",
@@ -597,10 +598,10 @@ export default function EvaluationAnalytics({
     toast.success("ส่งออกข้อมูลการประเมินดิบ (Raw Evaluations CSV) เรียบร้อยแล้ว");
   };
 
-  // Export Scenario Rankings & Qualitative CSV
+  // Export Scenario Qualitative Feedback CSV
   const handleExportComparisonsCSV = () => {
     if (!resultsData.comparisons || resultsData.comparisons.length === 0) {
-      toast.error("ยังไม่มีข้อมูลการจัดอันดับ Scenario เพื่อส่งออก");
+      toast.error("ยังไม่มีข้อมูลคำถามเชิงคุณภาพ Scenario เพื่อส่งออก");
       return;
     }
 
@@ -613,18 +614,6 @@ export default function EvaluationAnalytics({
       "Expert Role",
       "Expert Experience",
       "Geographic Familiarity (ความคุ้นเคยพื้นที่ 1-5)",
-      "Best Model Trip ID",
-      "Best Model Blind Label",
-      "Best Model Actual Name",
-      "Best Model Rationale",
-      "Rank 1 Trip",
-      "Rank 1 Rationale",
-      "Rank 2 Trip",
-      "Rank 2 Rationale",
-      "Rank 3 Trip",
-      "Rank 3 Rationale",
-      "Rank 4 Trip",
-      "Rank 4 Rationale",
       "Q1 Real Travel (นำไปใช้จริง)",
       "Q2 Tourism Context (เข้าใจบริบท)",
       "Q3 Value Experience (คุ้มค่า)",
@@ -640,11 +629,6 @@ export default function EvaluationAnalytics({
 
     const rows = resultsData.comparisons.map((cmp) => {
       const scTitle = getScenarioTitle(cmp.scenario_id);
-      const bestTrip = trips.find((t) => t.id === cmp.best_for_practical_use?.trip_id);
-      const r1 = cmp.rankings?.find((r) => r.rank === 1);
-      const r2 = cmp.rankings?.find((r) => r.rank === 2);
-      const r3 = cmp.rankings?.find((r) => r.rank === 3);
-      const r4 = cmp.rankings?.find((r) => r.rank === 4);
 
       return [
         escapeCsv(cmp.id),
@@ -655,18 +639,6 @@ export default function EvaluationAnalytics({
         escapeCsv(cmp.expert_profile?.role || ""),
         escapeCsv(cmp.expert_profile?.experience || ""),
         cmp.geographic_familiarity ?? cmp.expert_profile?.geographic_familiarity ?? "",
-        escapeCsv(cmp.best_for_practical_use?.trip_id || ""),
-        escapeCsv(cmp.best_for_practical_use?.blind_label || ""),
-        escapeCsv(bestTrip?.actual_model || ""),
-        escapeCsv(cmp.best_for_practical_use?.rationale || ""),
-        escapeCsv(r1 ? `${r1.blind_label}` : ""),
-        escapeCsv(r1?.rationale || ""),
-        escapeCsv(r2 ? `${r2.blind_label}` : ""),
-        escapeCsv(r2?.rationale || ""),
-        escapeCsv(r3 ? `${r3.blind_label}` : ""),
-        escapeCsv(r3?.rationale || ""),
-        escapeCsv(r4 ? `${r4.blind_label}` : ""),
-        escapeCsv(r4?.rationale || ""),
         escapeCsv(cmp.qualitative_feedback?.q1_real_travel || ""),
         escapeCsv(cmp.qualitative_feedback?.q2_tourism_context || ""),
         escapeCsv(cmp.qualitative_feedback?.q3_value_experience || ""),
@@ -676,8 +648,8 @@ export default function EvaluationAnalytics({
     });
 
     const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\r\n");
-    downloadFile(csvContent, `pixinerary_qualitative_comparisons_${new Date().toISOString().slice(0, 10)}.csv`);
-    toast.success("ส่งออกข้อมูลการจัดอันดับและคำถามเชิงคุณภาพ (CSV) เรียบร้อยแล้ว");
+    downloadFile(csvContent, `pixinerary_qualitative_feedback_${new Date().toISOString().slice(0, 10)}.csv`);
+    toast.success("ส่งออกข้อมูลคำถามเชิงคุณภาพ (CSV) เรียบร้อยแล้ว");
   };
 
   // Export Matrix & Summary Table CSV
@@ -772,7 +744,18 @@ export default function EvaluationAnalytics({
       summary_by_scenario: Object.fromEntries(scenarioSummariesMap.entries()),
       raw_evaluations: resultsData.evaluations.map((ev) => {
         const d = ev.detailed_scores || ({} as any);
-        const geoFam = ev.geographic_familiarity ?? ev.expert_profile?.geographic_familiarity ?? d.geographic_familiarity ?? 3;
+        const matchingComp = resultsData.comparisons?.find(
+          (c) =>
+            c.scenario_id === ev.scenario_id &&
+            c.expert_id?.trim().toLowerCase() === ev.expert_id?.trim().toLowerCase()
+        );
+        const geoFam =
+          matchingComp?.geographic_familiarity ??
+          matchingComp?.expert_profile?.geographic_familiarity ??
+          ev.geographic_familiarity ??
+          ev.expert_profile?.geographic_familiarity ??
+          d.geographic_familiarity ??
+          3;
         const visAlign = ev.vision_alignment ?? d.vision_alignment ?? d.cc6 ?? 4;
         return {
           id: ev.id,
@@ -874,7 +857,7 @@ export default function EvaluationAnalytics({
                 สรุปผลการประเมินของผู้เชี่ยวชาญ (Evaluation Analytics)
               </CardTitle>
               <CardDescription className="text-xs sm:text-sm mt-0.5">
-                วิเคราะห์ผลคะแนน 6 มิติ, การจัดอันดับ Scenario และเปรียบเทียบประสิทธิภาพระหว่างโมเดล
+                วิเคราะห์ผลคะแนน 6 มิติ, คำถามเชิงคุณภาพ Scenario และเปรียบเทียบประสิทธิภาพระหว่างโมเดล
               </CardDescription>
             </div>
 
@@ -922,7 +905,7 @@ export default function EvaluationAnalytics({
               </p>
             </div>
             <div className="p-3.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 text-center">
-              <span className="text-[11px] text-muted-foreground block">การจัดอันดับ Scenario</span>
+              <span className="text-[11px] text-muted-foreground block">ประเมินเชิงคุณภาพ Scenario</span>
               <p className="text-xl sm:text-2xl font-extrabold text-amber-700 dark:text-amber-300 mt-0.5">
                 {resultsData.comparisons?.length || 0} ครั้ง
               </p>
@@ -966,7 +949,7 @@ export default function EvaluationAnalytics({
                 className="h-8 text-xs rounded-full gap-1.5 px-3 bg-background hover:bg-secondary border-border/80"
               >
                 <FileSpreadsheet className="size-3.5 text-purple-600" />
-                <span>Export Rankings (CSV)</span>
+                <span>Export Qualitative Feedback (CSV)</span>
               </Button>
 
               <Button
@@ -1923,7 +1906,7 @@ export default function EvaluationAnalytics({
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <MessageSquareQuote className="size-4 text-purple-600" />
-                ผลการจัดอันดับและคำถามเชิงคุณภาพจากผู้เชี่ยวชาญ ({filteredComparisons.length} รายการ)
+                คำถามเชิงคุณภาพจากผู้เชี่ยวชาญ ({filteredComparisons.length} รายการ)
               </CardTitle>
               <Badge variant="outline" className="text-xs">
                 {selectedScenarioFilter === "all" ? "ทุก Scenario" : `Scenario: ${selectedScenarioFilter}`}
@@ -1942,16 +1925,7 @@ export default function EvaluationAnalytics({
 
                 <div className="flex gap-2 flex-wrap items-center">
                   <Badge variant="outline">Scenario: {cmp.scenario_id}</Badge>
-                  <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                    เหมาะสมใช้งานจริง: {cmp.best_for_practical_use?.blind_label}
-                  </Badge>
                 </div>
-
-                {cmp.best_for_practical_use?.rationale && (
-                  <p className="text-muted-foreground italic bg-secondary/40 p-2.5 rounded-xl border border-border/30">
-                    "เหตุผลความเหมาะสม: {cmp.best_for_practical_use.rationale}"
-                  </p>
-                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-2 border-t border-border/30">
                   <div className="p-2.5 rounded-xl bg-background/80">

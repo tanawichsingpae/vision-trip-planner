@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import {
   Plane,
   Sparkles,
@@ -105,6 +105,8 @@ import { VisionOutlierModal, type OutlierItem } from "@/components/VisionOutlier
 import { detectVisionOutliers } from "@/utils/outlierDetector";
 import { SavedTripsModal } from "@/components/SavedTripsModal";
 import { saveTrip, type TripRecord } from "@/services/tripService";
+import PixineraryDemoModal from "@/components/PixineraryDemoModal";
+import TravelWishHelperCard from "@/components/TravelWishHelperCard";
 
 
 
@@ -380,6 +382,32 @@ const Index = () => {
   const [outliers, setOutliers] = useState<OutlierItem[]>([]);
   const [isOutlierModalOpen, setIsOutlierModalOpen] = useState<boolean>(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
+  const [isDemoOpen, setIsDemoOpen] = useState<boolean>(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("demo") === "true") {
+      setItinerary(MOCK_ITINERARY);
+      setMapItinerary(MOCK_ITINERARY);
+      setStep(3);
+      setMaxUnlockedStep(3);
+      if (!preferences) {
+        setPreferences({
+          destination: "Bali Cultural & Beach Escape",
+          duration: 3,
+          style: "culture",
+          budget: "medium",
+          hasHotel: "no",
+        } as any);
+      }
+      toast.success(
+        language === "th"
+          ? "โหลดทริปตัวอย่างเรียบร้อยแล้ว! สามารถทดลองปรับแต่งได้ทันที"
+          : "Demo trip loaded! Explore the itinerary and interactive map."
+      );
+    }
+  }, [location.search, language]);
 
   // ── Saved Trips & Chat Persistence ──
 
@@ -2577,6 +2605,17 @@ const Index = () => {
                 <span>Console</span>
               </Link>
             )}
+
+            {/* Interactive Demo Button */}
+            <button
+              type="button"
+              onClick={() => setIsDemoOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold text-sky-700 dark:text-sky-300 bg-sky-50/90 dark:bg-sky-950/70 border border-sky-300/60 dark:border-sky-800/60 hover:bg-sky-100 dark:hover:bg-sky-900/60 transition-all hover:scale-105 shadow-2xs cursor-pointer"
+              title="Interactive Web Demo"
+            >
+              <Sparkles className="size-3 text-sky-500 animate-pulse" />
+              <span>Demo</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
@@ -2672,11 +2711,29 @@ const Index = () => {
         {/* ── STEP 0: Upload & First Impression (Pixinerary) ── */}
         {step === 0 && !isAnalyzing && (
           <section className="animate-in fade-in mx-auto flex max-w-2xl flex-col gap-6 duration-500 mb-12">
+            {/* Minimalist Floating Demo Pill (Option A) */}
+            <div className="flex justify-center pt-2 mb-1">
+              <button
+                type="button"
+                onClick={() => setIsDemoOpen(true)}
+                className="group relative inline-flex items-center gap-2 overflow-hidden rounded-full border border-sky-400/50 bg-white/80 dark:bg-slate-900/80 px-4 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 shadow-xs backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-500 hover:shadow-md hover:shadow-sky-500/15 cursor-pointer"
+              >
+                <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-sky-400/20 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
+                <span className="flex size-1.5 rounded-full bg-sky-500 animate-pulse" />
+                <Sparkles className="size-3.5 text-sky-500" />
+                <span>New to Pixinerary? See 20s Interactive Demo</span>
+                <ArrowRight className="size-3 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              </button>
+            </div>
+
             <ImageUpload
               onImagesUploaded={handleImagesUploaded}
               isAnalyzing={isAnalyzing}
               loadingLabel={loadingStep}
             />
+
+            {/* TravelWish Sister Research Project Contextual Helper */}
+            <TravelWishHelperCard />
 
             {/* Advanced Settings Collapsible for CLIP toggle */}
             <div className="rounded-2xl border border-border/70 bg-secondary/40 overflow-hidden">
@@ -3352,6 +3409,9 @@ const Index = () => {
       <footer className="border-t border-border/70 py-6 text-center text-xs text-muted-foreground mt-12">
         <p>Pixinerary — AI-Powered Image-Based Travel Planner • Research Project</p>
       </footer>
+
+      {/* Interactive Demo Modal */}
+      <PixineraryDemoModal isOpen={isDemoOpen} onClose={() => setIsDemoOpen(false)} />
     </div>
   );
 };

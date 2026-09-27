@@ -3103,8 +3103,6 @@ def submit_blind_comparison():
                 **expert_profile,
                 "geographic_familiarity": geo_fam,
             },
-            "rankings": data.get("rankings", []),
-            "best_for_practical_use": data.get("best_for_practical_use", {}),
             "qualitative_feedback": data.get("qualitative_feedback", {}),
             "submitted_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
@@ -3124,6 +3122,31 @@ def get_blind_results():
         evals = _load_json_file(BLIND_EVALS_FILE, [])
         trips = _load_json_file(BLIND_TRIPS_FILE, [])
         comparisons = _load_json_file(BLIND_COMPARISONS_FILE, [])
+
+        # Build comparison scenario familiarity map
+        comp_geo_map = {}
+        for c in comparisons:
+            eid = (c.get("expert_id") or "").strip().lower()
+            sid = (c.get("scenario_id") or "").strip()
+            g = c.get("geographic_familiarity") or c.get("expert_profile", {}).get("geographic_familiarity")
+            if eid and sid and g:
+                try:
+                    comp_geo_map[f"{eid}_{sid}"] = int(g)
+                except (ValueError, TypeError):
+                    pass
+
+        # Cross-reference with evals
+        for ev in evals:
+            eid = (ev.get("expert_id") or "").strip().lower()
+            sid = (ev.get("scenario_id") or "").strip()
+            if f"{eid}_{sid}" in comp_geo_map:
+                ev["geographic_familiarity"] = comp_geo_map[f"{eid}_{sid}"]
+                if "detailed_scores" in ev and isinstance(ev["detailed_scores"], dict):
+                    ev["detailed_scores"]["geographic_familiarity"] = comp_geo_map[f"{eid}_{sid}"]
+                if "expert_profile" in ev and isinstance(ev["expert_profile"], dict):
+                    ev["expert_profile"]["geographic_familiarity"] = comp_geo_map[f"{eid}_{sid}"]
+                if "scores" in ev and isinstance(ev["scores"], dict):
+                    ev["scores"]["geographic_familiarity"] = comp_geo_map[f"{eid}_{sid}"]
 
         # Compute summary stats per model
         model_stats = {}

@@ -93,8 +93,6 @@ def transform_comp(c):
         "expert_id": c.get("expert_id"),
         "expert_name": c.get("expert_name"),
         "expert_profile": c.get("expert_profile", {}),
-        "rankings": c.get("rankings", []),
-        "best_for_practical_use": c.get("best_for_practical_use", {}),
         "qualitative_feedback": c.get("qualitative_feedback", {}),
     }
 

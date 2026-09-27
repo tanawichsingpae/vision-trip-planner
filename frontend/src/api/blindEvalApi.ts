@@ -244,8 +244,8 @@ export interface ScenarioComparisonSubmission {
   expert_name: string;
   expert_profile?: ExpertProfile;
   geographic_familiarity?: number; // 1-5 ระดับความคุ้นเคยกับพื้นที่ของโจทย์
-  rankings: ScenarioRankingItem[];
-  best_for_practical_use: {
+  rankings?: ScenarioRankingItem[];
+  best_for_practical_use?: {
     trip_id: string;
     blind_label: string;
     rationale: string;
@@ -577,7 +577,43 @@ export async function submitBlindScore(
 }
 
 /**
- * Submits scenario rankings and qualitative answers to Supabase blind_comparisons table.
+ * Synchronizes a scenario's geographic familiarity to all evaluation rows for the given expert in Supabase.
+ */
+export async function syncScenarioFamiliarityToEvals(
+  scenarioId: string,
+  expertId: string,
+  geoFam: number
+): Promise<void> {
+  if (!scenarioId || !expertId) return;
+  try {
+    const { data: existingEvals, error: fetchErr } = await supabase
+      .from("blind_evaluations")
+      .select("id, expert_profile, detailed_scores, scores")
+      .eq("scenario_id", scenarioId)
+      .ilike("expert_id", expertId.trim());
+
+    if (!fetchErr && existingEvals && existingEvals.length > 0) {
+      for (const ev of existingEvals) {
+        const updatedProfile = { ...(ev.expert_profile || {}), geographic_familiarity: geoFam };
+        const updatedDet = { ...(ev.detailed_scores || {}), geographic_familiarity: geoFam };
+        const updatedScores = { ...(ev.scores || {}), geographic_familiarity: geoFam };
+        await supabase
+          .from("blind_evaluations")
+          .update({
+            expert_profile: updatedProfile,
+            detailed_scores: updatedDet,
+            scores: updatedScores,
+          })
+          .eq("id", ev.id);
+      }
+    }
+  } catch (e) {
+    console.warn("syncScenarioFamiliarityToEvals failed:", e);
+  }
+}
+
+/**
+ * Submits scenario qualitative answers to Supabase blind_comparisons table.
  */
 export async function submitScenarioComparison(
   submission: ScenarioComparisonSubmission
@@ -597,14 +633,13 @@ export async function submitScenarioComparison(
           ...(submission.expert_profile || {}),
           geographic_familiarity: geoFam,
         },
-        rankings: submission.rankings || [],
-        best_for_practical_use: submission.best_for_practical_use || {},
         qualitative_feedback: submission.qualitative_feedback || {},
         submitted_at: new Date().toISOString(),
       },
     ]);
 
     if (!error) {
+      syncScenarioFamiliarityToEvals(submission.scenario_id, submission.expert_id, geoFam).catch(() => {});
       return { status: "success", comparison_id: compId };
     }
     console.warn("Supabase submitScenarioComparison failed, falling back:", error);
@@ -617,12 +652,15 @@ export async function submitScenarioComparison(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      ...submission,
+      scenario_id: submission.scenario_id,
+      expert_id: submission.expert_id,
+      expert_name: submission.expert_name,
       geographic_familiarity: geoFam,
       expert_profile: {
         ...(submission.expert_profile || {}),
         geographic_familiarity: geoFam,
       },
+      qualitative_feedback: submission.qualitative_feedback || {},
     }),
   });
   if (!res.ok) {
@@ -650,10 +688,34 @@ export async function fetchBlindResults(): Promise<{
     ]);
 
     if (!evalsRes.error && evalsRes.data && !tripsRes.error && tripsRes.data) {
+      const trips = tripsRes.data;
+      const comps: ScenarioComparisonRecord[] = (compsRes.data || []).map((row: any) => {
+        const prof = row.expert_profile || {};
+        const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? 3;
+        return {
+          ...row,
+          geographic_familiarity: geoFam,
+          expert_profile: {
+            ...prof,
+            geographic_familiarity: geoFam,
+          },
+        };
+      });
+
+      // Build scenario-level geographic familiarity lookup map by (expert_id + scenario_id)
+      const compGeoFamMap = new Map<string, number>();
+      for (const c of comps) {
+        if (c.expert_id && c.scenario_id && c.geographic_familiarity) {
+          compGeoFamMap.set(`${c.expert_id.trim().toLowerCase()}_${c.scenario_id.trim()}`, Number(c.geographic_familiarity));
+        }
+      }
+
       const evals: EvaluationRecord[] = evalsRes.data.map((row: any) => {
         const det = row.detailed_scores || {};
         const prof = row.expert_profile || {};
-        const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? det.geographic_familiarity ?? 3;
+        const lookupKey = `${(row.expert_id || "").trim().toLowerCase()}_${(row.scenario_id || "").trim()}`;
+        const compFam = compGeoFamMap.get(lookupKey);
+        const geoFam = compFam ?? row.geographic_familiarity ?? prof.geographic_familiarity ?? det.geographic_familiarity ?? 3;
         const visAlign = row.vision_alignment ?? det.vision_alignment ?? det.cc6 ?? 4;
         return {
           ...row,
@@ -670,19 +732,6 @@ export async function fetchBlindResults(): Promise<{
             vision_alignment: visAlign,
             cc6: det.cc6 ?? visAlign,
           },
-          expert_profile: {
-            ...prof,
-            geographic_familiarity: geoFam,
-          },
-        };
-      });
-      const trips = tripsRes.data;
-      const comps: ScenarioComparisonRecord[] = (compsRes.data || []).map((row: any) => {
-        const prof = row.expert_profile || {};
-        const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? 3;
-        return {
-          ...row,
-          geographic_familiarity: geoFam,
           expert_profile: {
             ...prof,
             geographic_familiarity: geoFam,
@@ -795,10 +844,32 @@ export async function fetchBlindResults(): Promise<{
   const res = await fetch(`${API_BASE}/blind_eval/results`);
   if (!res.ok) throw new Error("Failed to fetch blind results");
   const data = await res.json();
+  const comps = (data.comparisons || []).map((row: any) => {
+    const prof = row.expert_profile || {};
+    const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? 3;
+    return {
+      ...row,
+      geographic_familiarity: geoFam,
+      expert_profile: {
+        ...prof,
+        geographic_familiarity: geoFam,
+      },
+    };
+  });
+
+  const compGeoFamMap = new Map<string, number>();
+  for (const c of comps) {
+    if (c.expert_id && c.scenario_id && c.geographic_familiarity) {
+      compGeoFamMap.set(`${c.expert_id.trim().toLowerCase()}_${c.scenario_id.trim()}`, Number(c.geographic_familiarity));
+    }
+  }
+
   const evals = (data.evaluations || []).map((row: any) => {
     const det = row.detailed_scores || {};
     const prof = row.expert_profile || {};
-    const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? det.geographic_familiarity ?? 3;
+    const lookupKey = `${(row.expert_id || "").trim().toLowerCase()}_${(row.scenario_id || "").trim()}`;
+    const compFam = compGeoFamMap.get(lookupKey);
+    const geoFam = compFam ?? row.geographic_familiarity ?? prof.geographic_familiarity ?? det.geographic_familiarity ?? 3;
     const visAlign = row.vision_alignment ?? det.vision_alignment ?? det.cc6 ?? 4;
     return {
       ...row,
@@ -815,18 +886,6 @@ export async function fetchBlindResults(): Promise<{
         vision_alignment: visAlign,
         cc6: det.cc6 ?? visAlign,
       },
-      expert_profile: {
-        ...prof,
-        geographic_familiarity: geoFam,
-      },
-    };
-  });
-  const comps = (data.comparisons || []).map((row: any) => {
-    const prof = row.expert_profile || {};
-    const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? 3;
-    return {
-      ...row,
-      geographic_familiarity: geoFam,
       expert_profile: {
         ...prof,
         geographic_familiarity: geoFam,
@@ -915,8 +974,6 @@ export async function syncLocalToSupabase(): Promise<{
       expert_id: c.expert_id,
       expert_name: c.expert_name,
       expert_profile: c.expert_profile || {},
-      rankings: c.rankings || [],
-      best_for_practical_use: c.best_for_practical_use || {},
       qualitative_feedback: c.qualitative_feedback || {},
       submitted_at: c.submitted_at || new Date().toISOString(),
     }));

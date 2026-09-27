@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import PixoLoadingCompanion from "@/components/PixoLoadingCompanion";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -455,6 +456,9 @@ export const AnalyzingOverlay = ({ isAnalyzing, loadingStep, useClip, type = "vi
                 transition={{ duration: 1.8, repeat: Infinity, ease: "linear" }}
               />
             </div>
+
+            {/* ── 3.5 Animated Pixo Mascot Walking Companion ── */}
+            <PixoLoadingCompanion type={type} activeIdx={activeIdx} totalSteps={steps.length} />
 
             {/* ── 4. Live AI "Thought Stream" Steps ── */}
             <div className="space-y-2">

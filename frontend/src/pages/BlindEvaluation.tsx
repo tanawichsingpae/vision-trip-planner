@@ -5,6 +5,7 @@ import {
   fetchBlindTrips,
   submitBlindScore,
   submitScenarioComparison,
+  syncScenarioFamiliarityToEvals,
   fetchBlindResults,
   deleteBlindTrip,
   checkDatabaseConnection,
@@ -17,7 +18,6 @@ import {
   type ModelSummaryStat,
   type ExpertProfile,
   type DetailedDimensionScores,
-  type ScenarioRankingItem,
   type ScenarioComparisonRecord,
 } from "@/api/blindEvalApi";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -362,6 +362,20 @@ export default function BlindEvaluation() {
     }
   });
 
+  // Re-synchronize cached familiarity when userEmail resolves
+  useEffect(() => {
+    if (userEmail) {
+      try {
+        const userKey = `pixinerary_geo_fam_${userEmail.toLowerCase()}`;
+        const cached = localStorage.getItem(userKey) || localStorage.getItem("pixinerary_geo_fam");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setScenarioFamiliarityMap((prev) => ({ ...parsed, ...prev }));
+        }
+      } catch {}
+    }
+  }, [userEmail]);
+
   const currentScenarioFamiliarity = useMemo(() => {
     if (!selectedScenarioId) return 3;
     return scenarioFamiliarityMap[selectedScenarioId] ?? 3;
@@ -373,10 +387,34 @@ export default function BlindEvaluation() {
       const updated = { ...prev, [selectedScenarioId]: level };
       try {
         localStorage.setItem(FAMILIARITY_STORAGE_KEY, JSON.stringify(updated));
+        if (userEmail) {
+          localStorage.setItem(`pixinerary_geo_fam_${userEmail.toLowerCase()}`, JSON.stringify(updated));
+        }
         localStorage.setItem("pixinerary_geo_fam", JSON.stringify(updated));
       } catch {}
       return updated;
     });
+
+    // Immediately update candidate trip scores in-memory
+    setModelScoresMap((prev) => {
+      const updated = { ...prev };
+      for (const trip of trips) {
+        if (trip.scenario_id === selectedScenarioId && updated[trip.id]) {
+          updated[trip.id] = {
+            ...updated[trip.id],
+            geographic_familiarity: level,
+          };
+        }
+      }
+      return updated;
+    });
+
+    // Synchronize to Supabase immediately if this user already submitted evaluations for this scenario
+    if (userEmail) {
+      syncScenarioFamiliarityToEvals(selectedScenarioId, userEmail, level).then(() => {
+        loadResults();
+      });
+    }
   };
 
   // -------------------------------------------------------------
@@ -386,16 +424,8 @@ export default function BlindEvaluation() {
   const [submittingModelScore, setSubmittingModelScore] = useState(false);
 
   // -------------------------------------------------------------
-  // PART 3 & 4: SCENARIO COMPARATIVE RANKING & QUALITATIVE FEEDBACK
+  // PART 3: SCENARIO QUALITATIVE FEEDBACK
   // -------------------------------------------------------------
-  const [rankings, setRankings] = useState<Array<{ rank: number; trip_id: string; rationale: string }>>([
-    { rank: 1, trip_id: "", rationale: "" },
-    { rank: 2, trip_id: "", rationale: "" },
-    { rank: 3, trip_id: "", rationale: "" },
-    { rank: 4, trip_id: "", rationale: "" },
-  ]);
-  const [bestModelTripId, setBestModelTripId] = useState<string>("");
-  const [bestModelRationale, setBestModelRationale] = useState<string>("");
   const [qualitativeFeedback, setQualitativeFeedback] = useState({
     q1_real_travel: "",
     q2_tourism_context: "",
@@ -436,7 +466,7 @@ export default function BlindEvaluation() {
     try {
       const res = await syncLocalToSupabase();
       toast.success(
-        `ซิงก์ข้อมูลขึ้น Supabase Cloud สำเร็จ! (${res.tripsCount} แผนทริป, ${res.evalsCount} ผลคะแนน, ${res.compsCount} การจัดอันดับ)`
+        `ซิงก์ข้อมูลขึ้น Supabase Cloud สำเร็จ! (${res.tripsCount} แผนทริป, ${res.evalsCount} ผลคะแนน, ${res.compsCount} การประเมินเชิงคุณภาพ)`
       );
       await checkDb();
       await loadTrips();
@@ -488,6 +518,37 @@ export default function BlindEvaluation() {
           return updated;
         });
       }
+
+      // Pre-fill scenarioFamiliarityMap from existing comparisons and evaluations
+      if (userEmail) {
+        setScenarioFamiliarityMap((prev) => {
+          const updated = { ...prev };
+          // 1. From comparisons (authoritative qualitative records)
+          for (const c of data.comparisons || []) {
+            if (c.scenario_id && c.expert_id?.toLowerCase() === userEmail.toLowerCase()) {
+              const fam = c.geographic_familiarity ?? c.expert_profile?.geographic_familiarity;
+              if (fam !== undefined && fam !== null) {
+                updated[c.scenario_id] = Number(fam);
+              }
+            }
+          }
+          // 2. From evaluations (fallback)
+          for (const ev of data.evaluations || []) {
+            if (ev.scenario_id && ev.expert_id?.toLowerCase() === userEmail.toLowerCase() && !updated[ev.scenario_id]) {
+              const fam = ev.geographic_familiarity ?? ev.expert_profile?.geographic_familiarity ?? ev.detailed_scores?.geographic_familiarity;
+              if (fam !== undefined && fam !== null) {
+                updated[ev.scenario_id] = Number(fam);
+              }
+            }
+          }
+          try {
+            const userKey = `pixinerary_geo_fam_${userEmail.toLowerCase()}`;
+            localStorage.setItem(userKey, JSON.stringify(updated));
+            localStorage.setItem("pixinerary_geo_fam", JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+      }
     } catch (err: any) {
       console.warn("Failed to load results:", err);
     }
@@ -500,7 +561,7 @@ export default function BlindEvaluation() {
     if (role === "dev") {
       refreshUserRoles();
     }
-  }, [role]);
+  }, [role, userEmail]);
 
   // Unique Scenarios list
   const scenarios = useMemo(() => {
@@ -695,7 +756,7 @@ export default function BlindEvaluation() {
     }
   };
 
-  // Submit Comparative Ranking & Qualitative Feedback
+  // Submit Scenario Qualitative Feedback
   const handleSubmitComparison = async () => {
     if (!selectedScenarioId) return;
     if (!isProfileSaved) {
@@ -703,24 +764,6 @@ export default function BlindEvaluation() {
       setIsEditingProfile(true);
       return;
     }
-    if (!bestModelTripId) {
-      toast.error("กรุณาเลือกโมเดลที่ท่านคิดว่าเหมาะสมที่สุดสำหรับการนำไปใช้งานจริง (ข้อ 2)");
-      return;
-    }
-
-    const bestTripObj = candidateTrips.find((t) => t.id === bestModelTripId);
-
-    const formattedRankings: ScenarioRankingItem[] = rankings
-      .filter((r) => r.trip_id)
-      .map((r) => {
-        const trip = candidateTrips.find((t) => t.id === r.trip_id);
-        return {
-          rank: r.rank,
-          trip_id: r.trip_id,
-          blind_label: trip?.blind_label || `Model ${r.rank}`,
-          rationale: r.rationale,
-        };
-      });
 
     setSubmittingComparison(true);
     try {
@@ -733,16 +776,15 @@ export default function BlindEvaluation() {
           geographic_familiarity: currentScenarioFamiliarity,
         },
         geographic_familiarity: currentScenarioFamiliarity,
-        rankings: formattedRankings,
-        best_for_practical_use: {
-          trip_id: bestModelTripId,
-          blind_label: bestTripObj?.blind_label || "Selected Model",
-          rationale: bestModelRationale,
-        },
         qualitative_feedback: qualitativeFeedback,
       });
 
-      toast.success("บันทึกการเปรียบเทียบและจัดอันดับโมเดลเรียบร้อยแล้ว!");
+      // Synchronize scenario familiarity to any evaluations previously saved for this scenario
+      if (userEmail) {
+        await syncScenarioFamiliarityToEvals(selectedScenarioId, userEmail, currentScenarioFamiliarity);
+      }
+
+      toast.success("บันทึกคำถามเชิงคุณภาพเรียบร้อยแล้ว!");
       loadResults();
     } catch (err: any) {
       toast.error(err.message || "Failed to submit scenario comparison");
@@ -750,6 +792,32 @@ export default function BlindEvaluation() {
       setSubmittingComparison(false);
     }
   };
+
+  // Pre-fill qualitativeFeedback if this expert already answered for this scenario
+  useEffect(() => {
+    if (selectedScenarioId && userEmail && resultsData.comparisons) {
+      const existingComp = resultsData.comparisons.find(
+        (c) =>
+          c.scenario_id === selectedScenarioId &&
+          c.expert_id?.toLowerCase() === userEmail.toLowerCase()
+      );
+      if (existingComp?.qualitative_feedback) {
+        setQualitativeFeedback({
+          q1_real_travel: existingComp.qualitative_feedback.q1_real_travel || "",
+          q2_tourism_context: existingComp.qualitative_feedback.q2_tourism_context || "",
+          q3_value_experience: existingComp.qualitative_feedback.q3_value_experience || "",
+          q4_distinct_differences: existingComp.qualitative_feedback.q4_distinct_differences || "",
+        });
+      } else {
+        setQualitativeFeedback({
+          q1_real_travel: "",
+          q2_tourism_context: "",
+          q3_value_experience: "",
+          q4_distinct_differences: "",
+        });
+      }
+    }
+  }, [selectedScenarioId, userEmail, resultsData.comparisons]);
 
   // Dev: Delete Trip
   const handleDeleteTrip = async (tripId: string) => {
@@ -1013,7 +1081,7 @@ export default function BlindEvaluation() {
                   <Check className="size-3.5 text-emerald-600" /> ประเมินเกณฑ์เดียวกันทุกแผน
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <Check className="size-3.5 text-emerald-600" /> จัดอันดับจากดีที่สุดไปหาดีน้อยที่สุด
+                  <Check className="size-3.5 text-emerald-600" /> ตอบคำถามเชิงคุณภาพภาพรวม
                 </span>
               </div>
             </div>
@@ -1610,7 +1678,7 @@ export default function BlindEvaluation() {
                 })}
               </div>
 
-              {/* Special Button: Comparative Ranking View */}
+              {/* Special Button: Summary Matrix & Qualitative View */}
               <Button
                 size="sm"
                 variant={evalMode === "compare" ? "default" : "outline"}
@@ -1621,8 +1689,8 @@ export default function BlindEvaluation() {
                     : "border-amber-400/70 text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30 hover:bg-amber-100"
                 }`}
               >
-                <Trophy className="size-3.5 text-amber-500" />
-                <span>ส่วนที่ 3 & 4: จัดอันดับ & เปรียบเทียบภาพรวม</span>
+                <MessageSquareQuote className="size-3.5 text-amber-500" />
+                <span>ส่วนที่ 3: สรุปภาพรวม & คำถามเชิงคุณภาพ</span>
               </Button>
             </div>
           </CardHeader>
@@ -2240,7 +2308,7 @@ export default function BlindEvaluation() {
                       onClick={() => setEvalMode("compare")}
                       className="text-xs text-purple-600 hover:underline inline-flex items-center gap-1"
                     >
-                      <span>ไปที่ส่วนที่ 3 & 4: จัดอันดับ & เปรียบเทียบภาพรวม</span>
+                      <span>ไปที่ส่วนที่ 3: สรุปภาพรวม & คำถามเชิงคุณภาพ</span>
                       <ChevronRight className="size-3" />
                     </button>
                   </div>
@@ -2250,7 +2318,7 @@ export default function BlindEvaluation() {
           </div>
         ) : (
           /* =============================================================
-             PARTS 3 & 4: COMPARATIVE RANKING & QUALITATIVE FEEDBACK VIEW
+             PART 3: SUMMARY MATRIX & QUALITATIVE FEEDBACK VIEW
              ============================================================= */
           <div className="space-y-6">
             {/* Back button to plan inspector */}
@@ -2272,7 +2340,7 @@ export default function BlindEvaluation() {
                 <div className="flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-bold text-purple-600 uppercase tracking-wider">
-                      ส่วนที่ 3: การเปรียบเทียบและจัดอันดับโมเดล (Comparative Ranking)
+                      ส่วนที่ 3: สรุปภาพรวม & การเปรียบเทียบโมเดล (Summary Matrix)
                     </span>
                     <CardTitle className="text-base font-bold mt-0.5">
                       ตารางเปรียบเทียบภาพรวม (Summary Matrix)
@@ -2365,136 +2433,12 @@ export default function BlindEvaluation() {
               </CardContent>
             </Card>
 
-            {/* Model Ranking Inputs */}
-            <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
-              <CardHeader className="pb-3 border-b border-border/50">
-                <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <Trophy className="size-4 text-amber-500" />
-                  การจัดอันดับโมเดล (Model Ranking)
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  จัดอันดับโมเดลจากดีที่สุดไปหาดีน้อยที่สุด (1 = ดีที่สุด) พร้อมระบุเหตุผลสั้นๆ
-                </CardDescription>
-              </CardHeader>
-
-              <CardContent className="p-5 space-y-4">
-                <div className="space-y-3">
-                  {candidateTrips.map((_, idx) => {
-                    const rankNum = idx + 1;
-                    const curRank = rankings.find((r) => r.rank === rankNum) || {
-                      rank: rankNum,
-                      trip_id: "",
-                      rationale: "",
-                    };
-
-                    return (
-                      <div
-                        key={rankNum}
-                        className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-3 rounded-2xl bg-secondary/30 border border-border/50"
-                      >
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="flex size-7 items-center justify-center rounded-xl bg-purple-600 text-white font-bold text-xs shadow-2xs">
-                            #{rankNum}
-                          </span>
-                          <span className="text-xs font-semibold text-foreground">
-                            อันดับ {rankNum}:
-                          </span>
-                        </div>
-
-                        <div className="w-full sm:w-[220px] shrink-0">
-                          <Select
-                            value={curRank.trip_id}
-                            onValueChange={(val) => {
-                              setRankings((prev) => {
-                                const copy = [...prev];
-                                const existIdx = copy.findIndex((r) => r.rank === rankNum);
-                                if (existIdx >= 0) {
-                                  copy[existIdx] = { ...copy[existIdx], trip_id: val };
-                                } else {
-                                  copy.push({ rank: rankNum, trip_id: val, rationale: "" });
-                                }
-                                return copy;
-                              });
-                            }}
-                          >
-                            <SelectTrigger className="h-8 text-xs rounded-xl">
-                              <SelectValue placeholder="เลือกโมเดล/แผน" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {candidateTrips.map((t) => (
-                                <SelectItem key={t.id} value={t.id} className="text-xs">
-                                  {t.blind_label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="w-full flex-1">
-                          <Input
-                            placeholder="ระบุเหตุผลสั้นๆ สำหรับอันดับนี้..."
-                            value={curRank.rationale}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setRankings((prev) => {
-                                const copy = [...prev];
-                                const existIdx = copy.findIndex((r) => r.rank === rankNum);
-                                if (existIdx >= 0) {
-                                  copy[existIdx] = { ...copy[existIdx], rationale: val };
-                                } else {
-                                  copy.push({ rank: rankNum, trip_id: "", rationale: val });
-                                }
-                                return copy;
-                              });
-                            }}
-                            className="h-8 text-xs rounded-xl"
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Best for Practical Use */}
-                <div className="mt-4 pt-4 border-t border-border/50 space-y-2">
-                  <Label className="text-xs font-bold text-foreground">
-                    2. โมเดลใดที่ท่านคิดว่าเหมาะสมที่สุดสำหรับการนำไปใช้งานจริง?
-                  </Label>
-                  <div className="flex gap-2 flex-wrap">
-                    {candidateTrips.map((t) => (
-                      <Button
-                        key={t.id}
-                        type="button"
-                        size="sm"
-                        variant={bestModelTripId === t.id ? "default" : "outline"}
-                        onClick={() => setBestModelTripId(t.id)}
-                        className={`rounded-xl text-xs h-8 px-4 ${
-                          bestModelTripId === t.id
-                            ? "bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-xs"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {t.blind_label}
-                      </Button>
-                    ))}
-                  </div>
-
-                  <Textarea
-                    placeholder="ระบุเหตุผลว่าเพราะเหตุใดโมเดลนี้จึงเหมาะสมที่สุดในการนำไปใช้งานจริง..."
-                    value={bestModelRationale}
-                    onChange={(e) => setBestModelRationale(e.target.value)}
-                    className="text-xs min-h-[70px] rounded-2xl mt-1.5"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Part 4: Qualitative Feedback */}
+            {/* Part 3: Qualitative Feedback */}
             <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
               <CardHeader className="pb-3 border-b border-border/50">
                 <CardTitle className="text-sm font-bold flex items-center gap-2">
                   <MessageSquareQuote className="size-4 text-purple-600" />
-                  ส่วนที่ 4: คำถามเชิงคุณภาพ (Qualitative Feedback)
+                  คำถามเชิงคุณภาพ (Qualitative Feedback)
                 </CardTitle>
                 <CardDescription className="text-xs">
                   คำตอบของท่านจะนำไปใช้วิเคราะห์เชิงลึกสำหรับงานวิทยานิพนธ์
@@ -2559,8 +2503,8 @@ export default function BlindEvaluation() {
                     <Send className="size-4" />
                     <span>
                       {submittingComparison
-                        ? "กำลังบันทึกผลการจัดอันดับ..."
-                        : "บันทึกผลการเปรียบเทียบและจัดอันดับ (ส่วนที่ 3 & 4)"}
+                        ? "กำลังบันทึกผล..."
+                        : "บันทึกคำถามเชิงคุณภาพ (ส่วนที่ 3)"}
                     </span>
                   </Button>
                 </div>
