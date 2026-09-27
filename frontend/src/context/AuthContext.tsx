@@ -5,6 +5,21 @@ import { fetchUserRoles, saveUserRole, type UserRoleRecord } from '@/api/blindEv
 
 export type UserRole = 'dev' | 'expert' | 'user'
 
+function createGuestUser(): User {
+  return {
+    id: `guest_${Math.random().toString(36).substring(2, 10)}`,
+    app_metadata: { provider: 'anonymous' },
+    user_metadata: {
+      full_name: 'Guest Traveler',
+      name: 'Guest Traveler',
+      is_guest: true,
+    },
+    aud: 'authenticated',
+    created_at: new Date().toISOString(),
+    email: 'guest@pixinerary.local',
+  } as unknown as User
+}
+
 type AuthContextType = {
   user: User | null
   session: Session | null
@@ -18,6 +33,8 @@ type AuthContextType = {
   updateUserRole: (email: string, role: UserRole, name?: string) => Promise<void>
   signOut: () => Promise<void>
   isDev: boolean // True if user is a system developer/admin
+  isGuest: boolean // True if current user is logged in as a guest
+  loginAsGuest: () => void // Enter guest session
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -32,7 +49,9 @@ const AuthContext = createContext<AuthContextType>({
   refreshUserRoles: async () => {},
   updateUserRole: async () => {},
   signOut: async () => {},
-  isDev: true
+  isDev: true,
+  isGuest: false,
+  loginAsGuest: () => {}
 })
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -40,6 +59,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [userRolesList, setUserRolesList] = useState<UserRoleRecord[]>([])
+
+  const isGuest = useMemo(() => {
+    return Boolean(user?.user_metadata?.is_guest) || (user?.id ? user.id.startsWith('guest_') : false)
+  }, [user])
 
   // Default role from localStorage or fallback to 'dev' for smooth testing
   const [previewRole, setPreviewRole] = useState<UserRole>(() => {
@@ -56,6 +79,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Compute actual account role from Supabase/Backend records
   const actualRole: UserRole = useMemo(() => {
+    if (isGuest) {
+      return 'user'
+    }
     if (!user?.email) {
       // Offline / local sandbox default to dev
       return 'dev'
@@ -65,9 +91,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (found?.role) return found.role
     if (KNOWN_DEV_EMAILS.includes(emailLower)) return 'dev'
     return 'user'
-  }, [user?.email, userRolesList, KNOWN_DEV_EMAILS])
+  }, [isGuest, user?.email, userRolesList, KNOWN_DEV_EMAILS])
 
-  const isDev = useMemo(() => actualRole === 'dev', [actualRole])
+  const isDev = useMemo(() => !isGuest && actualRole === 'dev', [isGuest, actualRole])
 
   // Active role: If user is Dev, they can preview any role. If user is not Dev, their active role matches actualRole
   const role: UserRole = useMemo(() => {
@@ -83,7 +109,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setPreviewRole(newRole)
   }, [])
 
+  const loginAsGuest = useCallback(() => {
+    const guest = createGuestUser()
+    localStorage.setItem('pix_is_guest', 'true')
+    setUser(guest)
+    setRole('user')
+  }, [setRole])
+
   const refreshUserRoles = useCallback(async () => {
+    if (isGuest || !user?.email || user.email === 'guest@pixinerary.local') {
+      return
+    }
     try {
       let records = await fetchUserRoles()
 
@@ -108,7 +144,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (err) {
       console.warn('refreshUserRoles error:', err)
     }
-  }, [user?.email, user?.user_metadata, KNOWN_DEV_EMAILS])
+  }, [isGuest, user?.email, user?.user_metadata, KNOWN_DEV_EMAILS])
 
   // Admin function: explicitly update a user's role in DB
   const updateUserRole = async (email: string, targetRole: UserRole, name?: string) => {
@@ -148,15 +184,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }
 
   useEffect(() => {
+    const storedIsGuest = localStorage.getItem('pix_is_guest') === 'true'
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
+      if (session?.user) {
+        setSession(session)
+        setUser(session.user)
+        localStorage.removeItem('pix_is_guest')
+      } else if (storedIsGuest) {
+        setSession(null)
+        setUser(createGuestUser())
+      } else {
+        setSession(null)
+        setUser(null)
+      }
       setLoading(false)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
+      if (session?.user) {
+        setSession(session)
+        setUser(session.user)
+        localStorage.removeItem('pix_is_guest')
+      } else {
+        const stillGuest = localStorage.getItem('pix_is_guest') === 'true'
+        if (stillGuest) {
+          setSession(null)
+          setUser(createGuestUser())
+        } else {
+          setSession(null)
+          setUser(null)
+        }
+      }
     })
 
     return () => subscription.unsubscribe()
@@ -167,11 +226,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [refreshUserRoles])
 
   const signOut = async () => {
-    await supabase.auth.signOut()
+    localStorage.removeItem('pix_is_guest')
     localStorage.removeItem('pix_active_role')
+    setUser(null)
+    setSession(null)
+    await supabase.auth.signOut().catch(() => {})
   }
 
-  const userEmail = user?.email || (role === 'dev' ? 'dev@pixinerary.com' : role === 'expert' ? 'expert@pixinerary.com' : 'user@pixinerary.com')
+  const userEmail = isGuest
+    ? 'guest@pixinerary.local'
+    : user?.email || (role === 'dev' ? 'dev@pixinerary.com' : role === 'expert' ? 'expert@pixinerary.com' : 'user@pixinerary.com')
 
   return (
     <AuthContext.Provider value={{
@@ -186,7 +250,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       refreshUserRoles,
       updateUserRole,
       signOut,
-      isDev
+      isDev,
+      isGuest,
+      loginAsGuest
     }}>
       {children}
     </AuthContext.Provider>

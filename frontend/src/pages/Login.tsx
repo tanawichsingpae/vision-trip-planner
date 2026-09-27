@@ -12,7 +12,8 @@ import {
   EyeOff,
   ArrowRight,
   X,
-  AlertCircle
+  AlertCircle,
+  Compass
 } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/context/AuthContext'
@@ -59,7 +60,7 @@ const experiences: ExperienceItem[] = [
 
 export default function Login() {
   const navigate = useNavigate()
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, loginAsGuest } = useAuth()
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [showPassword, setShowPassword] = useState(false)
@@ -71,6 +72,11 @@ export default function Login() {
   const [message, setMessage] = useState<string | null>(null)
 
   const isSignUp = mode === 'signup'
+
+  const handleGuestLogin = () => {
+    loginAsGuest()
+    navigate('/', { replace: true })
+  }
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -273,18 +279,32 @@ export default function Login() {
             </button>
           </div>
 
-          {/* Google Sign In Button */}
-          <button
-            className="google-button"
-            type="button"
-            onClick={handleGoogleLogin}
-            disabled={loading}
-          >
-            <span aria-hidden="true" className="google-mark">
-              G
-            </span>
-            Continue with Google
-          </button>
+          {/* Quick Access Buttons: Google & Guest */}
+          <div className="auth-quick-actions">
+            <button
+              className="google-button"
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading}
+            >
+              <span aria-hidden="true" className="google-mark">
+                G
+              </span>
+              <span>Continue with Google</span>
+            </button>
+
+            <button
+              className="guest-button"
+              type="button"
+              onClick={handleGuestLogin}
+              disabled={loading}
+              title="Explore Pixinerary without creating an account"
+            >
+              <Compass size={17} className="guest-icon" />
+              <span>Continue as Guest</span>
+              <span className="guest-pill">Explore</span>
+            </button>
+          </div>
 
           <div className="divider">
             <span>or continue with email</span>

@@ -16,6 +16,10 @@ interface MapSectionProps {
   selectedPlace?: { lat: number; lng: number; title?: string } | null;
   hoveredActivityId?: string | null;
   onSelectActivity?: (activity: Activity) => void;
+  selectedDay?: number | "all";
+  onSelectDay?: (day: number | "all") => void;
+  mapOnly?: boolean;
+  className?: string;
 }
 
 interface ProcessedMarkerData {
@@ -38,6 +42,10 @@ const MapSection = ({
   selectedPlace,
   hoveredActivityId,
   onSelectActivity,
+  selectedDay,
+  onSelectDay,
+  mapOnly = false,
+  className = "",
 }: MapSectionProps) => {
   const { language, toggleLanguage, locPlace, locDesc, t } = useLanguage();
   const mapRef = useRef<HTMLDivElement>(null);
@@ -54,8 +62,14 @@ const MapSection = ({
   const satelliteLabelsLayerRef = useRef<L.TileLayer | null>(null);
 
   const [isLoaded, setIsLoaded] = useState(false);
-  const [selectedDayFilter, setSelectedDayFilter] = useState<number | "all">("all");
+  const [internalDayFilter, setInternalDayFilter] = useState<number | "all">("all");
   const [mapStyle, setMapStyle] = useState<"standard" | "satellite">("standard");
+
+  const selectedDayFilter = selectedDay !== undefined ? selectedDay : internalDayFilter;
+  const setSelectedDayFilter = (val: number | "all") => {
+    setInternalDayFilter(val);
+    onSelectDay?.(val);
+  };
 
   // -----------------------------
   // 1. INITIALIZE LEAFLET MAP (ONCE ON MOUNT)
@@ -270,8 +284,20 @@ const MapSection = ({
     }[] = [];
 
     itinerary.forEach((day, dayIndex) => {
-      if (selectedDayFilter !== "all" && selectedDayFilter !== dayIndex) {
-        return;
+      const rawDay = day.day;
+      let effectiveDayIndex = dayIndex;
+      if (typeof rawDay === "number" && !isNaN(rawDay)) {
+        effectiveDayIndex = rawDay > 0 ? rawDay - 1 : rawDay;
+      } else if (typeof rawDay === "string" && !isNaN(parseInt(rawDay, 10))) {
+        const parsed = parseInt(rawDay, 10);
+        effectiveDayIndex = parsed > 0 ? parsed - 1 : parsed;
+      }
+      const effectiveDayNumber = effectiveDayIndex + 1;
+
+      if (selectedDayFilter !== "all") {
+        if (selectedDayFilter !== effectiveDayIndex && selectedDayFilter !== effectiveDayNumber) {
+          return;
+        }
       }
 
       day.activities.forEach((act, actIdx) => {
@@ -283,7 +309,7 @@ const MapSection = ({
           act.title.toLowerCase().includes("check out");
         allProcessedActivities.push({
           activity: act,
-          dayIndex,
+          dayIndex: effectiveDayIndex,
           activityIndex: actIdx,
           isHotel,
         });
@@ -499,16 +525,30 @@ const MapSection = ({
 
     // ── STEP D: Draw Day Polylines in Exact Itinerary Order ──
     itinerary.forEach((day, dayIndex) => {
-      if (selectedDayFilter !== "all" && selectedDayFilter !== dayIndex) return;
+      const rawDay = day.day;
+      let effectiveDayIndex = dayIndex;
+      if (typeof rawDay === "number" && !isNaN(rawDay)) {
+        effectiveDayIndex = rawDay > 0 ? rawDay - 1 : rawDay;
+      } else if (typeof rawDay === "string" && !isNaN(parseInt(rawDay, 10))) {
+        const parsed = parseInt(rawDay, 10);
+        effectiveDayIndex = parsed > 0 ? parsed - 1 : parsed;
+      }
+      const effectiveDayNumber = effectiveDayIndex + 1;
 
-      const color = dayColors[dayIndex % dayColors.length];
+      if (selectedDayFilter !== "all") {
+        if (selectedDayFilter !== effectiveDayIndex && selectedDayFilter !== effectiveDayNumber) {
+          return;
+        }
+      }
+
+      const color = dayColors[effectiveDayIndex % dayColors.length];
       const dayPath: [number, number][] = [];
 
       day.activities.forEach((act) => {
         if (!act.lat || !act.lng || act.lat === 0 || act.lng === 0) return;
 
         const pm = processedMarkers.find(
-          (m) => m.dayIndex === dayIndex && m.activity.id === act.id
+          (m) => m.dayIndex === effectiveDayIndex && m.activity.id === act.id
         );
         if (pm) {
           dayPath.push([pm.renderLat, pm.renderLng]);
@@ -577,7 +617,8 @@ const MapSection = ({
       if (
         dayIndex !== undefined &&
         selectedDayFilter !== "all" &&
-        selectedDayFilter !== dayIndex
+        selectedDayFilter !== dayIndex &&
+        selectedDayFilter !== dayIndex + 1
       ) {
         setSelectedDayFilter("all");
       }
@@ -688,8 +729,52 @@ const MapSection = ({
   // -----------------------------
   // UI RENDER
   // -----------------------------
+  if (mapOnly) {
+    return (
+      <div className={`relative w-full h-full min-h-[300px] overflow-hidden ${className}`}>
+        <div ref={mapRef} className="w-full h-full z-0" />
+
+        {/* Floating Map Style Switcher (Standard ↔ Satellite) */}
+        <div className="absolute top-3 right-3 z-[400] flex items-center bg-card/90 dark:bg-slate-900/90 backdrop-blur-md rounded-xl p-1 border border-border/70 shadow-md">
+          <button
+            type="button"
+            onClick={() => setMapStyle("standard")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+              mapStyle === "standard"
+                ? "bg-primary text-primary-foreground shadow-2xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary/70"
+            }`}
+            title={language === "th" ? "สลับเป็นแผนที่ถนนปกติ" : "Switch to street map"}
+          >
+            <MapIcon className="size-3.5" />
+            <span>{t("map", "Map")}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMapStyle("satellite")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+              mapStyle === "satellite"
+                ? "bg-primary text-primary-foreground shadow-2xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary/70"
+            }`}
+            title={language === "th" ? "สลับเป็นภาพถ่ายดาวเทียม (Satellite Imagery)" : "Switch to satellite imagery"}
+          >
+            <Globe className="size-3.5" />
+            <span>{t("satellite", "Satellite 🛰️")}</span>
+          </button>
+        </div>
+
+        {!isLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 backdrop-blur-[2px]">
+            <Navigation className="size-8 animate-pulse text-primary" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="animate-slide-up w-full p-4 sm:p-5 flex flex-col gap-4">
+    <div className={`animate-slide-up w-full p-4 sm:p-5 flex flex-col gap-4 ${className}`}>
       {/* Header with Title and Day Filter Buttons */}
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center gap-2">
@@ -719,13 +804,22 @@ const MapSection = ({
             <Layers className="size-3" />
             <span>{t("allDays", "All Days")}</span>
           </button>
-          {itinerary.map((_, idx) => {
-            const color = dayColors[idx % dayColors.length];
-            const isSelected = selectedDayFilter === idx;
+          {itinerary.map((day, idx) => {
+            const rawDay = day.day;
+            let effectiveDayIndex = idx;
+            if (typeof rawDay === "number" && !isNaN(rawDay)) {
+              effectiveDayIndex = rawDay > 0 ? rawDay - 1 : rawDay;
+            } else if (typeof rawDay === "string" && !isNaN(parseInt(rawDay, 10))) {
+              const parsed = parseInt(rawDay, 10);
+              effectiveDayIndex = parsed > 0 ? parsed - 1 : parsed;
+            }
+            const effectiveDayNumber = effectiveDayIndex + 1;
+            const color = dayColors[effectiveDayIndex % dayColors.length];
+            const isSelected = selectedDayFilter === effectiveDayIndex || selectedDayFilter === effectiveDayNumber;
             return (
               <button
-                key={idx}
-                onClick={() => setSelectedDayFilter(idx)}
+                key={day.day || idx}
+                onClick={() => setSelectedDayFilter(isSelected ? "all" : effectiveDayIndex)}
                 className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
                   isSelected
                     ? "bg-card text-foreground border-primary shadow-2xs ring-2 ring-primary/20"
@@ -736,7 +830,7 @@ const MapSection = ({
                   className="size-2 rounded-full shrink-0"
                   style={{ backgroundColor: color }}
                 />
-                <span>{language === "th" ? `วันที่ ${idx + 1}` : `Day ${idx + 1}`}</span>
+                <span>{language === "th" ? `วันที่ ${effectiveDayNumber}` : `Day ${effectiveDayNumber}`}</span>
               </button>
             );
           })}
@@ -794,14 +888,23 @@ const MapSection = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {itinerary.map((_, index) => {
-            const color = dayColors[index % dayColors.length];
-            const isSelected = selectedDayFilter === index;
+          {itinerary.map((day, index) => {
+            const rawDay = day.day;
+            let effectiveDayIndex = index;
+            if (typeof rawDay === "number" && !isNaN(rawDay)) {
+              effectiveDayIndex = rawDay > 0 ? rawDay - 1 : rawDay;
+            } else if (typeof rawDay === "string" && !isNaN(parseInt(rawDay, 10))) {
+              const parsed = parseInt(rawDay, 10);
+              effectiveDayIndex = parsed > 0 ? parsed - 1 : parsed;
+            }
+            const effectiveDayNumber = effectiveDayIndex + 1;
+            const color = dayColors[effectiveDayIndex % dayColors.length];
+            const isSelected = selectedDayFilter === effectiveDayIndex || selectedDayFilter === effectiveDayNumber;
             return (
               <button
-                key={index}
+                key={day.day || index}
                 onClick={() =>
-                  setSelectedDayFilter(selectedDayFilter === index ? "all" : index)
+                  setSelectedDayFilter(isSelected ? "all" : effectiveDayIndex)
                 }
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all ${
                   isSelected
@@ -813,7 +916,7 @@ const MapSection = ({
                   className="size-2.5 rounded-full shrink-0"
                   style={{ backgroundColor: color }}
                 />
-                <span>{language === "th" ? `วันที่ ${index + 1}` : `Day ${index + 1}`}</span>
+                <span>{language === "th" ? `วันที่ ${effectiveDayNumber}` : `Day ${effectiveDayNumber}`}</span>
               </button>
             );
           })}
@@ -831,7 +934,11 @@ const MapSection = ({
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
               {t("itineraryOverview", "Itinerary Overview")} (
-              {selectedDayFilter === "all" ? t("allDays", "All Days") : (language === "th" ? `วันที่ ${selectedDayFilter + 1}` : `Day ${selectedDayFilter + 1}`)})
+              {selectedDayFilter === "all"
+                ? t("allDays", "All Days")
+                : (language === "th"
+                    ? `วันที่ ${typeof selectedDayFilter === "number" ? (selectedDayFilter > 0 && selectedDayFilter <= itinerary.length ? selectedDayFilter : selectedDayFilter + 1) : selectedDayFilter}`
+                    : `Day ${typeof selectedDayFilter === "number" ? (selectedDayFilter > 0 && selectedDayFilter <= itinerary.length ? selectedDayFilter : selectedDayFilter + 1) : selectedDayFilter}`)})
             </h3>
             <button
               type="button"
@@ -852,24 +959,34 @@ const MapSection = ({
 
         <div className="space-y-3">
           {itinerary.map((day, dayIndex) => {
-            if (selectedDayFilter !== "all" && selectedDayFilter !== dayIndex) return null;
+            const rawDay = day.day;
+            let effectiveDayIndex = dayIndex;
+            if (typeof rawDay === "number" && !isNaN(rawDay)) {
+              effectiveDayIndex = rawDay > 0 ? rawDay - 1 : rawDay;
+            } else if (typeof rawDay === "string" && !isNaN(parseInt(rawDay, 10))) {
+              const parsed = parseInt(rawDay, 10);
+              effectiveDayIndex = parsed > 0 ? parsed - 1 : parsed;
+            }
+            const effectiveDayNumber = effectiveDayIndex + 1;
+
+            if (selectedDayFilter !== "all" && selectedDayFilter !== effectiveDayIndex && selectedDayFilter !== effectiveDayNumber) return null;
 
             return (
               <div
-                key={dayIndex}
+                key={day.day || dayIndex}
                 className="bg-secondary/30 p-4 rounded-2xl border border-border/70 shadow-2xs"
               >
                 <div className="flex items-center gap-2.5 mb-3">
                   <div
                     className="size-6 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-2xs shrink-0"
-                    style={{ backgroundColor: dayColors[dayIndex % dayColors.length] }}
+                    style={{ backgroundColor: dayColors[effectiveDayIndex % dayColors.length] }}
                   >
-                    {dayIndex + 1}
+                    {effectiveDayNumber}
                   </div>
                   <h4 className="font-bold text-foreground text-xs sm:text-sm">
                     {language === "th"
-                      ? `วันที่ ${dayIndex + 1} (${day.activities.length} ${t("activitiesCount", "กิจกรรม")})`
-                      : `Day ${dayIndex + 1} (${day.activities.length} ${t("activitiesCount", "activities")})`}
+                      ? `วันที่ ${effectiveDayNumber} (${day.activities.length} ${t("activitiesCount", "กิจกรรม")})`
+                      : `Day ${effectiveDayNumber} (${day.activities.length} ${t("activitiesCount", "activities")})`}
                   </h4>
                 </div>
 

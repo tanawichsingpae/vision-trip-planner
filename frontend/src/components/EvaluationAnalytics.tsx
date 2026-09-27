@@ -97,6 +97,7 @@ export interface ComputedModelStat {
   avg_sr: number;
   avg_de: number;
   avg_ru: number;
+  avg_va: number;
   avg_overall_percentage: number;
   overall_score: number;
   total_wins: number;
@@ -231,6 +232,7 @@ export default function EvaluationAnalytics({
         total_sr: 0,
         total_de: 0,
         total_ru: 0,
+        total_va: 0,
         total_percentage: 0,
         total_overall: 0,
         wins: 0,
@@ -253,6 +255,7 @@ export default function EvaluationAnalytics({
           total_sr: 0,
           total_de: 0,
           total_ru: 0,
+          total_va: 0,
           total_percentage: 0,
           total_overall: 0,
           wins: 0,
@@ -273,6 +276,7 @@ export default function EvaluationAnalytics({
       const sr = parseFloat(det.sr_avg ?? sc.spatial_feasibility ?? 3) || 3;
       const de = parseFloat(det.de_avg ?? sc.attraction_quality ?? 3) || 3;
       const ru = parseFloat(det.ru_avg ?? 3.5) || 3.5;
+      const va = parseFloat(det.vision_alignment ?? det.cc6 ?? ev.vision_alignment ?? 4) || 4;
       const pct = parseFloat(det.overall_percentage ?? ((fa + cc + pf + sr + de + ru) / 6.0) * 20) || 75;
 
       st.total_fa += fa;
@@ -281,6 +285,7 @@ export default function EvaluationAnalytics({
       st.total_sr += sr;
       st.total_de += de;
       st.total_ru += ru;
+      st.total_va += va;
       st.total_percentage += pct;
       st.total_overall += (fa + cc + pf + sr + de + ru) / 6.0;
 
@@ -331,6 +336,7 @@ export default function EvaluationAnalytics({
           avg_sr: 0,
           avg_de: 0,
           avg_ru: 0,
+          avg_va: 0,
           avg_overall_percentage: 0,
           overall_score: 0,
           total_wins: st.wins,
@@ -350,6 +356,7 @@ export default function EvaluationAnalytics({
         avg_sr: Number((st.total_sr / c).toFixed(2)),
         avg_de: Number((st.total_de / c).toFixed(2)),
         avg_ru: Number((st.total_ru / c).toFixed(2)),
+        avg_va: Number((st.total_va / c).toFixed(2)),
         avg_overall_percentage: Number((st.total_percentage / c).toFixed(1)),
         overall_score: Number((st.total_overall / c).toFixed(2)),
         total_wins: st.wins,
@@ -430,7 +437,7 @@ export default function EvaluationAnalytics({
     });
   }, [evaluatedActiveSummary, revealModels, modelAliasMap]);
 
-  // B. Grouped Bar Chart Data (6 Dimensions + Overall)
+  // B. Grouped Bar Chart Data (6 Dimensions + Vision Alignment + Overall)
   const dimensionsBarData = useMemo(() => {
     const items = [
       { key: "avg_fa", name: "FA ถูกต้อง", full: "1. ความถูกต้องของข้อมูล" },
@@ -439,6 +446,7 @@ export default function EvaluationAnalytics({
       { key: "avg_sr", name: "SR เชิงพื้นที่", full: "4. ความสมเหตุสมผลเชิงพื้นที่" },
       { key: "avg_de", name: "DE หลากหลาย", full: "5. ความหลากหลายและคุณภาพ" },
       { key: "avg_ru", name: "RU ยืดหยุ่น", full: "6. ความยืดหยุ่นและสำรอง" },
+      { key: "avg_va", name: "VA รูปภาพ", full: "ความสอดคล้องกับรูปภาพ (Vision-Plan Alignment)" },
       { key: "overall_score", name: "เฉลี่ย 6 ด้าน", full: "คะแนนเฉลี่ยรวม 6 ด้าน (เต็ม 5)" },
     ];
 
@@ -526,12 +534,14 @@ export default function EvaluationAnalytics({
       "Expert Role",
       "Expert Experience",
       "AI Familiarity",
+      "Geographic Familiarity (ความคุ้นเคยพื้นที่ 1-5)",
       "FA1", "FA2", "FA3", "FA4", "FA5", "FA Avg (1. ความถูกต้อง)",
-      "CC1", "CC2", "CC3", "CC4", "CC5", "CC Avg (2. ข้อจำกัด)",
+      "CC1", "CC2", "CC3", "CC4", "CC5", "CC6 (Vision-Plan Alignment)", "CC Avg (2. ข้อจำกัด)",
       "PF1", "PF2", "PF3", "PF4", "PF5", "PF Avg (3. เป็นไปได้)",
       "SR1", "SR2", "SR3", "SR4", "SR Avg (4. เชิงพื้นที่)",
       "DE1", "DE2", "DE3", "DE4", "DE5", "DE Avg (5. หลากหลาย)",
       "RU1", "RU2", "RU3", "RU4", "RU Avg (6. ยืดหยุ่น)",
+      "Vision-Plan Alignment (VA 1-5)",
       "Overall 6-Dim Score (1-5)",
       "Overall Percentage (0-100%)",
       "Strengths (จุดเด่น)",
@@ -563,12 +573,14 @@ export default function EvaluationAnalytics({
         escapeCsv(ev.expert_profile?.role || ""),
         escapeCsv(ev.expert_profile?.experience || ""),
         escapeCsv(ev.expert_profile?.ai_familiarity || ""),
+        ev.geographic_familiarity ?? ev.expert_profile?.geographic_familiarity ?? d.geographic_familiarity ?? "",
         d.fa1 ?? "", d.fa2 ?? "", d.fa3 ?? "", d.fa4 ?? "", d.fa5 ?? "", d.fa_avg ?? "",
-        d.cc1 ?? "", d.cc2 ?? "", d.cc3 ?? "", d.cc4 ?? "", d.cc5 ?? "", d.cc_avg ?? "",
+        d.cc1 ?? "", d.cc2 ?? "", d.cc3 ?? "", d.cc4 ?? "", d.cc5 ?? "", d.cc6 ?? "", d.cc_avg ?? "",
         d.pf1 ?? "", d.pf2 ?? "", d.pf3 ?? "", d.pf4 ?? "", d.pf5 ?? "", d.pf_avg ?? "",
         d.sr1 ?? "", d.sr2 ?? "", d.sr3 ?? "", d.sr4 ?? "", d.sr_avg ?? "",
         d.de1 ?? "", d.de2 ?? "", d.de3 ?? "", d.de4 ?? "", d.de5 ?? "", d.de_avg ?? "",
         d.ru1 ?? "", d.ru2 ?? "", d.ru3 ?? "", d.ru4 ?? "", d.ru_avg ?? "",
+        ev.vision_alignment ?? d.vision_alignment ?? d.cc6 ?? "",
         ((Number(d.fa_avg || 3) + Number(d.cc_avg || 3) + Number(d.pf_avg || 3) + Number(d.sr_avg || 3) + Number(d.de_avg || 3) + Number(d.ru_avg || 3.5)) / 6).toFixed(2),
         d.overall_percentage ?? "",
         escapeCsv(d.strengths || ""),
@@ -600,6 +612,7 @@ export default function EvaluationAnalytics({
       "Expert Name",
       "Expert Role",
       "Expert Experience",
+      "Geographic Familiarity (ความคุ้นเคยพื้นที่ 1-5)",
       "Best Model Trip ID",
       "Best Model Blind Label",
       "Best Model Actual Name",
@@ -641,6 +654,7 @@ export default function EvaluationAnalytics({
         escapeCsv(resolveEvaluatorName(cmp.expert_name, cmp.expert_id, resultsData.comparisons)),
         escapeCsv(cmp.expert_profile?.role || ""),
         escapeCsv(cmp.expert_profile?.experience || ""),
+        cmp.geographic_familiarity ?? cmp.expert_profile?.geographic_familiarity ?? "",
         escapeCsv(cmp.best_for_practical_use?.trip_id || ""),
         escapeCsv(cmp.best_for_practical_use?.blind_label || ""),
         escapeCsv(bestTrip?.actual_model || ""),
@@ -678,6 +692,7 @@ export default function EvaluationAnalytics({
       "SR Avg (4. เชิงพื้นที่)",
       "DE Avg (5. หลากหลาย)",
       "RU Avg (6. ยืดหยุ่น)",
+      "VA Avg (Vision Alignment)",
       "Overall 6-Dim Score (1-5)",
       "Overall Percentage (0-100%)",
       "Practical Wins",
@@ -704,6 +719,7 @@ export default function EvaluationAnalytics({
         st.avg_sr,
         st.avg_de,
         st.avg_ru,
+        st.avg_va,
         st.overall_score,
         st.avg_overall_percentage,
         st.total_wins,
@@ -725,6 +741,7 @@ export default function EvaluationAnalytics({
           st.avg_sr,
           st.avg_de,
           st.avg_ru,
+          st.avg_va,
           st.overall_score,
           st.avg_overall_percentage,
           st.total_wins,
@@ -753,8 +770,51 @@ export default function EvaluationAnalytics({
       models: availableModels,
       summary_combined: overallSummary,
       summary_by_scenario: Object.fromEntries(scenarioSummariesMap.entries()),
-      raw_evaluations: resultsData.evaluations,
-      raw_comparisons: resultsData.comparisons || [],
+      raw_evaluations: resultsData.evaluations.map((ev) => {
+        const d = ev.detailed_scores || ({} as any);
+        const geoFam = ev.geographic_familiarity ?? ev.expert_profile?.geographic_familiarity ?? d.geographic_familiarity ?? 3;
+        const visAlign = ev.vision_alignment ?? d.vision_alignment ?? d.cc6 ?? 4;
+        return {
+          id: ev.id,
+          scenario_id: ev.scenario_id,
+          trip_id: ev.trip_id,
+          blind_label: ev.blind_label,
+          actual_model: ev.actual_model,
+          expert_id: ev.expert_id,
+          expert_name: resolveEvaluatorName(ev.expert_name, ev.expert_id, resultsData.evaluations),
+          geographic_familiarity: geoFam,
+          vision_alignment: visAlign,
+          expert_profile: {
+            ...(ev.expert_profile || {}),
+            geographic_familiarity: geoFam,
+          },
+          scores: {
+            ...(ev.scores || {}),
+            vision_alignment: visAlign,
+            geographic_familiarity: geoFam,
+          },
+          detailed_scores: {
+            ...d,
+            geographic_familiarity: geoFam,
+            vision_alignment: visAlign,
+            cc6: d.cc6 ?? visAlign,
+          },
+          overall_pick: ev.overall_pick,
+          feedback: ev.feedback,
+          submitted_at: ev.submitted_at,
+        };
+      }),
+      raw_comparisons: (resultsData.comparisons || []).map((cmp) => {
+        const geoFam = cmp.geographic_familiarity ?? cmp.expert_profile?.geographic_familiarity ?? 3;
+        return {
+          ...cmp,
+          geographic_familiarity: geoFam,
+          expert_profile: {
+            ...(cmp.expert_profile || {}),
+            geographic_familiarity: geoFam,
+          },
+        };
+      }),
     };
 
     const jsonContent = JSON.stringify(fullDataset, null, 2);
@@ -1419,7 +1479,7 @@ export default function EvaluationAnalytics({
               </CardDescription>
             </div>
 
-            <div className="text-xs text-muted-foreground flex items-center gap-2">
+            <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
               <span className="flex items-center gap-1">
                 <span className="size-2 rounded-full bg-purple-500 inline-block" /> FA = ความถูกต้อง
               </span>
@@ -1428,6 +1488,9 @@ export default function EvaluationAnalytics({
               </span>
               <span className="flex items-center gap-1">
                 <span className="size-2 rounded-full bg-amber-500 inline-block" /> PF = เป็นไปได้
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="size-2 rounded-full bg-sky-500 inline-block" /> VA = ความสอดคล้องกับรูปภาพ
               </span>
             </div>
           </div>
@@ -1445,6 +1508,7 @@ export default function EvaluationAnalytics({
                 <TableHead className="text-xs text-center">SR (เชิงพื้นที่)</TableHead>
                 <TableHead className="text-xs text-center">DE (หลากหลาย)</TableHead>
                 <TableHead className="text-xs text-center">RU (ยืดหยุ่น)</TableHead>
+                <TableHead className="text-xs text-center text-sky-600 font-semibold">VA (รูปภาพ)</TableHead>
                 <TableHead className="text-xs text-center font-bold text-purple-600">เฉลี่ย 6 ด้าน</TableHead>
                 <TableHead className="text-xs text-center font-bold text-emerald-600">ภาพรวม (%)</TableHead>
                 <TableHead className="text-xs text-center">ชนะโหวต</TableHead>
@@ -1453,7 +1517,7 @@ export default function EvaluationAnalytics({
             <TableBody>
               {activeSummary.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="text-center py-8 text-xs text-muted-foreground">
+                  <TableCell colSpan={12} className="text-center py-8 text-xs text-muted-foreground">
                     ยังไม่มีข้อมูลโมเดลในขอบเขตนี้
                   </TableCell>
                 </TableRow>
@@ -1515,6 +1579,9 @@ export default function EvaluationAnalytics({
                       </TableCell>
                       <TableCell className="text-center font-medium">
                         {isEvaluated ? st.avg_ru : "-"}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold text-sky-700 dark:text-sky-300">
+                        {isEvaluated ? st.avg_va : "-"}
                       </TableCell>
                       <TableCell className="text-center font-bold text-purple-600">
                         {isEvaluated ? `${st.overall_score} / 5` : "-"}

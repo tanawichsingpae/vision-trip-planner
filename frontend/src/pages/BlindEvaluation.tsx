@@ -121,6 +121,7 @@ const DIMENSIONS = [
       { id: "cc3", code: "CC3", text: "แผนสอดคล้องกับสไตล์/ความสนใจที่ระบุ (เช่น วัฒนธรรม, อาหาร, ถ่ายรูป)" },
       { id: "cc4", code: "CC4", text: "แผนคำนึงถึงข้อจำกัดเฉพาะ (เช่น เวลาเปิด-ปิด, วันหยุด, ฤดูกาล)" },
       { id: "cc5", code: "CC5", text: "แผนเหมาะสมกับกลุ่มเป้าหมายที่ระบุ (เช่น คู่รัก, ครอบครัว, ผู้สูงอายุ)" },
+      { id: "cc6", code: "CC6", text: "แผนตอบสนองและบูรณาการสถานที่/แรงบันดาลใจจากรูปภาพที่อัปโหลดได้ครบถ้วน (Vision-Plan Alignment)" },
     ],
   },
   {
@@ -191,16 +192,19 @@ const PRIORITY_IMPROVEMENT_OPTIONS = [
   "ความหลากหลายของกิจกรรม",
   "เวลาสำรองและความยืดหยุ่น",
   "การรวมสถานที่สำคัญ (Must-see)",
+  "ความสอดคล้องกับรูปภาพที่อัปโหลด (Vision-Plan Alignment)",
   "อื่นๆ (ระบุ)",
 ];
 
 const DEFAULT_SCORES: DetailedDimensionScores = {
   fa1: 4, fa2: 4, fa3: 4, fa4: 4, fa5: 4, fa_avg: 4.0,
-  cc1: 4, cc2: 4, cc3: 4, cc4: 4, cc5: 4, cc_avg: 4.0,
+  cc1: 4, cc2: 4, cc3: 4, cc4: 4, cc5: 4, cc6: 4, cc_avg: 4.0,
   pf1: 4, pf2: 4, pf3: 4, pf4: 4, pf5: 4, pf_avg: 4.0,
   sr1: 4, sr2: 4, sr3: 4, sr4: 4, sr_avg: 4.0,
   de1: 4, de2: 4, de3: 4, de4: 4, de5: 4, de_avg: 4.0,
   ru1: 4, ru2: 4, ru3: 4, ru4: 4, ru_avg: 4.0,
+  vision_alignment: 4,
+  geographic_familiarity: 3,
   overall_percentage: 80,
   strengths: "",
   weaknesses: "",
@@ -343,6 +347,36 @@ export default function BlindEvaluation() {
     setIsProfileSaved(true);
     setIsEditingProfile(false);
     toast.success("บันทึกข้อมูลเรียบร้อยแล้ว (ระบบจะจดจำไว้ ไม่ต้องกรอกซ้ำ)");
+  };
+
+  // -------------------------------------------------------------
+  // PART 1.5: GEOGRAPHIC FAMILIARITY PER SCENARIO (Control Variable 1-5)
+  // -------------------------------------------------------------
+  const FAMILIARITY_STORAGE_KEY = `pixinerary_geo_fam_${(userEmail || "default").toLowerCase()}`;
+  const [scenarioFamiliarityMap, setScenarioFamiliarityMap] = useState<Record<string, number>>(() => {
+    try {
+      const cached = localStorage.getItem(FAMILIARITY_STORAGE_KEY) || localStorage.getItem("pixinerary_geo_fam");
+      return cached ? JSON.parse(cached) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const currentScenarioFamiliarity = useMemo(() => {
+    if (!selectedScenarioId) return 3;
+    return scenarioFamiliarityMap[selectedScenarioId] ?? 3;
+  }, [selectedScenarioId, scenarioFamiliarityMap]);
+
+  const handleSetScenarioFamiliarity = (level: number) => {
+    if (!selectedScenarioId) return;
+    setScenarioFamiliarityMap((prev) => {
+      const updated = { ...prev, [selectedScenarioId]: level };
+      try {
+        localStorage.setItem(FAMILIARITY_STORAGE_KEY, JSON.stringify(updated));
+        localStorage.setItem("pixinerary_geo_fam", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   // -------------------------------------------------------------
@@ -510,9 +544,19 @@ export default function BlindEvaluation() {
       const curr = prev[activeTrip.id] || { ...DEFAULT_SCORES };
       const updated = { ...curr, [key]: value };
 
+      // Keep cc6 and vision_alignment synchronized
+      if (key === "cc6") {
+        updated.vision_alignment = Number(value);
+      } else if (key === "vision_alignment") {
+        updated.cc6 = Number(value);
+      }
+
       // Recalculate dimension averages
       const fa_avg = (Number(updated.fa1) + Number(updated.fa2) + Number(updated.fa3) + Number(updated.fa4) + Number(updated.fa5)) / 5.0;
-      const cc_avg = (Number(updated.cc1) + Number(updated.cc2) + Number(updated.cc3) + Number(updated.cc4) + Number(updated.cc5)) / 5.0;
+      const cc_vals = [updated.cc1, updated.cc2, updated.cc3, updated.cc4, updated.cc5, updated.cc6].filter(
+        (v) => v !== undefined && !isNaN(Number(v))
+      );
+      const cc_avg = cc_vals.reduce((s, c) => s + Number(c), 0) / (cc_vals.length || 1);
       const pf_avg = (Number(updated.pf1) + Number(updated.pf2) + Number(updated.pf3) + Number(updated.pf4) + Number(updated.pf5)) / 5.0;
       const sr_avg = (Number(updated.sr1) + Number(updated.sr2) + Number(updated.sr3) + Number(updated.sr4)) / 4.0;
       const de_avg = (Number(updated.de1) + Number(updated.de2) + Number(updated.de3) + Number(updated.de4) + Number(updated.de5)) / 5.0;
@@ -612,13 +656,19 @@ export default function BlindEvaluation() {
 
     setSubmittingModelScore(true);
     try {
+      const vaScore = currentTripScores.cc6 ?? currentTripScores.vision_alignment ?? 4;
       await submitBlindScore({
         scenario_id: activeTrip.scenario_id,
         trip_id: activeTrip.id,
         blind_label: activeTrip.blind_label,
         expert_id: userEmail || "expert",
         expert_name: effectiveExpertName,
-        expert_profile: expertProfile,
+        expert_profile: {
+          ...expertProfile,
+          geographic_familiarity: currentScenarioFamiliarity,
+        },
+        geographic_familiarity: currentScenarioFamiliarity,
+        vision_alignment: vaScore,
         scores: {
           spatial_feasibility: Math.round(currentTripScores.sr_avg),
           temporal_pacing: Math.round(currentTripScores.pf_avg),
@@ -626,7 +676,12 @@ export default function BlindEvaluation() {
           attraction_quality: Math.round(currentTripScores.de_avg),
           information_accuracy: Math.round(currentTripScores.fa_avg),
         },
-        detailed_scores: currentTripScores,
+        detailed_scores: {
+          ...currentTripScores,
+          geographic_familiarity: currentScenarioFamiliarity,
+          vision_alignment: vaScore,
+          cc6: vaScore,
+        },
         overall_pick: false,
         feedback: currentTripScores.strengths || currentTripScores.weaknesses,
       });
@@ -673,7 +728,11 @@ export default function BlindEvaluation() {
         scenario_id: selectedScenarioId,
         expert_id: userEmail || "expert",
         expert_name: effectiveExpertName,
-        expert_profile: expertProfile,
+        expert_profile: {
+          ...expertProfile,
+          geographic_familiarity: currentScenarioFamiliarity,
+        },
+        geographic_familiarity: currentScenarioFamiliarity,
         rankings: formattedRankings,
         best_for_practical_use: {
           trip_id: bestModelTripId,
@@ -1265,6 +1324,56 @@ export default function BlindEvaluation() {
               </div>
             </div>
 
+            {/* Geographic Familiarity Control Variable (Research Covariate) */}
+            <div className="mt-3 p-3 rounded-2xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/20 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-start sm:items-center gap-2">
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                  <MapPin className="size-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                      ระดับความคุ้นเคยกับพื้นที่ของโจทย์ (Geographic Familiarity)
+                    </span>
+                    <Badge variant="outline" className="text-[10px] font-semibold bg-background/80 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300">
+                      ระดับ {currentScenarioFamiliarity} / 5
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    ตัวแปรควบคุมตามระเบียบวิธีวิจัย: โปรดระบุระดับความคุ้นเคยหรือประสบการณ์ของท่านต่อจุดหมายปลายทางใน Scenario นี้
+                  </p>
+                </div>
+              </div>
+
+              {/* 1-5 Likert Level Buttons */}
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 overflow-x-auto pb-1 md:pb-0">
+                {[
+                  { level: 1, label: "1: ไม่เคยไป", desc: "Never visited" },
+                  { level: 2, label: "2: เคยไปนานแล้ว", desc: "Visited long ago" },
+                  { level: 3, label: "3: เคยไป 1-2 ครั้ง", desc: "Visited 1-2 times" },
+                  { level: 4, label: "4: เดินทางบ่อย", desc: "Frequent traveler" },
+                  { level: 5, label: "5: เชี่ยวชาญพื้นที่", desc: "Local Expert" },
+                ].map((item) => {
+                  const isSelected = currentScenarioFamiliarity === item.level;
+                  return (
+                    <button
+                      key={item.level}
+                      type="button"
+                      onClick={() => handleSetScenarioFamiliarity(item.level)}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-all whitespace-nowrap flex flex-col items-center ${
+                        isSelected
+                          ? "bg-amber-600 text-white border-amber-600 shadow-xs font-bold scale-102"
+                          : "bg-background/90 hover:bg-secondary/70 border-border/70 text-muted-foreground hover:text-foreground"
+                      }`}
+                      title={item.desc}
+                    >
+                      <span className="text-[11px] leading-tight">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Constraints Card */}
             <div className="mt-3 rounded-2xl border border-purple-200/90 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/80 via-indigo-50/50 to-background dark:from-purple-950/40 dark:via-indigo-950/20 dark:to-background p-3.5 shadow-2xs">
               <div className="flex items-center justify-between gap-2 border-b border-purple-200/60 dark:border-purple-900/40 pb-2 mb-2.5">
@@ -1571,19 +1680,39 @@ export default function BlindEvaluation() {
                       <Badge variant="outline" className="text-[10px] rounded-full">
                         {tripMetrics.hasCoordinates} หมุดพิกัด
                       </Badge>
+                      {selectedDayFilter !== "all" && (
+                        <Badge
+                          className="text-[10px] rounded-full text-white font-semibold flex items-center gap-1 shadow-2xs border-0"
+                          style={{
+                            backgroundColor:
+                              DAY_COLORS[
+                                ((typeof selectedDayFilter === "number" ? selectedDayFilter : 1) - 1) %
+                                  DAY_COLORS.length
+                              ],
+                          }}
+                        >
+                          <span className="size-1.5 rounded-full bg-white animate-pulse" />
+                          กำลังดู Day {selectedDayFilter}
+                        </Badge>
+                      )}
                     </div>
                     <span className="text-[11px] text-muted-foreground">
-                      สีหมุดแยกตามวัน (คลิกหมุดเพื่อดูข้อมูล)
+                      {selectedDayFilter === "all"
+                        ? "สีหมุดแยกตามวัน (คลิกหมุดเพื่อดูข้อมูล)"
+                        : `แสดงเฉพาะเส้นทางวันที่ ${selectedDayFilter}`}
                     </span>
                   </CardHeader>
-                  <CardContent className="p-0 h-[360px] relative">
+                  <CardContent className="p-0 h-[380px] relative">
                     <MapSection
                       location={mapLocation}
-                      itinerary={displayItinerary}
+                      itinerary={activeTrip?.itinerary || []}
+                      selectedDay={selectedDayFilter}
+                      onSelectDay={(day) => setSelectedDayFilter(day)}
                       dayColors={DAY_COLORS}
                       selectedActivity={selectedActivity}
                       onSelectActivity={(act) => setSelectedActivity(act)}
                       hoveredActivityId={hoveredActivityId}
+                      mapOnly={true}
                     />
                   </CardContent>
                 </Card>
@@ -1617,7 +1746,8 @@ export default function BlindEvaluation() {
 
                   {activeTrip?.itinerary?.map((d, idx) => {
                     const isSelected = selectedDayFilter === d.day;
-                    const dayColor = DAY_COLORS[idx % DAY_COLORS.length];
+                    const dayIndex = typeof d.day === "number" && !isNaN(d.day) ? d.day - 1 : idx;
+                    const dayColor = DAY_COLORS[dayIndex % DAY_COLORS.length];
                     return (
                       <Button
                         key={d.day || idx}
@@ -1824,6 +1954,55 @@ export default function BlindEvaluation() {
                 </CardHeader>
 
                 <CardContent className="p-4 space-y-4">
+                  {/* Dedicated Academic Indicator: Vision-Plan Alignment (ความสอดคล้องกับรูปภาพ) */}
+                  <div className="p-3 rounded-2xl border border-sky-300 dark:border-sky-800 bg-sky-50/70 dark:bg-sky-950/30 space-y-2 shadow-2xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-700 dark:text-sky-400">
+                          <Camera className="size-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-sky-950 dark:text-sky-200">
+                              Vision-Plan Alignment (ความสอดคล้องกับรูปภาพ)
+                            </span>
+                            <Badge className="bg-sky-600 text-white text-[9px] px-1.5 py-0 h-4 rounded-md">
+                              ตัวชี้วัดวิจัย
+                            </Badge>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            แผนบูรณาการสถานที่และแรงบันดาลใจจากรูปภาพที่อัปโหลดได้ครบถ้วนเพียงใด
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-sky-700 dark:text-sky-300 px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900 border border-sky-300/60 dark:border-sky-800 shrink-0">
+                        {currentTripScores.cc6 || currentTripScores.vision_alignment || 4} / 5
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-5 gap-1.5 pt-0.5">
+                      {[1, 2, 3, 4, 5].map((num) => {
+                        const isSelected = (currentTripScores.cc6 || currentTripScores.vision_alignment || 4) === num;
+                        return (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => {
+                              updateActiveScore("cc6", num);
+                            }}
+                            className={`h-7.5 rounded-xl text-xs font-semibold flex items-center justify-center transition-all ${
+                              isSelected
+                                ? "bg-sky-600 text-white shadow-xs font-bold scale-102"
+                                : "bg-background/90 hover:bg-secondary border border-border/60 text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {num}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Dimension Tabs */}
                   <div className="grid grid-cols-3 sm:grid-cols-7 gap-1 p-1 bg-secondary/50 rounded-2xl">
                     {DIMENSIONS.map((dim) => {

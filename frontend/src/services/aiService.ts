@@ -1,6 +1,6 @@
 import { type DayPlan } from "@/components/TravelItinerary";
 import { type SuggestedPlace } from "@/components/AISuggestedPlaces";
-import { type AIModelType, type AIProviderType, MODEL_ID_MAP } from "@/context/AIProviderContext";
+import { type AIModelType, type AIProviderType, MODEL_ID_MAP, getAIModelInfo } from "@/context/AIProviderContext";
 import { safeFetch, validateApiKey } from "@/utils/apiUtils";
 import { safeParseJson } from "@/utils/jsonRepair";
 import { fetchPlaceDetails } from "@/api/places";
@@ -1956,3 +1956,298 @@ export async function testOpenRouterConnection() {
 
 export const testGeminiConnection = testOpenRouterConnection;
 export const testOpenAIConnection = testOpenRouterConnection;
+
+// ==========================================
+// AI SMART PREFERENCES SUGGESTION (VISION-BASED)
+// ==========================================
+
+export interface SuggestedTripPlan {
+  themeTitle: string;
+  recommendedDays: number;
+  travelerType: string;
+  budget: string;
+  budgetRange: [number, number];
+  pace: string;
+  activities: string[];
+  reasoning: string;
+  highlightSpots?: string[];
+  modelLabel: string;
+}
+
+/**
+ * Fast, deterministic local rule-based heuristic to suggest trip preferences based on visual tags.
+ * Acts as an instant base and robust offline fail-safe.
+ */
+export function generateLocalHeuristicSuggestion(
+  locations: Array<{
+    place?: string;
+    place_th?: string;
+    place_en?: string;
+    type?: string;
+    detected_content?: string;
+    detailed_description?: string;
+  }>,
+  destinationName: string = "",
+  language: string = "th",
+  modelLabel: string = "AI"
+): SuggestedTripPlan {
+  const isThai = language === "th";
+  const allText = (locations || [])
+    .map(
+      (l) =>
+        `${l.place || ""} ${l.place_th || ""} ${l.place_en || ""} ${l.type || ""} ${l.detected_content || ""} ${l.detailed_description || ""}`
+    )
+    .join(" ")
+    .toLowerCase();
+
+  const detectedActivities: string[] = [];
+
+  const hasCulture =
+    /(wat|temple|palace|shrine|museum|buddha|pagoda|heritage|history|ruins|วัด|โบสถ์|วัง|ประวัติศาสตร์|โบราณ)/i.test(allText);
+  if (hasCulture) detectedActivities.push("culture");
+
+  const hasFood =
+    /(food|cafe|coffee|restaurant|market|dining|eatery|street food|noodle|curry|dessert|อาหาร|กิน|คาเฟ่|กาแฟ|ตลาด|ร้านอาหาร)/i.test(allText);
+  if (hasFood) detectedActivities.push("food");
+
+  const hasNature =
+    /(beach|island|sea|ocean|sand|waterfall|mountain|hill|forest|park|lake|nature|viewpoint|ธรรมชาติ|ทะเล|เกาะ|หาด|น้ำตก|เขา|ดอย|สวน)/i.test(allText);
+  if (hasNature) detectedActivities.push("nature");
+
+  const hasAdventure =
+    /(hiking|trekking|climbing|diving|snorkel|kayak|rafting|adventure|trail|safari|ผจญภัย|เดินป่า|ดำน้ำ|ปีนผา|กิจกรรม)/i.test(allText);
+  if (hasAdventure) detectedActivities.push("adventure");
+
+  const hasShopping =
+    /(shopping|mall|market|bazaar|walking street|night market|souvenir|ช้อป|ห้าง|ตลาดนัด|ของฝาก)/i.test(allText);
+  if (hasShopping) detectedActivities.push("shopping");
+
+  const hasNightlife =
+    /(nightlife|bar|pub|club|cocktail|rooftop|beer|lounge|บาร์|ไนท์ไลฟ์|ค็อกเทล|ดริงก์)/i.test(allText);
+  if (hasNightlife) detectedActivities.push("nightlife");
+
+  const hasRelax =
+    /(spa|massage|onsen|resort|pool|wellness|retreat|chill|สปา|นวด|ออนเซ็น|รีสอร์ท|พักผ่อน)/i.test(allText);
+  if (hasRelax) detectedActivities.push("relax");
+
+  const hasSpiritual =
+    /(amulet|blessing|spirit|mutelu|sacred|holy|fortune|มู|ขอพร|สักการะ|ศาล|สิ่งศักดิ์สิทธิ์)/i.test(allText);
+  if (hasSpiritual) detectedActivities.push("spiritual");
+
+  const hasEntertainment =
+    /(theme park|water park|amusement|zoo|aquarium|show|สวนสนุก|สวนน้ำ|สวนสัตว์)/i.test(allText);
+  if (hasEntertainment) detectedActivities.push("entertainment");
+
+  if (detectedActivities.length === 0) {
+    detectedActivities.push("landmark", "food");
+  } else if (!detectedActivities.includes("landmark")) {
+    detectedActivities.push("landmark");
+  }
+
+  const spotCount = (locations || []).length;
+  let recommendedDays = 3;
+  if (spotCount <= 2) recommendedDays = 2;
+  else if (spotCount <= 5) recommendedDays = 3;
+  else if (spotCount <= 8) recommendedDays = 4;
+  else recommendedDays = 5;
+
+  let travelerType = "couple";
+  if (hasEntertainment || /(kids|children|family|เด็ก|ครอบครัว)/i.test(allText)) {
+    travelerType = "family_kids";
+  } else if (hasAdventure || hasNightlife || spotCount >= 6) {
+    travelerType = "friends";
+  } else if (hasRelax || hasNature || /(romantic|sunset|couple|แฟน|คู่รัก)/i.test(allText)) {
+    travelerType = "couple";
+  } else if (hasCulture && spotCount <= 3) {
+    travelerType = "solo";
+  }
+
+  let budget = "standard";
+  let budgetRange: [number, number] = [12000, 35000];
+  if (/(luxury|resort|fine dining|michelin|5 star|หรู|พรีเมียม)/i.test(allText)) {
+    budget = "luxury";
+    budgetRange = [35000, 85000];
+  } else if (/(backpacker|hostel|street food|budget|ประหยัด)/i.test(allText)) {
+    budget = "budget";
+    budgetRange = [6000, 18000];
+  }
+
+  let pace = "balanced";
+  if (spotCount <= 2 || hasRelax) pace = "relaxed";
+  else if (spotCount >= 6) pace = "packed";
+
+  const dest = destinationName || (locations[0]?.place ? locations[0].place.split(",")[0] : isThai ? "ที่เที่ยวสุดประทับใจ" : "Scenic Trip");
+  const highlights = (locations || []).slice(0, 3).map((l) => l.place_th || l.place || "").filter(Boolean);
+
+  let themeTitle = "";
+  let reasoning = "";
+
+  if (hasNature && hasFood) {
+    themeTitle = isThai
+      ? `ทริปชิม ชิล ธรรมชาติ & คาเฟ่ ${dest} (${recommendedDays} วัน)`
+      : `${dest} Nature & Cafe Escape (${recommendedDays} Days)`;
+    reasoning = isThai
+      ? `วิเคราะห์จากภาพถ่าย: พบทิวทัศน์ธรรมชาติและร้านอาหารน่าสนใจ AI จึงแนะนำการเดินทาง ${recommendedDays} วัน ในจังหวะสมดุล เพื่อให้คุณได้ดื่มด่ำทั้งวิวสวยและอาหารจานโปรด`
+      : `Based on your photos of scenic spots and dining spots, AI recommends a ${recommendedDays}-day balanced getaway to enjoy nature and local delicacies.`;
+  } else if (hasCulture || hasSpiritual) {
+    themeTitle = isThai
+      ? `ทริปมรดกวัฒนธรรม & มนต์เสน่ห์ ${dest} (${recommendedDays} วัน)`
+      : `Heritage & Cultural Trail in ${dest} (${recommendedDays} Days)`;
+    reasoning = isThai
+      ? `วิเคราะห์จากภาพถ่าย: พบโบราณสถานและวัดสำคัญ AI จึงแนะนำทริปวัฒนธรรม ${recommendedDays} วัน พร้อมเวลาสักการะและซึมซับคุณค่าทางประวัติศาสตร์อย่างไม่เร่งรีบ`
+      : `Identified historical temples and cultural landmarks. AI suggests a thoughtful ${recommendedDays}-day pace to appreciate each site's heritage.`;
+  } else if (hasAdventure) {
+    themeTitle = isThai
+      ? `ทริปตะลุยผจญภัย & ถ่ายรูปเช็คอิน ${dest} (${recommendedDays} วัน)`
+      : `Outdoor Adventure & Photo Expedition in ${dest} (${recommendedDays} Days)`;
+    reasoning = isThai
+      ? `วิเคราะห์จากภาพถ่าย: พบจุดกิจกรรมกลางแจ้งและธรรมชาติสุดตื่นตา แนะนำการเดินทาง ${recommendedDays} วัน สำหรับกลุ่มเพื่อนที่รักการผจญภัย`
+      : `Outdoor thrill and scenic viewpoints detected. AI tailored an active ${recommendedDays}-day journey ideal for adventurous travelers.`;
+  } else {
+    themeTitle = isThai
+      ? `ทริปไฮไลท์เช็คอิน & พักผ่อน ${dest} (${recommendedDays} วัน)`
+      : `Highlights & Leisure in ${dest} (${recommendedDays} Days)`;
+    reasoning = isThai
+      ? `วิเคราะห์จากภาพถ่าย: พบจุดท่องเที่ยวสำคัญ ${spotCount} จุด แนะนำการเดินทาง ${recommendedDays} วัน จังหวะสมดุล เพื่อเก็บบรรยากาศครบทุกไฮไลท์`
+      : `Curated around your ${spotCount} captured highlights. AI suggests a balanced ${recommendedDays}-day itinerary.`;
+  }
+
+  return {
+    themeTitle,
+    recommendedDays,
+    travelerType,
+    budget,
+    budgetRange,
+    pace,
+    activities: detectedActivities.slice(0, 5),
+    reasoning,
+    highlightSpots: highlights,
+    modelLabel,
+  };
+}
+
+/**
+ * Intelligent AI Preference Recommender:
+ * Calls the currently selected AI Model to synthesize uploaded photos into an optimal Trip Plan.
+ * Seamlessly falls back to local visual heuristics on network latency or timeout.
+ */
+export async function suggestTripPreferencesFromVision(
+  locations: Array<{
+    place?: string;
+    place_th?: string;
+    place_en?: string;
+    type?: string;
+    detected_content?: string;
+    detailed_description?: string;
+  }>,
+  destinationName: string = "",
+  model: AIModelType = "google-gemini-38-flash",
+  language: string = "th"
+): Promise<SuggestedTripPlan> {
+  const modelId = MODEL_ID_MAP[model] || "google/gemini-2.5-flash";
+  const modelInfo = getAIModelInfo(model) || getAIModelInfo(modelId);
+  const modelLabel = modelInfo?.label || "AI Model";
+
+  const localFallback = generateLocalHeuristicSuggestion(
+    locations,
+    destinationName,
+    language,
+    modelLabel
+  );
+
+  if (!locations || locations.length === 0) {
+    return localFallback;
+  }
+
+  try {
+    const isThai = language === "th";
+    const placesSummary = locations
+      .slice(0, 10)
+      .map(
+        (l, idx) =>
+          `${idx + 1}. ${l.place_th || l.place || "Landmark"} (${l.type || "spot"}) - ${l.detected_content || l.detailed_description || ""}`
+      )
+      .join("\n");
+
+    const prompt = `You are Pixinerary's expert travel concierge AI (${modelLabel}).
+The user uploaded travel photos that were analyzed with these detected places and visual tags:
+Destination: ${destinationName || locations[0]?.place || "Travel destination"}
+Detected Spots:
+${placesSummary}
+
+Synthesize these visual cues and recommend the ideal Trip Preferences in JSON format matching this schema:
+{
+  "themeTitle": "A catchy, evocative theme title in ${isThai ? "Thai" : "English"} (e.g. 'ทริปสโลว์ไลฟ์ สายคาเฟ่ & วัฒนธรรม 3 วัน')",
+  "recommendedDays": 2 | 3 | 4 | 5 (realistic duration based on the number and nature of spots),
+  "travelerType": "solo" | "couple" | "friends" | "family_kids" | "family_seniors",
+  "budget": "budget" | "standard" | "luxury",
+  "budgetRange": [minTHB, maxTHB] (e.g. [15000, 45000]),
+  "pace": "relaxed" | "balanced" | "packed",
+  "activities": ["culture" | "food" | "nature" | "adventure" | "shopping" | "nightlife" | "relax" | "landmark" | "entertainment" | "spiritual"],
+  "reasoning": "1-2 warm, insightful sentences in ${isThai ? "Thai" : "English"} explaining why this plan fits the visual vibe of their uploaded photos."
+}
+Return ONLY valid JSON.`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    const response = await fetch(`${BACKEND_URL}/ai`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: "user", content: prompt }],
+        expect_json: true,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return localFallback;
+    }
+
+    const data = await response.json();
+    const parsed = safeParseJson<any>(data.text || "", null);
+    if (!parsed || !parsed.themeTitle) {
+      return localFallback;
+    }
+
+    const days = Number(parsed.recommendedDays) || localFallback.recommendedDays;
+    const clampedDays = Math.max(1, Math.min(days, 14));
+
+    const validActivities = [
+      "culture",
+      "food",
+      "nature",
+      "adventure",
+      "shopping",
+      "nightlife",
+      "relax",
+      "landmark",
+      "entertainment",
+      "spiritual",
+    ];
+    const acts = Array.isArray(parsed.activities)
+      ? parsed.activities.filter((a: string) => validActivities.includes(a))
+      : localFallback.activities;
+
+    return {
+      themeTitle: String(parsed.themeTitle || localFallback.themeTitle),
+      recommendedDays: clampedDays,
+      travelerType: String(parsed.travelerType || localFallback.travelerType),
+      budget: String(parsed.budget || localFallback.budget),
+      budgetRange:
+        Array.isArray(parsed.budgetRange) && parsed.budgetRange.length === 2
+          ? [Number(parsed.budgetRange[0]) || 12000, Number(parsed.budgetRange[1]) || 35000]
+          : localFallback.budgetRange,
+      pace: String(parsed.pace || localFallback.pace),
+      activities: acts.length > 0 ? acts : localFallback.activities,
+      reasoning: String(parsed.reasoning || localFallback.reasoning),
+      highlightSpots: localFallback.highlightSpots,
+      modelLabel,
+    };
+  } catch {
+    return localFallback;
+  }
+}

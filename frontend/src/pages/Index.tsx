@@ -218,7 +218,7 @@ const ItineraryDragOverlay = ({ activity }: { activity: Activity }) => {
 
 // ─── User Session Menu ────────────────────────────────────────────────────────
 const UserMenu = () => {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isGuest } = useAuth();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
@@ -238,6 +238,34 @@ const UserMenu = () => {
         <LogIn className="size-3.5" />
         <span>Sign In</span>
       </Button>
+    );
+  }
+
+  if (isGuest) {
+    return (
+      <div className="flex items-center gap-1.5 bg-secondary/80 border border-teal-500/30 pl-2.5 pr-1.5 py-0.5 rounded-full shadow-2xs">
+        <Compass className="size-3.5 text-teal-600 dark:text-teal-400" />
+        <span className="text-xs font-semibold text-foreground">
+          Guest
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => navigate("/login")}
+          className="h-6.5 rounded-full px-2.5 text-[11px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 gap-1 ml-0.5"
+        >
+          <LogIn className="size-3" />
+          <span>Sign In</span>
+        </Button>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="p-1 rounded-full text-muted-foreground hover:text-red-500 transition-colors ml-0.5"
+          title="ออกจากโหมด Guest"
+        >
+          <LogOut className="size-3" />
+        </button>
+      </div>
     );
   }
 
@@ -355,7 +383,7 @@ const Index = () => {
 
   // ── Saved Trips & Chat Persistence ──
 
-  const { role } = useAuth();
+  const { role, isGuest } = useAuth();
   const [blindSaveModalOpen, setBlindSaveModalOpen] = useState(false);
   const [blindScenarioId, setBlindScenarioId] = useState("SC-01");
   const [blindScenarioTitle, setBlindScenarioTitle] = useState("");
@@ -497,6 +525,18 @@ const Index = () => {
       accommodations,
     });
 
+    if (isGuest) {
+      if (!isSilent) {
+        toast.info("คุณกำลังใช้งานในฐานะ Guest: โปรดเข้าสู่ระบบเพื่อบันทึกทริปนี้ลงระบบ Cloud", {
+          action: {
+            label: "เข้าสู่ระบบ",
+            onClick: () => navigate("/login"),
+          },
+        });
+      }
+      return;
+    }
+
     if (isSilent && lastSavedHashRef.current === currentPayloadContent) {
       return; // No changes since last save
     }
@@ -562,6 +602,7 @@ const Index = () => {
     accommodations,
     coherenceResult,
     environmentData,
+    isGuest,
   ]);
 
   // ── Auto-save every 1 minute (60,000 ms) whenever itinerary exists ──
@@ -2786,6 +2827,7 @@ const Index = () => {
               initialPreferences={preferences}
               hasExistingItinerary={maxUnlockedStep >= 3 && itinerary.length > 0}
               onViewExistingItinerary={() => setStep(3)}
+              detectedLocations={detectedLocations}
             />
 
           </section>

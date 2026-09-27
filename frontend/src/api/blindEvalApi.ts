@@ -41,6 +41,7 @@ export interface ExpertProfile {
   role_other?: string;
   experience: string; // ต่ำกว่า 3 ปี, 3–5 ปี, 6–10 ปี, มากกว่า 10 ปี
   ai_familiarity: string; // ไม่เคยใช้เลย, เคยใช้บ้าง, ใช้เป็นประจำ
+  geographic_familiarity?: number; // 1-5 ระดับความคุ้นเคยกับพื้นที่ของโจทย์
   saved_at?: string;
 }
 
@@ -136,12 +137,13 @@ export interface DetailedDimensionScores {
   fa5: number;
   fa_avg: number;
 
-  // ด้านที่ 2: การปฏิบัติตามข้อจำกัด (Constraint Compliance: CC1-CC5)
+  // ด้านที่ 2: การปฏิบัติตามข้อจำกัดและความต้องการ (Constraint Compliance & Vision Intent: CC1-CC6)
   cc1: number;
   cc2: number;
   cc3: number;
   cc4: number;
   cc5: number;
+  cc6?: number; // Vision-Plan Alignment (ความสอดคล้องกับรูปภาพที่อัปโหลด)
   cc_avg: number;
 
   // ด้านที่ 3: ความเป็นไปได้ในทางปฏิบัติ (Practical Feasibility: PF1-PF5)
@@ -175,6 +177,10 @@ export interface DetailedDimensionScores {
   ru5?: number;
   ru_avg: number;
 
+  // ตัวชี้วัดสำคัญตามหลักวิจัย (Key Academic Indicators)
+  vision_alignment?: number; // 1-5 (Vision-Plan Alignment)
+  geographic_familiarity?: number; // 1-5 (ระดับความคุ้นเคยกับพื้นที่ของโจทย์)
+
   // การประเมินรวมของโมเดลนี้
   overall_percentage: number; // 0-100% Slider
   strengths: string; // จุดเด่น
@@ -199,6 +205,8 @@ export interface BlindEvaluationSubmission {
   expert_id: string;
   expert_name: string;
   expert_profile?: ExpertProfile;
+  geographic_familiarity?: number; // 1-5 ระดับความคุ้นเคยกับพื้นที่ของโจทย์
+  vision_alignment?: number; // 1-5 ความสอดคล้องกับรูปภาพ
   scores: EvaluationScores;
   detailed_scores?: DetailedDimensionScores;
   overall_pick?: boolean;
@@ -214,6 +222,8 @@ export interface EvaluationRecord {
   expert_id: string;
   expert_name: string;
   expert_profile?: ExpertProfile;
+  geographic_familiarity?: number;
+  vision_alignment?: number;
   scores: EvaluationScores;
   detailed_scores?: DetailedDimensionScores;
   overall_pick?: boolean;
@@ -233,6 +243,7 @@ export interface ScenarioComparisonSubmission {
   expert_id: string;
   expert_name: string;
   expert_profile?: ExpertProfile;
+  geographic_familiarity?: number; // 1-5 ระดับความคุ้นเคยกับพื้นที่ของโจทย์
   rankings: ScenarioRankingItem[];
   best_for_practical_use: {
     trip_id: string;
@@ -260,13 +271,14 @@ export interface ModelSummaryStat {
   avg_persona: number;
   avg_attraction: number;
   avg_accuracy: number;
-  // New 6 dimensions:
+  // Dimensions & Academic Indicators:
   avg_fa?: number;
   avg_cc?: number;
   avg_pf?: number;
   avg_sr?: number;
   avg_de?: number;
   avg_ru?: number;
+  avg_va?: number; // Average Vision-Plan Alignment
   avg_overall_percentage?: number;
   overall_score: number;
   total_wins: number;
@@ -466,11 +478,15 @@ export async function submitBlindScore(
   const ds = submission.detailed_scores;
 
   const fa_avg = ds?.fa_avg ?? (ds?.fa1 ? (ds.fa1 + ds.fa2 + ds.fa3 + ds.fa4 + ds.fa5) / 5.0 : submission.scores.information_accuracy || 3);
-  const cc_avg = ds?.cc_avg ?? (ds?.cc1 ? (ds.cc1 + ds.cc2 + ds.cc3 + ds.cc4 + ds.cc5) / 5.0 : submission.scores.persona_alignment || 3);
+  const cc_items = [ds?.cc1, ds?.cc2, ds?.cc3, ds?.cc4, ds?.cc5, ds?.cc6].filter((v) => typeof v === "number") as number[];
+  const cc_avg = ds?.cc_avg ?? (cc_items.length > 0 ? cc_items.reduce((a, b) => a + b, 0) / cc_items.length : submission.scores.persona_alignment || 3);
   const pf_avg = ds?.pf_avg ?? (ds?.pf1 ? (ds.pf1 + ds.pf2 + ds.pf3 + ds.pf4 + ds.pf5) / 5.0 : submission.scores.temporal_pacing || 3);
   const sr_avg = ds?.sr_avg ?? (ds?.sr1 ? (ds.sr1 + ds.sr2 + ds.sr3 + ds.sr4) / 4.0 : submission.scores.spatial_feasibility || 3);
   const de_avg = ds?.de_avg ?? (ds?.de1 ? (ds.de1 + ds.de2 + ds.de3 + ds.de4 + ds.de5) / 5.0 : submission.scores.attraction_quality || 3);
   const ru_avg = ds?.ru_avg ?? (ds?.ru1 ? (ds.ru1 + ds.ru2 + ds.ru3 + ds.ru4) / 4.0 : 3);
+
+  const vision_alignment = submission.vision_alignment ?? ds?.vision_alignment ?? ds?.cc6 ?? 4;
+  const geographic_familiarity = submission.geographic_familiarity ?? ds?.geographic_familiarity ?? submission.expert_profile?.geographic_familiarity ?? 3;
 
   // Try Supabase first
   try {
@@ -495,7 +511,10 @@ export async function submitBlindScore(
         actual_model: actualModel,
         expert_id: submission.expert_id,
         expert_name: submission.expert_name,
-        expert_profile: submission.expert_profile || {},
+        expert_profile: {
+          ...(submission.expert_profile || {}),
+          geographic_familiarity,
+        },
         scores: {
           spatial_feasibility: Math.round(sr_avg),
           temporal_pacing: Math.round(pf_avg),
@@ -511,6 +530,9 @@ export async function submitBlindScore(
           sr_avg: Number(sr_avg.toFixed(2)),
           de_avg: Number(de_avg.toFixed(2)),
           ru_avg: Number(ru_avg.toFixed(2)),
+          cc6: ds?.cc6 ?? vision_alignment,
+          vision_alignment: Number(vision_alignment),
+          geographic_familiarity: Number(geographic_familiarity),
           overall_percentage: ds?.overall_percentage ?? 75,
           strengths: ds?.strengths || "",
           weaknesses: ds?.weaknesses || "",
@@ -535,7 +557,17 @@ export async function submitBlindScore(
   const res = await fetch(`${API_BASE}/blind_eval/submit_score`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(submission),
+    body: JSON.stringify({
+      ...submission,
+      geographic_familiarity,
+      vision_alignment,
+      detailed_scores: {
+        ...(ds || {}),
+        cc6: ds?.cc6 ?? vision_alignment,
+        vision_alignment: Number(vision_alignment),
+        geographic_familiarity: Number(geographic_familiarity),
+      },
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -551,6 +583,7 @@ export async function submitScenarioComparison(
   submission: ScenarioComparisonSubmission
 ): Promise<{ status: string; comparison_id: string }> {
   const compId = `comp_${Math.random().toString(36).substring(2, 10)}`;
+  const geoFam = submission.geographic_familiarity ?? submission.expert_profile?.geographic_familiarity ?? 3;
 
   // Try Supabase first
   try {
@@ -560,7 +593,10 @@ export async function submitScenarioComparison(
         scenario_id: submission.scenario_id,
         expert_id: submission.expert_id,
         expert_name: submission.expert_name,
-        expert_profile: submission.expert_profile || {},
+        expert_profile: {
+          ...(submission.expert_profile || {}),
+          geographic_familiarity: geoFam,
+        },
         rankings: submission.rankings || [],
         best_for_practical_use: submission.best_for_practical_use || {},
         qualitative_feedback: submission.qualitative_feedback || {},
@@ -580,7 +616,14 @@ export async function submitScenarioComparison(
   const res = await fetch(`${API_BASE}/blind_eval/submit_comparison`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(submission),
+    body: JSON.stringify({
+      ...submission,
+      geographic_familiarity: geoFam,
+      expert_profile: {
+        ...(submission.expert_profile || {}),
+        geographic_familiarity: geoFam,
+      },
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -607,9 +650,45 @@ export async function fetchBlindResults(): Promise<{
     ]);
 
     if (!evalsRes.error && evalsRes.data && !tripsRes.error && tripsRes.data) {
-      const evals: EvaluationRecord[] = evalsRes.data;
+      const evals: EvaluationRecord[] = evalsRes.data.map((row: any) => {
+        const det = row.detailed_scores || {};
+        const prof = row.expert_profile || {};
+        const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? det.geographic_familiarity ?? 3;
+        const visAlign = row.vision_alignment ?? det.vision_alignment ?? det.cc6 ?? 4;
+        return {
+          ...row,
+          geographic_familiarity: geoFam,
+          vision_alignment: visAlign,
+          scores: {
+            ...(row.scores || {}),
+            vision_alignment: visAlign,
+            geographic_familiarity: geoFam,
+          },
+          detailed_scores: {
+            ...det,
+            geographic_familiarity: geoFam,
+            vision_alignment: visAlign,
+            cc6: det.cc6 ?? visAlign,
+          },
+          expert_profile: {
+            ...prof,
+            geographic_familiarity: geoFam,
+          },
+        };
+      });
       const trips = tripsRes.data;
-      const comps: ScenarioComparisonRecord[] = compsRes.data || [];
+      const comps: ScenarioComparisonRecord[] = (compsRes.data || []).map((row: any) => {
+        const prof = row.expert_profile || {};
+        const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? 3;
+        return {
+          ...row,
+          geographic_familiarity: geoFam,
+          expert_profile: {
+            ...prof,
+            geographic_familiarity: geoFam,
+          },
+        };
+      });
 
       // Calculate model summary stats
       const modelStats: Record<string, any> = {};
@@ -630,6 +709,7 @@ export async function fetchBlindResults(): Promise<{
             total_sr: 0,
             total_de: 0,
             total_ru: 0,
+            total_va: 0,
             total_percentage: 0,
             total_wins: 0,
           };
@@ -652,6 +732,7 @@ export async function fetchBlindResults(): Promise<{
         s.total_sr += Number(ds.sr_avg || sc.spatial_feasibility || 3);
         s.total_de += Number(ds.de_avg || sc.attraction_quality || 3);
         s.total_ru += Number(ds.ru_avg || 3);
+        s.total_va += Number(ds.vision_alignment ?? ds.cc6 ?? 4);
         s.total_percentage += Number(ds.overall_percentage || 75);
 
         if (ev.overall_pick) s.total_wins += 1;
@@ -671,6 +752,7 @@ export async function fetchBlindResults(): Promise<{
         const avg_sr = Number((s.total_sr / count).toFixed(2));
         const avg_de = Number((s.total_de / count).toFixed(2));
         const avg_ru = Number((s.total_ru / count).toFixed(2));
+        const avg_va = Number((s.total_va / count).toFixed(2));
         const avg_pct = Number((s.total_percentage / count).toFixed(1));
 
         const overall_score = Number(((avg_sp + avg_te + avg_pe + avg_at + avg_ac) / 5.0).toFixed(2));
@@ -690,6 +772,7 @@ export async function fetchBlindResults(): Promise<{
           avg_sr,
           avg_de,
           avg_ru,
+          avg_va,
           avg_overall_percentage: avg_pct,
           overall_score,
           total_wins: s.total_wins,
@@ -711,7 +794,50 @@ export async function fetchBlindResults(): Promise<{
   // Fallback to Backend
   const res = await fetch(`${API_BASE}/blind_eval/results`);
   if (!res.ok) throw new Error("Failed to fetch blind results");
-  return res.json();
+  const data = await res.json();
+  const evals = (data.evaluations || []).map((row: any) => {
+    const det = row.detailed_scores || {};
+    const prof = row.expert_profile || {};
+    const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? det.geographic_familiarity ?? 3;
+    const visAlign = row.vision_alignment ?? det.vision_alignment ?? det.cc6 ?? 4;
+    return {
+      ...row,
+      geographic_familiarity: geoFam,
+      vision_alignment: visAlign,
+      scores: {
+        ...(row.scores || {}),
+        vision_alignment: visAlign,
+        geographic_familiarity: geoFam,
+      },
+      detailed_scores: {
+        ...det,
+        geographic_familiarity: geoFam,
+        vision_alignment: visAlign,
+        cc6: det.cc6 ?? visAlign,
+      },
+      expert_profile: {
+        ...prof,
+        geographic_familiarity: geoFam,
+      },
+    };
+  });
+  const comps = (data.comparisons || []).map((row: any) => {
+    const prof = row.expert_profile || {};
+    const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? 3;
+    return {
+      ...row,
+      geographic_familiarity: geoFam,
+      expert_profile: {
+        ...prof,
+        geographic_familiarity: geoFam,
+      },
+    };
+  });
+  return {
+    ...data,
+    evaluations: evals,
+    comparisons: comps,
+  };
 }
 
 /**

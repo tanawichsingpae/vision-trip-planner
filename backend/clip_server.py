@@ -2899,6 +2899,9 @@ def submit_blind_score():
         priority_improvement = detailed_scores.get("priority_improvement", "")
         priority_improvement_other = detailed_scores.get("priority_improvement_other", "")
 
+        geo_fam = data.get("geographic_familiarity") or detailed_scores.get("geographic_familiarity") or expert_profile.get("geographic_familiarity") or 3
+        vis_align = data.get("vision_alignment") or detailed_scores.get("vision_alignment") or detailed_scores.get("cc6") or 4
+
         evals = _load_json_file(BLIND_EVALS_FILE, [])
         eval_id = f"eval_{uuid.uuid4().hex[:8]}"
 
@@ -2910,13 +2913,20 @@ def submit_blind_score():
             "actual_model": actual_model,
             "expert_id": expert_id,
             "expert_name": expert_name,
-            "expert_profile": expert_profile,
+            "geographic_familiarity": geo_fam,
+            "vision_alignment": vis_align,
+            "expert_profile": {
+                **expert_profile,
+                "geographic_familiarity": geo_fam,
+            },
             "scores": {
                 "spatial_feasibility": round(sr_avg),
                 "temporal_pacing": round(pf_avg),
                 "persona_alignment": round(cc_avg),
                 "attraction_quality": round(de_avg),
                 "information_accuracy": round(fa_avg),
+                "vision_alignment": vis_align,
+                "geographic_familiarity": geo_fam,
             },
             "detailed_scores": {
                 **detailed_scores,
@@ -2926,6 +2936,9 @@ def submit_blind_score():
                 "sr_avg": round(sr_avg, 2),
                 "de_avg": round(de_avg, 2),
                 "ru_avg": round(ru_avg, 2),
+                "cc6": detailed_scores.get("cc6", vis_align),
+                "vision_alignment": vis_align,
+                "geographic_familiarity": geo_fam,
                 "overall_percentage": overall_percentage,
                 "strengths": strengths,
                 "weaknesses": weaknesses,
@@ -2957,12 +2970,19 @@ def submit_blind_comparison():
         comparisons = _load_json_file(BLIND_COMPARISONS_FILE, [])
         comp_id = f"comp_{uuid.uuid4().hex[:8]}"
 
+        expert_profile = data.get("expert_profile", {})
+        geo_fam = data.get("geographic_familiarity") or expert_profile.get("geographic_familiarity") or 3
+
         new_comp = {
             "id": comp_id,
             "scenario_id": scenario_id,
             "expert_id": data.get("expert_id", "anonymous_expert"),
             "expert_name": data.get("expert_name", "Anonymous Expert"),
-            "expert_profile": data.get("expert_profile", {}),
+            "geographic_familiarity": geo_fam,
+            "expert_profile": {
+                **expert_profile,
+                "geographic_familiarity": geo_fam,
+            },
             "rankings": data.get("rankings", []),
             "best_for_practical_use": data.get("best_for_practical_use", {}),
             "qualitative_feedback": data.get("qualitative_feedback", {}),

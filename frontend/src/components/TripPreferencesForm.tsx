@@ -43,6 +43,10 @@ import {
 import { type DateRange } from "react-day-picker";
 import { format, differenceInDays } from "date-fns";
 import { useLanguage } from "@/context/LanguageContext";
+import { useAI } from "@/context/AIProviderContext";
+import { AISuggestionCard } from "@/components/AISuggestionCard";
+import { suggestTripPreferencesFromVision, type SuggestedTripPlan } from "@/services/aiService";
+import { toast } from "sonner";
 
 function getSuggestedBudgetRange(destination: string, days: number, travelStyle: string): string {
   const destLower = (destination || "").toLowerCase();
@@ -99,6 +103,15 @@ export interface TripPreferencesFormProps {
   initialPreferences?: TripPreferences | null;
   hasExistingItinerary?: boolean;
   onViewExistingItinerary?: () => void;
+  detectedLocations?: Array<{
+    place?: string;
+    place_th?: string;
+    place_en?: string;
+    type?: string;
+    detected_content?: string;
+    detailed_description?: string;
+    [key: string]: any;
+  }>;
 }
 
 function normalizeTravelerType(val?: string): string {
@@ -188,6 +201,7 @@ const TripPreferencesForm = ({
   initialPreferences,
   hasExistingItinerary = false,
   onViewExistingItinerary,
+  detectedLocations,
 }: TripPreferencesFormProps) => {
   const { language, t } = useLanguage();
   const isTh = language === "th";
@@ -241,6 +255,86 @@ const TripPreferencesForm = ({
   const [hotelLng, setHotelLng] = useState<number | undefined>(() => effectivePrefs?.hotelLng);
   const [hotelPhotoUrl, setHotelPhotoUrl] = useState<string | undefined>(() => effectivePrefs?.hotelPhotoUrl);
   const [hotelPlaceId, setHotelPlaceId] = useState<string | undefined>(() => effectivePrefs?.hotelPlaceId);
+
+  // ─── AI Smart Plan Suggestion (Option 1) ──────────────────────────────────
+  const { model } = useAI();
+  const [aiSuggestion, setAiSuggestion] = useState<SuggestedTripPlan | null>(null);
+  const [isSuggesting, setIsSuggesting] = useState<boolean>(false);
+  const [isSuggestionDismissed, setIsSuggestionDismissed] = useState<boolean>(false);
+  const [isPlanApplied, setIsPlanApplied] = useState<boolean>(false);
+
+  // Fetch AI plan suggestion from detected visual locations
+  useEffect(() => {
+    if (!detectedLocations || detectedLocations.length === 0) return;
+    let isMounted = true;
+
+    const fetchSuggestion = async () => {
+      setIsSuggesting(true);
+      try {
+        const plan = await suggestTripPreferencesFromVision(
+          detectedLocations,
+          destinationName,
+          model,
+          language
+        );
+        if (isMounted) {
+          setAiSuggestion(plan);
+        }
+      } catch (err) {
+        console.warn("Failed to generate AI plan suggestion:", err);
+      } finally {
+        if (isMounted) {
+          setIsSuggesting(false);
+        }
+      }
+    };
+
+    fetchSuggestion();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [detectedLocations, destinationName, model, language]);
+
+  const handleApplyPlan = (plan: SuggestedTripPlan) => {
+    handleDurationSelect(plan.recommendedDays);
+    setTravelerType(normalizeTravelerType(plan.travelerType));
+    setBudget(normalizeBudget(plan.budget));
+    if (plan.budgetRange && plan.budgetRange.length === 2) {
+      setBudgetRange([plan.budgetRange[0], plan.budgetRange[1]]);
+    }
+    if (plan.activities && plan.activities.length > 0) {
+      setActivities(normalizeActivities(plan.activities));
+    }
+    setPace(normalizePace(plan.pace));
+    setIsPlanApplied(true);
+
+    toast.success(
+      isTh
+        ? `นำแผน "${plan.themeTitle}" มาปรับใช้กับฟอร์มเรียบร้อยแล้ว!`
+        : `Applied "${plan.themeTitle}" to your preferences!`
+    );
+  };
+
+  const handleRegenerateSuggestion = async () => {
+    if (!detectedLocations || detectedLocations.length === 0) return;
+    setIsSuggesting(true);
+    try {
+      const plan = await suggestTripPreferencesFromVision(
+        detectedLocations,
+        destinationName,
+        model,
+        language
+      );
+      setAiSuggestion(plan);
+      setIsPlanApplied(false);
+      toast.info(isTh ? "อัปเดตคำแนะนำแผนท่องเที่ยวใหม่แล้ว" : "Regenerated plan suggestion");
+    } catch (err) {
+      console.warn("Failed to regenerate plan suggestion:", err);
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
 
   // Synchronize state if initialPreferences update
   useEffect(() => {
@@ -442,6 +536,33 @@ const TripPreferencesForm = ({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8 animate-in fade-in duration-300">
+      {/* ── AI Smart Plan Suggestion Hero Card (Option 1) ── */}
+      {!isSuggestionDismissed && (aiSuggestion || isSuggesting) && (
+        <AISuggestionCard
+          suggestion={aiSuggestion}
+          isLoading={isSuggesting}
+          onApply={handleApplyPlan}
+          onRegenerate={handleRegenerateSuggestion}
+          onDismiss={() => setIsSuggestionDismissed(true)}
+          isApplied={isPlanApplied}
+        />
+      )}
+
+      {isSuggestionDismissed && aiSuggestion && (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsSuggestionDismissed(false)}
+            className="rounded-xl border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary text-xs h-7 px-2.5 gap-1.5 cursor-pointer shadow-2xs"
+          >
+            <Sparkles className="size-3 text-primary" />
+            <span>{isTh ? "ดูแผนที่ AI แนะนำอีกครั้ง" : "View AI plan suggestion"}</span>
+          </Button>
+        </div>
+      )}
+
       {/* ── Applied Preferences Summary Card (Pixinerary_33) ── */}
       {hasExistingItinerary && initialPreferences && (
         <div className="rounded-3xl border border-primary/25 bg-gradient-to-br from-primary/5 via-secondary/30 to-background p-4 sm:p-5 space-y-4 shadow-sm animate-in fade-in duration-300">
