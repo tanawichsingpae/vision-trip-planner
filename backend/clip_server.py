@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -6,7 +7,6 @@ import json
 import time
 import datetime
 from io import BytesIO
-from pyexpat.errors import messages
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -60,27 +60,129 @@ if GEMINI_API_KEY:
 
 
 # --------------------
-# Flask setup
+# Flask & Universal CORS setup
 # --------------------
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+# Allowed origins list - includes Vercel production, preview deployments, and localhost
+ALLOWED_ORIGIN_PATTERNS = [
+    re.compile(r"^https://.*\.vercel\.app$"),
+    re.compile(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$"),
+]
+
+def get_cors_origin(incoming_origin):
+    """Dynamically determine allowed CORS origin with credentials support."""
+    if not incoming_origin:
+        return "*"
+    for pattern in ALLOWED_ORIGIN_PATTERNS:
+        if pattern.match(incoming_origin):
+            return incoming_origin
+    # Fallback: reflect incoming origin so deploy/preview environments are never blocked
+    return incoming_origin
+
+# Flask-CORS as primary layer
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    supports_credentials=True,
+    allow_headers=["*"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    max_age=86400,
+)
 
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
+        origin = get_cors_origin(request.headers.get("Origin"))
+        req_headers = request.headers.get(
+            "Access-Control-Request-Headers",
+            "Content-Type, Authorization, X-Requested-With, Accept, Origin, Range, X-Client-Version, apikey"
+        )
         res = app.make_default_options_response()
-        res.headers["Access-Control-Allow-Origin"] = "*"
-        res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        res.status_code = 204
+        res.headers["Access-Control-Allow-Origin"] = origin
+        res.headers["Access-Control-Allow-Credentials"] = "true"
+        res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"
+        res.headers["Access-Control-Allow-Headers"] = req_headers
+        res.headers["Access-Control-Max-Age"] = "86400"
         return res
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+    origin = get_cors_origin(request.headers.get("Origin"))
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"
+    response.headers["Access-Control-Allow-Headers"] = (
+        "Content-Type, Authorization, X-Requested-With, Accept, Origin, Range, X-Client-Version, apikey"
+    )
     return response
+
+from werkzeug.exceptions import HTTPException
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Ensure unhandled exceptions still return JSON with proper CORS headers."""
+    code = 500
+    if isinstance(e, HTTPException):
+        code = e.code
+    else:
+        import traceback
+        traceback.print_exc()
+
+    origin = get_cors_origin(request.headers.get("Origin"))
+    response = jsonify({
+        "error": str(e),
+        "status": "error",
+        "code": code,
+    })
+    response.status_code = code
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"
+    response.headers["Access-Control-Allow-Headers"] = (
+        "Content-Type, Authorization, X-Requested-With, Accept, Origin, Range, X-Client-Version, apikey"
+    )
+    return response
+
+# WSGI level safeguard: ensures 404, 500, or any proxy-level Flask error carries CORS headers
+class CorsMiddleware:
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        origin = environ.get("HTTP_ORIGIN", "*")
+        method = environ.get("REQUEST_METHOD", "")
+
+        if method == "OPTIONS":
+            headers = [
+                ("Access-Control-Allow-Origin", origin),
+                ("Access-Control-Allow-Credentials", "true"),
+                ("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"),
+                ("Access-Control-Allow-Headers", environ.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "Content-Type, Authorization, X-Requested-With, Accept, Origin, Range, X-Client-Version, apikey")),
+                ("Access-Control-Max-Age", "86400"),
+                ("Content-Length", "0"),
+                ("Content-Type", "text/plain"),
+            ]
+            start_response("204 No Content", headers)
+            return [b""]
+
+        def custom_start_response(status, response_headers, exc_info=None):
+            header_keys = [h[0].lower() for h in response_headers]
+            if "access-control-allow-origin" not in header_keys:
+                response_headers.append(("Access-Control-Allow-Origin", origin))
+            if "access-control-allow-credentials" not in header_keys:
+                response_headers.append(("Access-Control-Allow-Credentials", "true"))
+            if "access-control-allow-methods" not in header_keys:
+                response_headers.append(("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"))
+            if "access-control-allow-headers" not in header_keys:
+                response_headers.append(("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin, Range, X-Client-Version, apikey"))
+            return start_response(status, response_headers, exc_info)
+
+        return self.wsgi_app(environ, custom_start_response)
+
+app.wsgi_app = CorsMiddleware(app.wsgi_app)
 
 # --------------------
 # Device
@@ -3153,12 +3255,10 @@ def manage_user_roles():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-
-    # Pre-load CLIP model BEFORE accepting requests
-    # This prevents ERR_CONNECTION_RESET when multiple requests hit /embedding concurrently
-    load_model()
-
     print(f"Starting server on port {port}")
+
+    # Warm up CLIP model in background thread to avoid blocking port binding and healthchecks
+    threading.Thread(target=load_model, daemon=True).start()
 
     # threaded=True allows Flask to handle concurrent requests without blocking
     app.run(host="0.0.0.0", port=port, threaded=True)
