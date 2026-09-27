@@ -27,33 +27,33 @@ interface ExperienceItem {
 
 const experiences: ExperienceItem[] = [
   {
-    src: '/login/pixinerary-beach.png',
+    src: '/login/IMG_3615.JPG',
     label: 'Coastal escapes',
     className: 'experience-one'
   },
   {
-    src: '/login/pixinerary-resort.png',
-    label: 'Hidden resorts',
+    src: '/login/IMG_3617.JPG',
+    label: 'Taste the journey',
     className: 'experience-two'
   },
   {
-    src: '/login/pixinerary-wildlife.png',
-    label: 'Wild at heart',
+    src: '/login/IMG_3620.JPG',
+    label: 'Walking street charm',
     className: 'experience-three'
   },
   {
-    src: '/login/pixinerary-architecture.png',
-    label: 'Stories in stone',
+    src: '/login/IMG_3621.JPG',
+    label: 'Lakeside camping',
     className: 'experience-four'
   },
   {
-    src: '/login/pixinerary-dining.png',
-    label: 'Taste the journey',
+    src: '/login/IMG_3622.JPG',
+    label: 'Winter wonderland',
     className: 'experience-five'
   },
   {
-    src: '/login/pixinerary-snorkeling.png',
-    label: 'Into the blue',
+    src: '/login/IMG_3623.JPG',
+    label: 'Spiritual serenity',
     className: 'experience-six'
   }
 ]
@@ -200,11 +200,11 @@ export default function Login() {
                   // Fallback to high-quality unsplash images if needed
                   const fallbacks: Record<string, string> = {
                     'Coastal escapes': 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&auto=format&fit=crop&q=80',
-                    'Hidden resorts': 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=500&auto=format&fit=crop&q=80',
-                    'Wild at heart': 'https://images.unsplash.com/photo-1534567153574-2b12153a87f0?w=500&auto=format&fit=crop&q=80',
-                    'Stories in stone': 'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=500&auto=format&fit=crop&q=80',
                     'Taste the journey': 'https://images.unsplash.com/photo-1544025162-d76694265947?w=500&auto=format&fit=crop&q=80',
-                    'Into the blue': 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=500&auto=format&fit=crop&q=80'
+                    'Walking street charm': 'https://images.unsplash.com/photo-1533900298318-6b8da08a523e?w=500&auto=format&fit=crop&q=80',
+                    'Lakeside camping': 'https://images.unsplash.com/photo-1504280390367-361c6d9f38f4?w=500&auto=format&fit=crop&q=80',
+                    'Winter wonderland': 'https://images.unsplash.com/photo-1543589077-47d81606c1bf?w=500&auto=format&fit=crop&q=80',
+                    'Spiritual serenity': 'https://images.unsplash.com/photo-1545569341-9eb8b30979d9?w=500&auto=format&fit=crop&q=80'
                   }
                   if (fallbacks[item.label]) {
                     ;(e.target as HTMLImageElement).src = fallbacks[item.label]
