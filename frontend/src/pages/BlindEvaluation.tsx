@@ -1533,15 +1533,48 @@ export default function BlindEvaluation() {
                   </span>
                 </div>
 
-                <div className="p-2 rounded-xl bg-background/90 border border-border/50">
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                    <DollarSign className="size-2.5 text-emerald-500" /> งบประมาณ
-                  </span>
-                  <span className="font-semibold text-foreground mt-0.5 block truncate">
-                    {activeTrip?.preferences?.budget || "Budget"}
-                    {activeTrip?.preferences?.budgetMaxTHB ? ` (~${activeTrip.preferences.budgetMaxTHB.toLocaleString()} ฿)` : ""}
-                  </span>
-                </div>
+                {(() => {
+                  const p = activeTrip?.preferences;
+                  const min = p?.budgetMinTHB ?? (Array.isArray(p?.budgetRange) ? p.budgetRange[0] : undefined);
+                  const max = p?.budgetMaxTHB ?? (Array.isArray(p?.budgetRange) ? p.budgetRange[1] : undefined);
+                  const rawTier = p?.budget || "";
+                  const tier = rawTier ? rawTier.charAt(0).toUpperCase() + rawTier.slice(1) : "";
+
+                  let rangeStr = "";
+                  if (min !== undefined && max !== undefined && min !== null && max !== null) {
+                    rangeStr = min === max ? `฿${min.toLocaleString()}` : `฿${min.toLocaleString()} - ฿${max.toLocaleString()}`;
+                  } else if (min !== undefined && min !== null) {
+                    rangeStr = `≥ ฿${min.toLocaleString()}`;
+                  } else if (max !== undefined && max !== null) {
+                    rangeStr = `≤ ฿${max.toLocaleString()}`;
+                  }
+
+                  const tooltipText = rangeStr
+                    ? (tier ? `งบประมาณ: ${rangeStr} (${tier})` : `งบประมาณ: ${rangeStr}`)
+                    : `งบประมาณ: ${tier || "ไม่ได้ระบุ"}`;
+
+                  return (
+                    <div className="p-2 rounded-xl bg-background/90 border border-border/50" title={tooltipText}>
+                      <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <DollarSign className="size-2.5 text-emerald-500" /> งบประมาณ
+                      </span>
+                      <span className="font-semibold text-foreground mt-0.5 block truncate">
+                        {rangeStr ? (
+                          <>
+                            {rangeStr}
+                            {tier && (
+                              <span className="text-muted-foreground font-normal text-[10px] ml-1">
+                                ({tier})
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          tier || "Budget"
+                        )}
+                      </span>
+                    </div>
+                  );
+                })()}
 
                 <div className="p-2 rounded-xl bg-background/90 border border-border/50">
                   <span className="text-[10px] text-muted-foreground flex items-center gap-1">
