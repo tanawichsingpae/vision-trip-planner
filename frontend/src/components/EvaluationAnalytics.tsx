@@ -505,8 +505,10 @@ export default function EvaluationAnalytics({
   };
 
   // Export Raw Evaluations CSV (with UTF-8 BOM for Thai support in Excel)
+  // Export Raw Evaluations CSV (with UTF-8 BOM for Thai support in Excel)
+  // Merges Scenario Qualitative Feedback (Q1-Q4) with Model Evaluations for easy research analysis
   const handleExportRawEvaluationsCSV = () => {
-    if (resultsData.evaluations.length === 0) {
+    if (resultsData.evaluations.length === 0 && (!resultsData.comparisons || resultsData.comparisons.length === 0)) {
       toast.error("ยังไม่มีข้อมูลการประเมินเพื่อส่งออก");
       return;
     }
@@ -537,8 +539,13 @@ export default function EvaluationAnalytics({
       "Weaknesses (จุดอ่อน)",
       "Priority Improvement (สิ่งที่ควรปรับปรุง)",
       "Priority Improvement (Other)",
-      "Feedback",
-      "Submitted At",
+      "Model Feedback (ข้อเสนอแนะต่อโมเดล)",
+      "Qualitative Q1: Real Travel (นำไปใช้จริงมากที่สุด)",
+      "Qualitative Q2: Tourism Context (เข้าใจบริบทท่องเที่ยวดีที่สุด)",
+      "Qualitative Q3: Value Experience (ประสบการณ์คุ้มค่าที่สุด)",
+      "Qualitative Q4: Distinct Differences (ข้อแตกต่างหลักระหว่างโมเดล)",
+      "Evaluation Submitted At",
+      "Qualitative Submitted At",
     ];
 
     const escapeCsv = (str: any) => {
@@ -547,14 +554,28 @@ export default function EvaluationAnalytics({
       return `"${s}"`;
     };
 
+    const matchedCompIds = new Set<string>();
+
     const rows = resultsData.evaluations.map((ev) => {
       const d = ev.detailed_scores || ({} as any);
       const scTitle = getScenarioTitle(ev.scenario_id);
-      const matchingComp = resultsData.comparisons?.find(
-        (c) =>
-          c.scenario_id === ev.scenario_id &&
-          c.expert_id?.trim().toLowerCase() === ev.expert_id?.trim().toLowerCase()
-      );
+      const evExpertId = (ev.expert_id || "").trim().toLowerCase();
+      const evExpertName = (ev.expert_name || "").trim().toLowerCase();
+
+      const matchingComp = resultsData.comparisons?.find((c) => {
+        if (c.scenario_id !== ev.scenario_id) return false;
+        const cExpertId = (c.expert_id || "").trim().toLowerCase();
+        const cExpertName = (c.expert_name || "").trim().toLowerCase();
+        return (
+          (evExpertId && cExpertId && evExpertId === cExpertId) ||
+          (evExpertName && cExpertName && evExpertName === cExpertName)
+        );
+      });
+
+      if (matchingComp) {
+        matchedCompIds.add(matchingComp.id);
+      }
+
       const geoFam =
         matchingComp?.geographic_familiarity ??
         matchingComp?.expert_profile?.geographic_familiarity ??
@@ -562,6 +583,7 @@ export default function EvaluationAnalytics({
         ev.expert_profile?.geographic_familiarity ??
         d.geographic_familiarity ??
         "";
+
       return [
         escapeCsv(ev.id),
         escapeCsv(ev.scenario_id),
@@ -571,9 +593,9 @@ export default function EvaluationAnalytics({
         escapeCsv(ev.actual_model),
         escapeCsv(ev.expert_id),
         escapeCsv(resolveEvaluatorName(ev.expert_name, ev.expert_id, resultsData.evaluations)),
-        escapeCsv(ev.expert_profile?.role || ""),
-        escapeCsv(ev.expert_profile?.experience || ""),
-        escapeCsv(ev.expert_profile?.ai_familiarity || ""),
+        escapeCsv(ev.expert_profile?.role || matchingComp?.expert_profile?.role || ""),
+        escapeCsv(ev.expert_profile?.experience || matchingComp?.expert_profile?.experience || ""),
+        escapeCsv(ev.expert_profile?.ai_familiarity || matchingComp?.expert_profile?.ai_familiarity || ""),
         geoFam,
         d.fa1 ?? "", d.fa2 ?? "", d.fa3 ?? "", d.fa4 ?? "", d.fa5 ?? "", d.fa_avg ?? "",
         d.cc1 ?? "", d.cc2 ?? "", d.cc3 ?? "", d.cc4 ?? "", d.cc5 ?? "", d.cc6 ?? "", d.cc_avg ?? "",
@@ -589,13 +611,60 @@ export default function EvaluationAnalytics({
         escapeCsv(d.priority_improvement || ""),
         escapeCsv(d.priority_improvement_other || ""),
         escapeCsv(ev.feedback || ""),
+        escapeCsv(matchingComp?.qualitative_feedback?.q1_real_travel || ""),
+        escapeCsv(matchingComp?.qualitative_feedback?.q2_tourism_context || ""),
+        escapeCsv(matchingComp?.qualitative_feedback?.q3_value_experience || ""),
+        escapeCsv(matchingComp?.qualitative_feedback?.q4_distinct_differences || ""),
         escapeCsv(ev.submitted_at || ""),
+        escapeCsv(matchingComp?.submitted_at || ""),
       ].join(",");
     });
 
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\r\n");
+    // Append any standalone comparisons that had no model evaluations (so no data is omitted)
+    const orphanComps = (resultsData.comparisons || []).filter((c) => !matchedCompIds.has(c.id));
+    const orphanRows = orphanComps.map((cmp) => {
+      const scTitle = getScenarioTitle(cmp.scenario_id);
+      const geoFam = cmp.geographic_familiarity ?? cmp.expert_profile?.geographic_familiarity ?? "";
+      return [
+        escapeCsv(cmp.id),
+        escapeCsv(cmp.scenario_id),
+        escapeCsv(scTitle),
+        '""',
+        '""',
+        '"Qualitative Feedback Only"',
+        escapeCsv(cmp.expert_id),
+        escapeCsv(resolveEvaluatorName(cmp.expert_name, cmp.expert_id, resultsData.comparisons)),
+        escapeCsv(cmp.expert_profile?.role || ""),
+        escapeCsv(cmp.expert_profile?.experience || ""),
+        escapeCsv(cmp.expert_profile?.ai_familiarity || ""),
+        geoFam,
+        "", "", "", "", "", "",
+        "", "", "", "", "", "", "",
+        "", "", "", "", "", "",
+        "", "", "", "", "",
+        "", "", "", "", "", "",
+        "", "", "", "", "",
+        "",
+        "",
+        "",
+        '""',
+        '""',
+        '""',
+        '""',
+        '""',
+        escapeCsv(cmp.qualitative_feedback?.q1_real_travel || ""),
+        escapeCsv(cmp.qualitative_feedback?.q2_tourism_context || ""),
+        escapeCsv(cmp.qualitative_feedback?.q3_value_experience || ""),
+        escapeCsv(cmp.qualitative_feedback?.q4_distinct_differences || ""),
+        '""',
+        escapeCsv(cmp.submitted_at || ""),
+      ].join(",");
+    });
+
+    const allRows = [...rows, ...orphanRows];
+    const csvContent = "\uFEFF" + [headers.join(","), ...allRows].join("\r\n");
     downloadFile(csvContent, `pixinerary_raw_evaluations_${new Date().toISOString().slice(0, 10)}.csv`);
-    toast.success("ส่งออกข้อมูลการประเมินดิบ (Raw Evaluations CSV) เรียบร้อยแล้ว");
+    toast.success("ส่งออกข้อมูล Raw Evaluations รวม Qualitative Feedback (CSV) เรียบร้อยแล้ว");
   };
 
   // Export Scenario Qualitative Feedback CSV
@@ -784,6 +853,7 @@ export default function EvaluationAnalytics({
           },
           overall_pick: ev.overall_pick,
           feedback: ev.feedback,
+          qualitative_feedback: matchingComp?.qualitative_feedback || null,
           submitted_at: ev.submitted_at,
         };
       }),
@@ -937,9 +1007,10 @@ export default function EvaluationAnalytics({
                 size="sm"
                 onClick={handleExportRawEvaluationsCSV}
                 className="h-8 text-xs rounded-full gap-1.5 px-3 bg-background hover:bg-secondary border-border/80"
+                title="ส่งออกผลการประเมินรายโมเดล รวมกับคำถามเชิงคุณภาพ (Qualitative Feedback Q1-Q4) ในไฟล์เดียวกัน เพื่อนำไปวิเคราะห์ต่อได้ง่าย"
               >
                 <FileSpreadsheet className="size-3.5 text-emerald-600" />
-                <span>Export Raw Evals (CSV)</span>
+                <span>Export Raw Evals + Qualitative (CSV)</span>
               </Button>
 
               <Button
@@ -947,6 +1018,7 @@ export default function EvaluationAnalytics({
                 size="sm"
                 onClick={handleExportComparisonsCSV}
                 className="h-8 text-xs rounded-full gap-1.5 px-3 bg-background hover:bg-secondary border-border/80"
+                title="ส่งออกเฉพาะข้อมูลคำถามเชิงคุณภาพระดับ Scenario (Q1-Q4)"
               >
                 <FileSpreadsheet className="size-3.5 text-purple-600" />
                 <span>Export Qualitative Feedback (CSV)</span>
