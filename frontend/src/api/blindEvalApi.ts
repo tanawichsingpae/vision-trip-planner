@@ -450,22 +450,51 @@ export async function fetchBlindTrips(role: string = "user"): Promise<BlindTrip[
 }
 
 /**
- * Deletes a blind trip from database.
+ * Deletes a blind trip from database and both Supabase/Local storages.
+ * Also cleans up any evaluations tied to this trip so foreign keys don't block deletion.
  */
 export async function deleteBlindTrip(tripId: string): Promise<void> {
-  // Try Supabase first
+  let supabaseSuccess = false;
+  let backendSuccess = false;
+  let supabaseErrorMsg = "";
+  let backendErrorMsg = "";
+
+  // 1. Delete from Supabase (clean up dependent evaluations first to satisfy foreign key constraints)
   try {
+    await supabase.from("blind_evaluations").delete().eq("trip_id", tripId);
     const { error } = await supabase.from("blind_trips").delete().eq("id", tripId);
-    if (!error) return;
-  } catch (e) {
-    console.warn("Supabase deleteBlindTrip failed:", e);
+    if (!error) {
+      supabaseSuccess = true;
+    } else {
+      supabaseErrorMsg = error.message;
+      console.warn("Supabase deleteBlindTrip error:", error);
+    }
+  } catch (e: any) {
+    supabaseErrorMsg = e?.message || String(e);
+    console.warn("Supabase deleteBlindTrip exception:", e);
   }
 
-  // Fallback to Backend
-  const res = await fetch(`${API_BASE}/blind_eval/trip/${encodeURIComponent(tripId)}`, {
-    method: "DELETE",
-  });
-  if (!res.ok) throw new Error("Failed to delete blind trip");
+  // 2. Also delete from Local Backend (so both storages stay synchronized)
+  try {
+    const res = await fetch(`${API_BASE}/blind_eval/trip/${encodeURIComponent(tripId)}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      backendSuccess = true;
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      backendErrorMsg = errData.error || `HTTP ${res.status}`;
+      console.warn("Backend deleteBlindTrip error:", errData);
+    }
+  } catch (e: any) {
+    backendErrorMsg = e?.message || String(e);
+    console.warn("Backend deleteBlindTrip exception:", e);
+  }
+
+  // If neither storage succeeded, throw an informative error
+  if (!supabaseSuccess && !backendSuccess) {
+    throw new Error(supabaseErrorMsg || backendErrorMsg || "ไม่สามารถลบแผนการเดินทางได้");
+  }
 }
 
 /**

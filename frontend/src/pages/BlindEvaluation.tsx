@@ -31,6 +31,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Slider } from "@/components/ui/slider";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import MapSection from "@/components/MapSection";
 import type { LocationData } from "@/components/LocationDisplay";
@@ -241,6 +251,10 @@ export default function BlindEvaluation() {
 
   // Dev: Clear Evaluations Modal state
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+
+  // Dev: Delete Trip Dialog state (non-blocking, resolves INP issue)
+  const [tripToDelete, setTripToDelete] = useState<{ id: string; label: string } | null>(null);
+  const [isDeletingTrip, setIsDeletingTrip] = useState(false);
 
   // -------------------------------------------------------------
   // PART 1: EXPERT PROFILE PERSISTENCE (localStorage)
@@ -823,16 +837,21 @@ export default function BlindEvaluation() {
     }
   }, [selectedScenarioId, userEmail, resultsData.comparisons]);
 
-  // Dev: Delete Trip
-  const handleDeleteTrip = async (tripId: string) => {
-    if (!confirm("คุณต้องการลบทริปนี้ออกจาก Blind Evaluation ใช่หรือไม่?")) return;
+  // Dev: Confirm and execute trip deletion (non-blocking)
+  const handleConfirmDeleteTrip = async () => {
+    if (!tripToDelete) return;
+    setIsDeletingTrip(true);
     try {
-      await deleteBlindTrip(tripId);
-      toast.success("ลบทริปสำเร็จ");
-      loadTrips();
-      loadResults();
+      await deleteBlindTrip(tripToDelete.id);
+      toast.success(`ลบ ${tripToDelete.label} สำเร็จ`);
+      setSelectedTripId("");
+      await loadTrips();
+      await loadResults();
+      setTripToDelete(null);
     } catch (err: any) {
-      toast.error(err.message || "Failed to delete trip");
+      toast.error(err.message || "ไม่สามารถลบทริปได้");
+    } finally {
+      setIsDeletingTrip(false);
     }
   };
 
@@ -1005,6 +1024,50 @@ export default function BlindEvaluation() {
           </div>
         )}
       </main>
+
+      {/* Delete Trip Confirmation Dialog (Non-blocking, fixes INP issue) */}
+      <AlertDialog
+        open={Boolean(tripToDelete)}
+        onOpenChange={(open) => !open && !isDeletingTrip && setTripToDelete(null)}
+      >
+        <AlertDialogContent className="rounded-3xl max-w-md p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
+              <Trash2 className="size-4 text-destructive" />
+              <span>ยืนยันการลบแผนการเดินทาง</span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-muted-foreground pt-1 leading-relaxed">
+              คุณต้องการลบ <strong>{tripToDelete?.label}</strong> ออกจากระบบ Blind Evaluation ใช่หรือไม่?
+              ข้อมูลผลการประเมินที่เกี่ยวข้องกับแผนนี้จะถูกลบออกด้วยเพื่อความถูกต้องของฐานข้อมูล
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-0 pt-3">
+            <AlertDialogCancel disabled={isDeletingTrip} className="h-9 rounded-full text-xs">
+              ยกเลิก
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeletingTrip}
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmDeleteTrip();
+              }}
+              className="h-9 rounded-full text-xs font-semibold bg-destructive hover:bg-destructive/90 text-destructive-foreground gap-1.5"
+            >
+              {isDeletingTrip ? (
+                <>
+                  <RefreshCw className="size-3.5 animate-spin" />
+                  <span>กำลังลบทริป...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="size-3.5" />
+                  <span>ยืนยันการลบ</span>
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 
@@ -1732,7 +1795,7 @@ export default function BlindEvaluation() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => handleDeleteTrip(activeTrip.id)}
+                      onClick={() => setTripToDelete({ id: activeTrip.id, label: activeTrip.blind_label })}
                       className="h-7 text-destructive hover:bg-destructive/10 text-xs rounded-full gap-1"
                     >
                       <Trash2 className="size-3" />

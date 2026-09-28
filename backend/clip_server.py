@@ -2958,6 +2958,13 @@ def delete_blind_trip(trip_id):
         trips = _load_json_file(BLIND_TRIPS_FILE, [])
         trips = [t for t in trips if t.get("id") != trip_id]
         _save_json_file(BLIND_TRIPS_FILE, trips)
+
+        # Also clean up any evaluations referencing this trip
+        evals = _load_json_file(BLIND_EVALS_FILE, [])
+        new_evals = [e for e in evals if e.get("trip_id") != trip_id]
+        if len(new_evals) != len(evals):
+            _save_json_file(BLIND_EVALS_FILE, new_evals)
+
         return jsonify({"status": "deleted", "trip_id": trip_id})
     except Exception as e:
         print("[Error /blind_eval/trip delete]:", e)
