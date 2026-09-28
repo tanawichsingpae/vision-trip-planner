@@ -57,30 +57,124 @@ export function distanceMetres(a: Coordinates, b: Coordinates): number {
   return R * 2 * Math.asin(Math.sqrt(sin2));
 }
 
-// ---------------------------------------------------------------------------
-// Place-name normalisation
-// ---------------------------------------------------------------------------
-function cleanPlaceName(title: string): string {
+/**
+ * Detects if a place title represents a zone-based street food or free dining exploration
+ * (e.g. "Street Food, Lunch near Bangkok Cultural Center", "Street Food near Wat Phra Kaew",
+ *  "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ", "สตรีทฟู้ดรอบวัดพระแก้ว").
+ */
+export function isZoneDining(title?: string | null): boolean {
+  if (!title) return false;
+  const t = title.trim();
+  return (
+    /^(?:Street Food|Local Food|Street Food,\s*Lunch|Street Food,\s*Dinner|Lunch\s*near|Dinner\s*near|Dinner\s*&\s*Street Food|Lunch\s*&\s*Street Food|Food\s*Tour\s*around)\b/i.test(t) ||
+    /^(?:สตรีทฟู้ด|ร้านอาหารและสตรีทฟู้ด|สตรีทฟู้ด\s*มื้อกลางวัน|สตรีทฟู้ด\s*มื้อค่ำ|มื้อกลางวันแถว|มื้อค่ำแถว|มื้อค่ำและสตรีทฟู้ด|มื้อกลางวันและสตรีทฟู้ด|ของกินแถว|หาของกินรอบ|เดินกินสตรีทฟู้ด)/i.test(t)
+  );
+}
+
+/**
+ * For zone-based street food / area dining titles, extracts the anchor landmark
+ * or zone name for geocoding purposes, e.g.:
+ *   "Street Food, Lunch near Bangkok Cultural Center" -> "Bangkok Cultural Center"
+ *   "Street Food near Wat Phra Kaew" -> "Wat Phra Kaew"
+ *   "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ" -> "หอศิลปวัฒนธรรมแห่งกรุงเทพฯ"
+ *   "สตรีทฟู้ดรอบวัดพระแก้ว" -> "วัดพระแก้ว"
+ */
+export function extractZoneAnchorVenue(title?: string | null): string {
+  if (!title) return "";
+  let t = title.trim();
+  // Strip parentheticals first
+  t = t.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+
+  const prefixes = [
+    /^(?:สตรีทฟู้ด\s*มื้อกลางวันรอบ|สตรีทฟู้ด\s*มื้อกลางวันแถว|สตรีทฟู้ด\s*มื้อค่ำรอบ|สตรีทฟู้ด\s*มื้อค่ำแถว)\s*/i,
+    /^(?:มื้อค่ำและสตรีทฟู้ดแถว|มื้อค่ำและสตรีทฟู้ดรอบ|มื้อกลางวันและสตรีทฟู้ดแถว|มื้อกลางวันและสตรีทฟู้ดรอบ)\s*/i,
+    /^(?:ร้านอาหารและสตรีทฟู้ดรอบ|ร้านอาหารและสตรีทฟู้ดแถว|ร้านอาหารรอบ|ร้านอาหารแถว)\s*/i,
+    /^(?:สตรีทฟู้ดรอบ|สตรีทฟู้ดแถว|สตรีทฟู้ดบริเวณ|สตรีทฟู้ดย่าน)\s*/i,
+    /^(?:มื้อกลางวันแถว|มื้อกลางวันรอบ|มื้อเที่ยงแถว|มื้อค่ำแถว|มื้อค่ำรอบ|มื้อเย็นแถว|มื้อเย็นรอบ)\s*/i,
+    /^(?:ของกินแถว|หาของกินรอบ|เดินกินสตรีทฟู้ดรอบ|เดินกินสตรีทฟู้ดแถว)\s*/i,
+    /^(?:Street Food,?\s*(?:Lunch|Dinner)?\s*(?:near|around|in|by|along|at)?)\s+/i,
+    /^(?:Local Food,?\s*(?:Lunch|Dinner)?\s*(?:near|around|in|by|along|at)?)\s+/i,
+    /^(?:Dinner\s*&\s*Street Food\s+(?:near|around|in|by|along|at)?)\s+/i,
+    /^(?:Lunch\s*&\s*Street Food\s+(?:near|around|in|by|along|at)?)\s+/i,
+    /^(?:Street Food\s+(?:near|around|in|by|along|at))\s+/i,
+    /^(?:Lunch\s+(?:near|around|in|by|along|at))\s+/i,
+    /^(?:Dinner\s+(?:near|around|in|by|along|at))\s+/i,
+  ];
+
+  for (const p of prefixes) {
+    if (p.test(t)) {
+      const extracted = t.replace(p, "").trim();
+      if (extracted.length > 1) return extracted;
+    }
+  }
+
+  return t;
+}
+
+/**
+ * Strips meal parentheticals, time labels, and action verbs from place titles.
+ * Guarantees that pure, authentic venue names are used for geocoding, search, and display.
+ * 
+ * Supports TWO key dining architectures:
+ *  1) Specific Real Restaurant: "ถนนบรรทัดทอง (อาหารเย็น)" -> "ถนนบรรทัดทอง", "ร้านเจ๊โอว (อาหารค่ำ)" -> "ร้านเจ๊โอว"
+ *  2) Zone Street Food / Free Dining: "Street Food, Lunch near Bangkok Cultural Center" -> preserved as descriptive title
+ */
+export function sanitizePlaceTitle(title?: string | null): string {
+  if (!title) return "";
+  let cleaned = title.trim();
+
+  // 1. Remove meal/time parentheticals (Thai & English)
+  const mealParentheses = /\s*\((?:อาหารเย็น|อาหารกลางวัน|อาหารค่ำ|อาหารเช้า|อาหารบ่าย|อาหารว่าง|ของว่าง|อาหาร|มื้อเย็น|มื้อค่ำ|มื้อเที่ยง|มื้อกลางวัน|มื้อเช้า|มื้อดึก|กินข้าว|ทานอาหาร|lunch|dinner|breakfast|brunch|supper|snack|dinner\s*\/\s*night|lunch\s*\/\s*midday|sunset|night\s*market|street\s*food|nightlife|drinks?|cafe|food|[^\)]*(?:อาหาร|มื้อ|dinner|lunch|breakfast|sunset)[^\)]*)\)\s*/gi;
+  cleaned = cleaned.replace(mealParentheses, " ");
+
+  // 2. Remove square brackets with meals/time
+  const mealBrackets = /\s*\[(?:อาหารเย็น|อาหารกลางวัน|อาหารค่ำ|อาหารเช้า|อาหารบ่าย|อาหารว่าง|ของว่าง|อาหาร|มื้อเย็น|มื้อค่ำ|มื้อเที่ยง|มื้อกลางวัน|มื้อเช้า|มื้อดึก|lunch|dinner|breakfast|brunch|supper|snack|sunset)\]\s*/gi;
+  cleaned = cleaned.replace(mealBrackets, " ");
+
+  // 3. Remove trailing meal dashes e.g. "ถนนบรรทัดทอง - อาหารเย็น", "Thip Samai - Dinner"
+  const mealDashes = /\s*[-–—]\s*(?:อาหารเย็น|อาหารกลางวัน|อาหารค่ำ|อาหารเช้า|มื้อเย็น|มื้อค่ำ|มื้อเที่ยง|มื้อกลางวัน|มื้อเช้า|lunch|dinner|breakfast|brunch|supper)\s*$/gi;
+  cleaned = cleaned.replace(mealDashes, "");
+
+  // If this is a zone-based street food or free dining exploration title
+  // (e.g. "Street Food, Lunch near Bangkok Cultural Center" or "สตรีทฟู้ดรอบวัดพระแก้ว"),
+  // preserve the descriptive zone title!
+  if (isZoneDining(cleaned)) {
+    return cleaned.replace(/\s{2,}/g, " ").trim();
+  }
+
+  // 4. Remove action verb prefixes (Thai and English)
   const prefixPatterns = [
-    // English action verb prefixes
-    /^(Explore|Visit|See|Tour|Check out|Discover|Experience|Enjoy|Attend|Watch|Ride|Take a|Catch a|Walk around|Walk through|Walk in|Walk|Stroll around|Stroll through|Stroll|Hike up|Hike|Climb|Swim at|Snorkel at|Dive at|Relax at|Relax in|Chill at|Rest at|Wander around|Wander through|Shopping at|Shopping in|Head to|Go to|Travel to|Arrive at)\s+/i,
-    /^(Breakfast|Lunch|Dinner|Brunch|Supper|Snack|Coffee|Tea)\s+(at|in|near|by|around|along|by the)\s+/i,
+    /^(Explore|Visit|See|Tour|Check out|Discover|Experience|Enjoy|Attend|Watch|Ride|Take a|Catch a|Walk around|Walk through|Walk in|Walk to|Walk|Stroll around|Stroll through|Stroll|Hike up|Hike|Climb|Swim at|Snorkel at|Dive at|Relax at|Relax in|Chill at|Rest at|Wander around|Wander through|Shopping at|Shopping in|Head to|Go to|Travel to|Arrive at|Check in|Check out)\s+/i,
+    /^(Breakfast|Lunch|Dinner|Brunch|Supper|Snack|Coffee|Tea|Drink|Cocktail)\s+(at|in|near|by|around|along|by the)\s+/i,
     /^(Grab|Have|Try|Eat|Taste|Sample)\s+(breakfast|lunch|dinner|brunch|coffee|tea|a meal|food|snacks?)\s+(at|in|near|by|around)?\s*/i,
     /^(Night|Morning|Evening|Afternoon|Sunset|Sunrise)\s+(view|visit|walk|cruise|tour|market|show|performance|activity)\s+(of|at|in|near|along)?\s*/i,
-    /^(Traditional|Local|Authentic|Classic|Famous|Typical)\s+[\w\s]*(Lunch|Dinner|Breakfast|Brunch|Food|Market|Street Food)\s+(at|in|near)?\s*/i,
+    /^(Traditional|Local|Authentic|Classic|Famous|Typical)\s+[\w\s]*(Lunch|Dinner|Breakfast|Brunch|Food|Market|Street Food|Eatery)\s+(at|in|near)?\s*/i,
     /^(at|in|near|by|around|along|the)\s+/i,
-    // Thai action verb prefixes (mirroring cleanVenueSearchQuery in places.ts)
-    /^(ชมวิวพระอาทิตย์ตกที่|ชมวิวที่|ชมความงามของ|ชมวิว|เที่ยวชม|เที่ยว|แวะเที่ยว|แวะชม|แวะถ่ายรูปที่|แวะถ่ายรูป|แวะ|ไหว้พระที่|ไหว้พระ|สักการะที่|สักการะ)\s*/,
+    /^(แวะชมวิวพระอาทิตย์ตกที่|แวะชมวิวพระอาทิตย์ตก|แวะชมวิวที่|แวะชมวิว|ชมวิวพระอาทิตย์ตกที่|ชมวิวพระอาทิตย์ตก|ชมวิวที่|ชมความงามของ|ชมวิว|เที่ยวชม|เที่ยว|แวะเที่ยว|แวะชม|แวะถ่ายรูปที่|แวะถ่ายรูป|แวะ|ไหว้พระที่|ไหว้พระ|สักการะที่|สักการะ)\s*/,
     /^(ทานอาหารกลางวันที่|ทานอาหารมื้อค่ำที่|ทานอาหารเย็นที่|ทานอาหารที่|ทานมื้อเที่ยงที่|ทานมื้อค่ำที่|กินข้าวกลางวันที่|กินข้าวเที่ยงที่|กินข้าวเย็นที่|กินข้าวที่|กินอาหารที่|กิน|จิบกาแฟที่|ดื่มกาแฟที่|นั่งชิลที่)\s*/,
   ];
 
-  let cleaned = title.trim();
   let prev = "";
   while (prev !== cleaned) {
     prev = cleaned;
     for (const p of prefixPatterns) cleaned = cleaned.replace(p, "").trim();
   }
 
+  // 5. Clean up duplicate spaces
+  cleaned = cleaned.replace(/\s{2,}/g, " ").trim();
+
+  return cleaned || (title ? title.trim() : "");
+}
+
+// ---------------------------------------------------------------------------
+// Place-name normalisation
+// ---------------------------------------------------------------------------
+function cleanPlaceName(title: string): string {
+  if (isZoneDining(title)) {
+    const anchor = extractZoneAnchorVenue(title);
+    return sanitizePlaceTitle(anchor);
+  }
+  let cleaned = sanitizePlaceTitle(title);
   const andIdx = cleaned.search(/\s+and\s+/i);
   if (andIdx > 0) cleaned = cleaned.slice(0, andIdx).trim();
 
@@ -164,6 +258,13 @@ export const FAMOUS_LANDMARK_DISAMBIGUATION: Record<
   "ถนนข้าวสาร": { lat: 13.7588, lng: 100.4974, formattedAddress: "ถนนข้าวสาร, พระนคร, กรุงเทพมหานคร" },
   "jim thompson house": { lat: 13.7492, lng: 100.5282, formattedAddress: "Jim Thompson House Museum, Pathum Wan, Bangkok, Thailand" },
   "บ้านจิม ทอมป์สัน": { lat: 13.7492, lng: 100.5282, formattedAddress: "บ้านจิม ทอมป์สัน, ปทุมวัน, กรุงเทพมหานคร" },
+  "bangkok cultural center": { lat: 13.7468, lng: 100.5303, formattedAddress: "Bangkok Art and Culture Centre (BACC), Pathum Wan, Bangkok, Thailand" },
+  "bangkok art and culture centre": { lat: 13.7468, lng: 100.5303, formattedAddress: "Bangkok Art and Culture Centre (BACC), Pathum Wan, Bangkok, Thailand" },
+  "bangkok art & culture centre": { lat: 13.7468, lng: 100.5303, formattedAddress: "Bangkok Art and Culture Centre (BACC), Pathum Wan, Bangkok, Thailand" },
+  "bacc": { lat: 13.7468, lng: 100.5303, formattedAddress: "Bangkok Art and Culture Centre (BACC), Pathum Wan, Bangkok, Thailand" },
+  "หอศิลปวัฒนธรรมแห่งกรุงเทพมหานคร": { lat: 13.7468, lng: 100.5303, formattedAddress: "หอศิลปวัฒนธรรมแห่งกรุงเทพมหานคร (BACC), ปทุมวัน, กรุงเทพมหานคร" },
+  "หอศิลป์กรุงเทพ": { lat: 13.7468, lng: 100.5303, formattedAddress: "หอศิลปวัฒนธรรมแห่งกรุงเทพมหานคร (BACC), ปทุมวัน, กรุงเทพมหานคร" },
+  "หอศิลป์": { lat: 13.7468, lng: 100.5303, formattedAddress: "หอศิลปวัฒนธรรมแห่งกรุงเทพมหานคร (BACC), ปทุมวัน, กรุงเทพมหานคร" },
   "chao phraya river cruise": { lat: 13.732996, lng: 100.498466, formattedAddress: "Chao Phraya River Cruise, Bangkok, Thailand" },
   "chao phraya cruise": { lat: 13.732996, lng: 100.498466, formattedAddress: "Chao Phraya River Cruise, Bangkok, Thailand" },
   "ล่องเรือแม่น้ำเจ้าพระยา": { lat: 13.732996, lng: 100.498466, formattedAddress: "ล่องเรือแม่น้ำเจ้าพระยา, กรุงเทพมหานคร" },
@@ -173,6 +274,32 @@ export const FAMOUS_LANDMARK_DISAMBIGUATION: Record<
   "สวนลุมพินี": { lat: 13.7314, lng: 100.5414, formattedAddress: "สวนลุมพินี, ปทุมวัน, กรุงเทพมหานคร" },
   "hua lamphong": { lat: 13.7371, lng: 100.5165, formattedAddress: "Bangkok Railway Station (Hua Lamphong), Rong Mueang, Pathum Wan, Bangkok, Thailand" },
   "หัวลำโพง": { lat: 13.7371, lng: 100.5165, formattedAddress: "สถานีรถไฟกรุงเทพ (หัวลำโพง), รองเมือง, ปทุมวัน, กรุงเทพมหานคร" },
+  // Iconic Culinary & Food Street Landmarks
+  "ban that thong": { lat: 13.7441, lng: 100.5222, formattedAddress: "Ban That Thong Road, Rong Mueang, Pathum Wan, Bangkok, Thailand" },
+  "ban that thong road": { lat: 13.7441, lng: 100.5222, formattedAddress: "Ban That Thong Road, Rong Mueang, Pathum Wan, Bangkok, Thailand" },
+  "ถนนบรรทัดทอง": { lat: 13.7441, lng: 100.5222, formattedAddress: "ถนนบรรทัดทอง, รองเมือง, ปทุมวัน, กรุงเทพมหานคร" },
+  "บรรทัดทอง": { lat: 13.7441, lng: 100.5222, formattedAddress: "ถนนบรรทัดทอง, รองเมือง, ปทุมวัน, กรุงเทพมหานคร" },
+  "yaowarat": { lat: 13.7412, lng: 100.5085, formattedAddress: "Yaowarat Road (Chinatown), Samphanthawong, Bangkok, Thailand" },
+  "yaowarat road": { lat: 13.7412, lng: 100.5085, formattedAddress: "Yaowarat Road, Samphanthawong, Bangkok, Thailand" },
+  "เยาวราช": { lat: 13.7412, lng: 100.5085, formattedAddress: "ถนนเยาวราช, สัมพันธวงศ์, กรุงเทพมหานคร" },
+  "ถนนเยาวราช": { lat: 13.7412, lng: 100.5085, formattedAddress: "ถนนเยาวราช, สัมพันธวงศ์, กรุงเทพมหานคร" },
+  "jodd fairs": { lat: 13.7563, lng: 100.5660, formattedAddress: "Jodd Fairs Rama 9, Huai Khwang, Bangkok, Thailand" },
+  "จ๊อดแฟร์": { lat: 13.7563, lng: 100.5660, formattedAddress: "ตลาดจ๊อดแฟร์ (พระราม 9), ห้วยขวาง, กรุงเทพมหานคร" },
+  "thip samai": { lat: 13.7527, lng: 100.5048, formattedAddress: "Thipsamai Pad Thai (Pratu Phi), Phra Nakhon, Bangkok, Thailand" },
+  "thipsamai": { lat: 13.7527, lng: 100.5048, formattedAddress: "Thipsamai Pad Thai (Pratu Phi), Phra Nakhon, Bangkok, Thailand" },
+  "ทิพย์สมัย": { lat: 13.7527, lng: 100.5048, formattedAddress: "ทิพย์สมัย ผัดไทยประตูผี, พระนคร, กรุงเทพมหานคร" },
+  "ผัดไทยประตูผี": { lat: 13.7527, lng: 100.5048, formattedAddress: "ทิพย์สมัย ผัดไทยประตูผี, พระนคร, กรุงเทพมหานคร" },
+  "jeh o chula": { lat: 13.7427, lng: 100.5244, formattedAddress: "Jeh O Chula, Ban That Thong, Pathum Wan, Bangkok, Thailand" },
+  "เจ๊โอว": { lat: 13.7427, lng: 100.5244, formattedAddress: "ร้านเจ๊โอว (จุฬา), ปทุมวัน, กรุงเทพมหานคร" },
+  "ร้านเจ๊โอว": { lat: 13.7427, lng: 100.5244, formattedAddress: "ร้านเจ๊โอว (จุฬา), ปทุมวัน, กรุงเทพมหานคร" },
+  "pak khlong talat": { lat: 13.7419, lng: 100.4967, formattedAddress: "Pak Khlong Talat (Flower Market), Phra Nakhon, Bangkok, Thailand" },
+  "ปากคลองตลาด": { lat: 13.7419, lng: 100.4967, formattedAddress: "ปากคลองตลาด, พระนคร, กรุงเทพมหานคร" },
+  "wang lang market": { lat: 13.7554, lng: 100.4856, formattedAddress: "Wang Lang Market, Bangkok Noi, Bangkok, Thailand" },
+  "ตลาดวังหลัง": { lat: 13.7554, lng: 100.4856, formattedAddress: "ตลาดวังหลัง, บางกอกน้อย, กรุงเทพมหานคร" },
+  "or tor kor market": { lat: 13.7970, lng: 100.5477, formattedAddress: "Or Tor Kor Market, Chatuchak, Bangkok, Thailand" },
+  "ตลาด อตก": { lat: 13.7970, lng: 100.5477, formattedAddress: "ตลาด อตก., จตุจักร, กรุงเทพมหานคร" },
+  "mahanakhon skywalk": { lat: 13.7233, lng: 100.5283, formattedAddress: "King Power Mahanakhon (SkyWalk), Bang Rak, Bangkok, Thailand" },
+  "คิง เพาเวอร์ มหานคร": { lat: 13.7233, lng: 100.5283, formattedAddress: "คิง เพาเวอร์ มหานคร, บางรัก, กรุงเทพมหานคร" },
 };
 
 // ---------------------------------------------------------------------------
@@ -640,18 +767,18 @@ export function buildGoogleMapsUrl(options: {
   isCoordsVerified?: boolean;
   /** Mode: "directions" | "search" | "streetview" */
   mode?: "directions" | "search" | "streetview";
+  /** Optional Google Maps Place ID */
+  placeId?: string | null;
 }): string {
-  const { lat, lng, englishName, placeName, cityName, isCoordsVerified = true, mode = "search" } = options;
+  const { lat, lng, englishName, placeName, cityName, isCoordsVerified = true, mode = "search", placeId } = options;
 
   const hasCoords =
     lat != null && lng != null && !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
 
-  // Prefer English name because Google Maps English indexing is universal worldwide
-  // If englishName is absent, use placeName (which might be Thai or native language)
-  let primaryName = (englishName || "").trim();
-  if (!primaryName) {
-    primaryName = (placeName || "").trim();
-  }
+  // Clean pure POI name without meal tags (e.g. removes "(อาหารเย็น)", "(Lunch)")
+  const cleanEnglish = sanitizePlaceTitle(englishName || "");
+  const cleanPlace = sanitizePlaceTitle(placeName || "");
+  let primaryName = cleanEnglish || cleanPlace;
 
   // Disambiguate with city context if not already included in place name
   let searchQuery = primaryName;
@@ -662,12 +789,14 @@ export function buildGoogleMapsUrl(options: {
     }
   }
 
+  // 1. Directions mode: Navigation directly to destination
   if (mode === "directions") {
-    // If coords are valid AND verified by POI, navigate directly to exact GPS coordinates
     if (hasCoords && isCoordsVerified) {
+      if (placeId && !placeId.startsWith("disambig-")) {
+        return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${placeId}`;
+      }
       return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
     }
-    // If coords are missing or unverified/jitter fallback, navigate to place name so Google Maps resolves the real spot
     if (searchQuery) {
       return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(searchQuery)}`;
     }
@@ -677,20 +806,36 @@ export function buildGoogleMapsUrl(options: {
     return `https://www.google.com/maps/dir/?api=1`;
   }
 
+  // 2. 360° Street View mode
   if (mode === "streetview") {
     if (hasCoords && isCoordsVerified) {
+      return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
+    }
+    if (hasCoords) {
       return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
     }
     if (searchQuery) {
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
     }
-    if (hasCoords) {
-      return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
-    }
     return `https://www.google.com/maps`;
   }
 
-  // "search" mode (default): opens rich Google Maps place card (reviews, photos, opening hours)
+  // 3. Search mode ("View on Google Maps"):
+  // CRITICAL REQUIREMENT: "ขอให้พิกัดตรง ลิ้งค์ตรงเป็นอันดับ1"
+  // Prioritize exact GPS coordinates so Google Maps drops a pin directly at the real venue location,
+  // completely preventing inaccurate text search results!
+  if (hasCoords && isCoordsVerified) {
+    if (placeId && !placeId.startsWith("disambig-")) {
+      return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}&query_place_id=${placeId}`;
+    }
+    return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  }
+
+  if (hasCoords && !searchQuery) {
+    return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  }
+
+  // Fallback to text query if coordinates are unverified or absent
   if (searchQuery) {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
   }

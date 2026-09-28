@@ -106,6 +106,62 @@ describe("LanguageContext & Localization Helpers", () => {
       expect(getLocalizedPlace({ title: "iconsiam" }, "th")).toBe("ไอคอนสยาม");
     });
 
+    it("strips meal and time parentheticals like (อาหารเย็น) and (อาหารกลางวัน) cleanly", () => {
+      const banThatThong: LocalizablePlace = {
+        title: "ถนนบรรทัดทอง (อาหารเย็น)",
+      };
+      expect(getLocalizedPlace(banThatThong, "th")).toBe("ถนนบรรทัดทอง");
+
+      const jehO: LocalizablePlace = {
+        title: "ร้านเจ๊โอว (อาหารค่ำ)",
+      };
+      expect(getLocalizedPlace(jehO, "th")).toBe("ร้านเจ๊โอว");
+
+      const lunchPlace: LocalizablePlace = {
+        title: "ข้าวหมูกรอบนายไซ (อาหารกลางวัน)",
+      };
+      expect(getLocalizedPlace(lunchPlace, "th")).toBe("ข้าวหมูกรอบนายไซ");
+
+      const englishDinner: LocalizablePlace = {
+        title: "Ban That Thong Road (Dinner)",
+      };
+      expect(getLocalizedPlace(englishDinner, "en")).toBe("Ban That Thong Road");
+    });
+
+    it("localizes Street Food and Zone Dining patterns seamlessly between English and Thai", () => {
+      // English -> Thai
+      const baccStreetFood: LocalizablePlace = {
+        title: "Street Food, Lunch near Bangkok Cultural Center",
+      };
+      expect(getLocalizedPlace(baccStreetFood, "en")).toBe("Street Food, Lunch near Bangkok Cultural Center");
+      expect(getLocalizedPlace(baccStreetFood, "th")).toBe("สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ");
+
+      const watPhraKaewFood: LocalizablePlace = {
+        title: "Street Food near Wat Phra Kaew",
+      };
+      expect(getLocalizedPlace(watPhraKaewFood, "en")).toBe("Street Food near Wat Phra Kaew");
+      expect(getLocalizedPlace(watPhraKaewFood, "th")).toContain("สตรีทฟู้ดรอบ");
+
+      const yaowaratDinner: LocalizablePlace = {
+        title: "Dinner & Street Food near Yaowarat",
+      };
+      expect(getLocalizedPlace(yaowaratDinner, "en")).toBe("Dinner & Street Food near Yaowarat");
+      expect(getLocalizedPlace(yaowaratDinner, "th")).toContain("มื้อค่ำและสตรีทฟู้ดแถว");
+
+      // Thai -> English
+      const thaiBacc: LocalizablePlace = {
+        title: "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ",
+      };
+      expect(getLocalizedPlace(thaiBacc, "th")).toBe("สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ");
+      expect(getLocalizedPlace(thaiBacc, "en")).toBe("Street Food, Lunch near Bangkok Art and Culture Centre");
+
+      const thaiWat: LocalizablePlace = {
+        title: "สตรีทฟู้ดรอบวัดพระแก้ว",
+      };
+      expect(getLocalizedPlace(thaiWat, "th")).toBe("สตรีทฟู้ดรอบวัดพระแก้ว");
+      expect(getLocalizedPlace(thaiWat, "en")).toContain("Street Food near Wat Phra Kaew");
+    });
+
     it("handles null and undefined gracefully", () => {
       expect(getLocalizedPlace(null, "th")).toBe("");
       expect(getLocalizedPlace(undefined, "en")).toBe("");

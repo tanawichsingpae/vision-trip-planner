@@ -98,6 +98,10 @@ export const DICTIONARY_EN_TO_TH: Record<string, string> = {
   "khaosan road": "ถนนข้าวสาร",
   "jim thompson house": "บ้านจิม ทอมป์สัน",
   "lumphini park": "สวนลุมพินี",
+  "bangkok art and culture centre": "หอศิลปวัฒนธรรมแห่งกรุงเทพฯ",
+  "bangkok art & culture centre": "หอศิลปวัฒนธรรมแห่งกรุงเทพฯ",
+  "bangkok cultural center": "หอศิลปวัฒนธรรมแห่งกรุงเทพฯ",
+  "bacc": "หอศิลปวัฒนธรรมแห่งกรุงเทพฯ",
   "benjakitti park": "สวนเบญจกิติ",
   "benjakitti forest park": "สวนเบญจกิติ",
   "yaowarat": "เยาวราช (ไชน่าทาวน์)",
@@ -241,6 +245,11 @@ export const DICTIONARY_TH_TO_EN: Record<string, string> = {
   "ตลาดน้ำดำเนินสะดวก": "Damnoen Saduak Floating Market",
   "ตลาดน้ำอัมพวา": "Amphawa Floating Market",
   "จ๊อดแฟร์": "Jodd Fairs",
+  "หอศิลปวัฒนธรรมแห่งกรุงเทพมหานคร": "Bangkok Art and Culture Centre",
+  "หอศิลปวัฒนธรรมแห่งกรุงเทพฯ": "Bangkok Art and Culture Centre",
+  "หอศิลปวัฒนธรรมแห่งกรุงเทพ": "Bangkok Art and Culture Centre",
+  "หอศิลป์กรุงเทพ": "Bangkok Art and Culture Centre",
+  "หอศิลป์กทม": "Bangkok Art and Culture Centre",
 };
 
 // In-memory translation cache to avoid repeated translations

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getCoordinates, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres, buildGoogleMapsUrl } from "@/api/geocode";
+import { getCoordinates, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres, buildGoogleMapsUrl, sanitizePlaceTitle, isZoneDining, extractZoneAnchorVenue } from "@/api/geocode";
 import { fetchPlaceDetails } from "@/api/places";
 
 describe("Geocoding Landmark Disambiguation & Precision", () => {
@@ -110,9 +110,10 @@ describe("Geocoding Landmark Disambiguation & Precision", () => {
       lng: 100.4927,
       englishName: "Wat Phra Kaew",
       isCoordsVerified: true,
+      placeId: "ChIJ_TEST_PLACE",
       mode: "directions",
     });
-    expect(verifiedDirectionsUrl).toBe("https://www.google.com/maps/dir/?api=1&destination=13.7515,100.4927");
+    expect(verifiedDirectionsUrl).toBe("https://www.google.com/maps/dir/?api=1&destination=13.7515,100.4927&destination_place_id=ChIJ_TEST_PLACE");
 
     // 4. Directions with unverified jitter coords falls back to place name for accurate navigation
     const unverifiedDirectionsUrl = buildGoogleMapsUrl({
@@ -124,5 +125,124 @@ describe("Geocoding Landmark Disambiguation & Precision", () => {
       mode: "directions",
     });
     expect(decodeURIComponent(unverifiedDirectionsUrl)).toContain("destination=Wat Phra Kaew, Bangkok");
+
+    // 5. Search mode with coordinates: PRIORITY 1 ALWAYS pins directly to exact coordinates
+    const searchWithCoords = buildGoogleMapsUrl({
+      lat: 13.7441,
+      lng: 100.5222,
+      placeName: "ถนนบรรทัดทอง (อาหารเย็น)",
+      placeId: "ChIJ_BAN_THAT_THONG",
+      mode: "search",
+    });
+    expect(searchWithCoords).toBe("https://www.google.com/maps/search/?api=1&query=13.7441,100.5222&query_place_id=ChIJ_BAN_THAT_THONG");
+  });
+
+  describe("sanitizePlaceTitle() pure POI name cleaning", () => {
+    it("strips meal and time parentheticals cleanly", () => {
+      expect(sanitizePlaceTitle("ถนนบรรทัดทอง (อาหารเย็น)")).toBe("ถนนบรรทัดทอง");
+      expect(sanitizePlaceTitle("Ban That Thong Road (Dinner)")).toBe("Ban That Thong Road");
+      expect(sanitizePlaceTitle("ร้านเจ๊โอว (อาหารค่ำ)")).toBe("ร้านเจ๊โอว");
+      expect(sanitizePlaceTitle("ข้าวหมูกรอบนายไซ (อาหารกลางวัน)")).toBe("ข้าวหมูกรอบนายไซ");
+      expect(sanitizePlaceTitle("เยาวราช (อาหารเย็น / Night Market)")).toBe("เยาวราช");
+      expect(sanitizePlaceTitle("Thip Samai Pad Thai (Lunch)")).toBe("Thip Samai Pad Thai");
+      expect(sanitizePlaceTitle("ตลาดโต้รุ่ง (มื้อดึก)")).toBe("ตลาดโต้รุ่ง");
+    });
+
+    it("strips meal trailing dashes and brackets cleanly", () => {
+      expect(sanitizePlaceTitle("ถนนบรรทัดทอง - อาหารเย็น")).toBe("ถนนบรรทัดทอง");
+      expect(sanitizePlaceTitle("Ban That Thong - Dinner")).toBe("Ban That Thong");
+      expect(sanitizePlaceTitle("Thipsamai [Lunch]")).toBe("Thipsamai");
+    });
+
+    it("strips action verbs and prefixes cleanly", () => {
+      expect(sanitizePlaceTitle("แวะชมวิวพระอาทิตย์ตกที่ สะพานพุทธ (Sunset)")).toBe("สะพานพุทธ");
+      expect(sanitizePlaceTitle("กินข้าวที่ ถนนบรรทัดทอง (อาหารเย็น)")).toBe("ถนนบรรทัดทอง");
+      expect(sanitizePlaceTitle("Visit Wat Pho")).toBe("Wat Pho");
+      expect(sanitizePlaceTitle("Explore Chinatown (Night Market)")).toBe("Chinatown");
+      expect(sanitizePlaceTitle("Dinner at Jeh O Chula")).toBe("Jeh O Chula");
+    });
+  });
+
+  describe("Iconic culinary & food street landmark coordinates", () => {
+    it("resolves Ban That Thong Road to authentic coordinates", async () => {
+      const coords = await getCoordinates("ถนนบรรทัดทอง");
+      expect(coords.lat).toBeCloseTo(13.744, 2);
+      expect(coords.lng).toBeCloseTo(100.522, 2);
+    });
+
+    it("resolves Yaowarat Road to authentic Chinatown coordinates", async () => {
+      const coords = await getCoordinates("เยาวราช");
+      expect(coords.lat).toBeCloseTo(13.741, 2);
+      expect(coords.lng).toBeCloseTo(100.508, 2);
+    });
+
+    it("resolves Jodd Fairs Rama 9 to authentic night market coordinates", async () => {
+      const coords = await getCoordinates("จ๊อดแฟร์");
+      expect(coords.lat).toBeCloseTo(13.756, 2);
+      expect(coords.lng).toBeCloseTo(100.566, 2);
+    });
+  });
+
+  describe("Dining 2 Cases: Specific Real Restaurant vs Street Food Zone", () => {
+    it("detects Case 2 zone dining patterns and extracts anchor venues correctly", () => {
+      // English patterns
+      expect(isZoneDining("Street Food, Lunch near Bangkok Cultural Center")).toBe(true);
+      expect(extractZoneAnchorVenue("Street Food, Lunch near Bangkok Cultural Center")).toBe("Bangkok Cultural Center");
+
+      expect(isZoneDining("Street Food near Wat Phra Kaew")).toBe(true);
+      expect(extractZoneAnchorVenue("Street Food near Wat Phra Kaew")).toBe("Wat Phra Kaew");
+
+      expect(isZoneDining("Dinner & Street Food near Yaowarat")).toBe(true);
+      expect(extractZoneAnchorVenue("Dinner & Street Food near Yaowarat")).toBe("Yaowarat");
+
+      // Thai patterns
+      expect(isZoneDining("สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ")).toBe(true);
+      expect(extractZoneAnchorVenue("สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ")).toBe("หอศิลปวัฒนธรรมแห่งกรุงเทพฯ");
+
+      expect(isZoneDining("สตรีทฟู้ดรอบวัดพระแก้ว")).toBe(true);
+      expect(extractZoneAnchorVenue("สตรีทฟู้ดรอบวัดพระแก้ว")).toBe("วัดพระแก้ว");
+
+      expect(isZoneDining("มื้อค่ำและสตรีทฟู้ดแถวเยาวราช")).toBe(true);
+      expect(extractZoneAnchorVenue("มื้อค่ำและสตรีทฟู้ดแถวเยาวราช")).toBe("เยาวราช");
+    });
+
+    it("does not classify Case 1 real restaurants as zone dining", () => {
+      expect(isZoneDining("ร้านเจ๊โอว")).toBe(false);
+      expect(isZoneDining("ทิพย์สมัย ผัดไทยประตูผี")).toBe(false);
+      expect(isZoneDining("ถนนบรรทัดทอง")).toBe(false);
+      expect(isZoneDining("ครัวอัปษร")).toBe(false);
+      expect(isZoneDining("Thipsamai")).toBe(false);
+    });
+
+    it("preserves Case 2 descriptive titles while cleaning Case 1 meal tags in sanitizePlaceTitle", () => {
+      // Case 1: Pure restaurant POI names stripped of meal tags
+      expect(sanitizePlaceTitle("ร้านเจ๊โอว (อาหารค่ำ)")).toBe("ร้านเจ๊โอว");
+      expect(sanitizePlaceTitle("Thipsamai (Lunch)")).toBe("Thipsamai");
+
+      // Case 2: Preserves descriptive zone dining titles
+      expect(sanitizePlaceTitle("Street Food, Lunch near Bangkok Cultural Center")).toBe("Street Food, Lunch near Bangkok Cultural Center");
+      expect(sanitizePlaceTitle("สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ")).toBe("สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ");
+      expect(sanitizePlaceTitle("Street Food near Wat Phra Kaew")).toBe("Street Food near Wat Phra Kaew");
+      expect(sanitizePlaceTitle("สตรีทฟู้ดรอบวัดพระแก้ว")).toBe("สตรีทฟู้ดรอบวัดพระแก้ว");
+    });
+
+    it("resolves Case 2 zone street food coordinates to anchor landmark location", async () => {
+      // Bangkok Art and Culture Centre anchor
+      const baccStreetFood = await getCoordinates("Street Food, Lunch near Bangkok Cultural Center");
+      expect(baccStreetFood.lat).toBeCloseTo(13.7468, 2);
+      expect(baccStreetFood.lng).toBeCloseTo(100.5303, 2);
+
+      // Wat Phra Kaew anchor
+      const watPhraKaewStreetFood = await getCoordinates("Street Food near Wat Phra Kaew");
+      expect(watPhraKaewStreetFood.lat).toBeCloseTo(13.751, 2);
+      expect(watPhraKaewStreetFood.lng).toBeCloseTo(100.492, 2);
+    });
+
+    it("preserves canonicalName as descriptive zone title in fetchPlaceDetails", async () => {
+      const details = await fetchPlaceDetails("Street Food, Lunch near Bangkok Cultural Center", undefined, "food", "Bangkok");
+      expect(details.canonicalName).toBe("Street Food, Lunch near Bangkok Cultural Center");
+      expect(details.lat).toBeCloseTo(13.7468, 2);
+      expect(details.lng).toBeCloseTo(100.5303, 2);
+    });
   });
 });

@@ -4,7 +4,7 @@ import { type AIModelType, type AIProviderType, MODEL_ID_MAP, getAIModelInfo } f
 import { safeFetch, validateApiKey } from "@/utils/apiUtils";
 import { safeParseJson } from "@/utils/jsonRepair";
 import { fetchPlaceDetails } from "@/api/places";
-import { fetchWikimediaPhoto } from "@/api/geocode";
+import { fetchWikimediaPhoto, sanitizePlaceTitle } from "@/api/geocode";
 import { fetchSmartPhoto, getCuratedFallbackPhoto } from "@/services/photoService";
 import { type DayCluster } from "@/api/spatialPlanner";
 import { hasThaiScript, translateTextSync } from "@/services/translatorService";
@@ -183,9 +183,18 @@ ACADEMIC OPTIMIZATION & TRIP OVERVIEW REVIEW (TTDP & OPTW STANDARDS):
    - All activities for a single day MUST be tightly clustered within that day's designated zone (radius <= 3.5 - 4.0 km).
    - Strictly ELIMINATE cross-town jumping (e.g. jumping between North and South, or Phahonyothin, Old Town, Sathon, and Rama 3 in the same day). All consecutive hops must be <= 3.0 km.
    - If any day contains a stray or distant venue (> 4.0 km away from the day's primary cluster), REPLACE IT with a top-rated, popular venue located in the SAME district as the other activities of that day.
-2. UNTANGLE GEOGRAPHIC PATHS & NO CIRCULAR LOOPS (2-Opt TSP):
-   - Sequence activities in each day so the route flows in an open forward direction across the neighborhood corridor.
-   - Strictly ELIMINATE zigzagging back-and-forth and loopbacks where the evening spot meets the morning starting spot.
+2. MONOTONIC FORWARD DIRECTION & NO CRISS-CROSSING / RIVER PING-PONG (CRITICAL & MANDATORY - 2-Opt TSP):
+   - UNIDIRECTIONAL FORWARD CORRIDOR (แนวเดินทางมุ่งไปข้างหน้าทิศทางเดียว ไม่วกวน):
+     Activities in each day MUST be sequenced along a smooth, continuous, forward-moving corridor (e.g. Stop 1 -> Stop 2 -> Stop 3 -> Stop 4 -> Stop 5 advancing steadily across the neighborhood, such as North to South, East to West, or along a riverfront/boulevard).
+     Strictly ELIMINATE ping-pong back-and-forth backtracking, zigzagging, and sharp U-turns where the traveler doubles back across areas already visited.
+   - ZERO CRISS-CROSSING / PLANAR ROUTE (เส้นทางต้องไม่ตัดกันเป็นกากบาทหรือรูปดาว):
+     Route line segments between consecutive places MUST NEVER cross or intersect each other on the map. The sequence must form a clean, planar, non-intersecting path (0 edge crossings).
+   - NO WATERWAY / RIVER PING-PONG (ห้ามข้ามฝั่งแม่น้ำ/คลอง/ถนนใหญ่สลับไปมา):
+     When activities span across a river (e.g. Chao Phraya River) or canal, visit ALL attractions on one bank first, then cross the river at most ONCE to visit attractions on the opposite bank. NEVER cross back and forth repeatedly (e.g. East -> West -> East -> West is strictly forbidden!).
+   - NO CIRCULAR LOOPS (ห้ามวนกลับมาจุดเริ่มต้น):
+     Do NOT force the final evening stop to meet or loop back to the morning starting spot. Real travelers follow an OPEN forward corridor across the district.
+   - ROUTE DETERMINES TIME (เส้นทางกำหนดเวลา):
+     The spatial forward corridor determines the chronological schedule: Start at the morning anchor (09:00 - 11:30), advance along the corridor to a nearby lunch spot (11:30 - 13:00), continue forward along the corridor for afternoon spots (13:30 - 16:30), and conclude at the far end of the corridor for golden hour sunset and dinner/nightlife (17:30 - 20:30).
 3. DISTRICT GROUPING:
    - If attractions are in the same neighborhood (within ~2.0-2.8 km), schedule them on the SAME day rather than split across days.
    - For distant attractions (>20 km), dedicate an isolated excursion day cluster.
@@ -194,8 +203,18 @@ ACADEMIC OPTIMIZATION & TRIP OVERVIEW REVIEW (TTDP & OPTW STANDARDS):
    - Evening dinner MUST be scheduled at 18:00 - 20:30.
    - Golden Hour & Sunset observation decks MUST be at 17:00 - 18:30.
    - NEVER place consecutive food/restaurant stops back-to-back without a cultural/sightseeing/leisure stop in between.
-5. OPERATING HOURS & DWELL TIME BUFFER:
-   - For venues closing around 17:00-18:00, schedule them with at least 1.5 - 2 hours buffer before closing (start by 15:30 - 16:30).
+   - DUAL DINING SELECTION MODES (2 CASES - SELECT BASED ON AREA CONTEXT & SUITABILITY):
+     * Case 1: Specific Real Restaurant (ร้านอาหารที่มีอยู่จริง):
+       For sit-down dining at an established, real restaurant (e.g. "ร้านเจ๊โอว", "ทิพย์สมัย ผัดไทยประตูผี", "Thipsamai", "ครัวอัปษร"), use the exact authentic restaurant name and real restaurant coordinates (lat, lng). STRICTLY NO "(อาหารเย็น)", "(อาหารกลางวัน)", "(Lunch)", or "(Dinner)" in the title!
+     * Case 2: Street Food / Area Free Dining near Landmark (Street Food หรือ ให้หากินเองรอบย่าน/สถานที่หลัก):
+       For lively street food stalls, food vendors, or open-ended dining around a key landmark, use the zone coordinates (lat, lng) of that anchor landmark and name the activity to indicate street food exploration nearby:
+       - English: "Street Food, Lunch near [Landmark]" or "Street Food, Dinner near [Landmark]" (e.g. "Street Food, Lunch near Bangkok Cultural Center", "Street Food near Wat Phra Kaew", "Dinner & Street Food near Yaowarat")
+       - Thai: "สตรีทฟู้ด มื้อกลางวันรอบ[ชื่อสถานที่]" or "สตรีทฟู้ด มื้อค่ำรอบ[ชื่อสถานที่]" (e.g. "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ", "สตรีทฟู้ดรอบวัดพระแก้ว")
+5. OPERATING HOURS, DWELL TIME BUFFER & MORNING START (MANDATORY):
+   - ALL DAYS (INCLUDING DAY 1) MUST START IN THE MORNING (08:30 - 09:30 AM). If Day 1 starts late in the evening (e.g., 17:00), you MUST reschedule and expand it into a full morning start with morning sightseeing and midday lunch!
+   - STRICT DAYTIME VENUE OPERATING HOURS: Historic temples, palaces, ancient ruins, museums, and shrines (e.g. Grand Palace, Wat Phra Kaew, Wat Pho, National Museum) CLOSE EARLY (between 15:30 and 17:30)!
+   - NEVER schedule a temple, palace, or museum after 16:00 or in the evening/night (17:00 - 21:00). Reschedule daytime cultural attractions to morning (09:00 - 11:30) or early afternoon (13:30 - 15:30).
+   - For venues closing around 17:00-18:00, schedule them with at least 1.5 - 2 hours buffer before closing (start by 15:30 - 16:00).
    - Public walking streets, night markets, and open areas are assumed open 24 hours.
    - Keep distance between consecutive stops strictly within 3.5 km max (or walking distance).
 6. BUDGET COMPATIBILITY (TTDP MULTI-OBJECTIVE CONSTRAINT):
@@ -210,11 +229,18 @@ ACADEMIC OPTIMIZATION & TRIP OVERVIEW REVIEW (TTDP & OPTW STANDARDS):
    - Never schedule 3 or more consecutive spots of the same category (e.g. 3 temples or 3 shopping malls in a row). Interleave dining, shopping, scenic parks, or relaxation.
 10. WEATHER SUITABILITY:
    - For any day forecasted with heavy rain or thunderstorms, move outdoor beach, island, or open-air activities to indoor cultural, museum, or covered market venues.
-11. PRESERVE USER-CHOSEN PLACES: Keep valid user-selected attractions unless specifically flagged as incompatible, closed, or unsafe, anchored into their proper day zone.
+11. PRESERVE USER-UPLOADED PLACES (MANDATORY & IMMUTABLE):
+   - All activities corresponding to user-uploaded photos MUST BE STRICTLY PRESERVED AND CANNOT BE REMOVED, DROPPED, OR REPLACED WITH OTHER VENUES.
+   - Even if a user-uploaded place is flagged with an outlier or pacing warning, KEEP IT firmly scheduled in the itinerary and optimize or substitute surrounding secondary stops around it instead.
 12. CATEGORY TYPE ACCURACY: Each activity "type" MUST accurately reflect its true category: "culture", "food", "nature", "adventure", "shopping", "nightlife", "relax", "landmark", "entertainment", "spiritual", or "hotel". DO NOT label everything as "attraction".
 13. PRESERVE EXACT TRIP DURATION (MANDATORY): The input itinerary has EXACTLY ${currentItinerary.length} days. You MUST output EXACTLY ${currentItinerary.length} days (Day 1 through Day ${currentItinerary.length}) in the "itinerary" array. NEVER drop, merge, or collapse days!
 14. ELIMINATE SPATIAL OUTLIERS & LONG HOPS (MANDATORY):
-   - If any activity is flagged with [Spatial Outlier Alert], [Intra-Day Hop Alert], or [Trip Overview: Scattered Day] (located > 4.0 km away from adjacent stops or cluster center), you MUST IMMEDIATELY REPLACE IT with a top-rated, popular attraction situated in the SAME district as the other activities of that day (within 1.5-3.0 km). NEVER allow an intra-day hop between consecutive places to exceed 3.5 km.
+   - If any secondary activity is flagged with [Spatial Outlier Alert], [Intra-Day Hop Alert], or [Trip Overview: Scattered Day] (located > 4.0 km away from adjacent stops or cluster center), you MUST IMMEDIATELY REPLACE IT with a top-rated, popular attraction situated in the SAME district as the other activities of that day (within 1.5-3.0 km). NEVER drop or replace a user-uploaded primary landmark; replace surrounding secondary venues instead. NEVER allow an intra-day hop between consecutive places to exceed 3.5 km.
+15. PURE REAL POI NAME & CLEAN TITLES (MANDATORY & STRICT):
+   - For regular attractions and Case 1 restaurants: Use ONLY authentic, geocodable, specific POI names for "title" (e.g. "ถนนบรรทัดทอง", "ร้านเจ๊โอว", "Wat Phra Kaew", "Thipsamai Pad Thai").
+   - For Case 2 street food exploration: Use clean descriptive format like "Street Food, Lunch near [Landmark]" / "สตรีทฟู้ด มื้อกลางวันรอบ[ชื่อสถานที่]".
+   - NEVER append meal or time parentheticals like "(Lunch)", "(Dinner)", "(อาหารกลางวัน)", "(อาหารเย็น)", "(มื้อค่ำ)", "(อาหารค่ำ)", or "[Lunch]" in the title!
+   - Put dining details and recommendations in the "description" field only.
 
 Return ONLY the refined itinerary strictly in this JSON format:
 {
@@ -960,14 +986,14 @@ ${dayClusters.map((c) => `Day ${c.day} Geographic Zone:
         "date": "Day ${d} - [District / Area Theme]",
         "activities": [
           { "time": "09:30", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "culture", "lat": 13.7563, "lng": 100.5018, "openingHours": ["Monday: 08:30 – 17:30", "Tuesday: 08:30 – 17:30", "Wednesday: 08:30 – 17:30", "Thursday: 08:30 – 17:30", "Friday: 08:30 – 17:30", "Saturday: 08:30 – 17:30", "Sunday: 08:30 – 17:30"] },
-          { "time": "12:00", "title": "... (Lunch)", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "food", "lat": 13.7540, "lng": 100.5030, "openingHours": ["Monday: 11:00 – 21:30", "Tuesday: 11:00 – 21:30", "Wednesday: 11:00 – 21:30", "Thursday: 11:00 – 21:30", "Friday: 11:00 – 22:00", "Saturday: 11:00 – 22:00", "Sunday: 11:00 – 21:30"] },
+          { "time": "12:00", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "food", "lat": 13.7540, "lng": 100.5030, "openingHours": ["Monday: 11:00 – 21:30", "Tuesday: 11:00 – 21:30", "Wednesday: 11:00 – 21:30", "Thursday: 11:00 – 21:30", "Friday: 11:00 – 22:00", "Saturday: 11:00 – 22:00", "Sunday: 11:00 – 21:30"] },
           { "time": "14:30", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "landmark", "lat": 13.7580, "lng": 100.5060, "openingHours": ["Monday: 10:00 – 20:00", "Tuesday: 10:00 – 20:00", "Wednesday: 10:00 – 20:00", "Thursday: 10:00 – 20:00", "Friday: 10:00 – 20:00", "Saturday: 10:00 – 20:00", "Sunday: 10:00 – 20:00"] },
-          { "time": "18:00", "title": "... (Dinner / Night)", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "nightlife", "lat": 13.7595, "lng": 100.5085, "openingHours": ["Monday: 17:00 – 00:00", "Tuesday: 17:00 – 00:00", "Wednesday: 17:00 – 00:00", "Thursday: 17:00 – 00:00", "Friday: 17:00 – 01:00", "Saturday: 17:00 – 01:00", "Sunday: 17:00 – 00:00"] }
+          { "time": "18:00", "title": "...", "title_th": "...", "title_en": "...", "english_name": "...", "wiki_title": "...", "image_keyword": "...", "description": "...", "description_th": "...", "description_en": "...", "type": "nightlife", "lat": 13.7595, "lng": 100.5085, "openingHours": ["Monday: 17:00 – 00:00", "Tuesday: 17:00 – 00:00", "Wednesday: 17:00 – 00:00", "Thursday: 17:00 – 00:00", "Friday: 17:00 – 01:00", "Saturday: 17:00 – 01:00", "Sunday: 17:00 – 00:00"] }
         ]
       }`;
   }).join(",\n");
 
-  const prompt = `Generate a ${totalDays}-day travel itinerary and additional suggestions for a trip covering these locations: ${places.join(", ")}.
+  const prompt = `Generate a ${totalDays}-day travel itinerary and additional suggestions for a trip centered around these mandatory user-uploaded places: ${places.join(", ")}.
   
   Trip Dates: ${startFmt} to ${endFmt} (${totalDays} days in ${monthName} – ${season})
   ${hotelInfoText}
@@ -979,7 +1005,18 @@ ${dayClusters.map((c) => `Day ${c.day} Geographic Zone:
   - Travel Pace: ${preferences.pace}
   
   CRITICAL ITINERARY PLANNING RULES (MANDATORY):
-  0. MANDATORY TRIP DURATION & MULTI-DAY EXPANSION (CRITICAL):
+  0. USER-UPLOADED PRIMARY PLACES (MANDATORY HARD INCLUSION & PINNED ANCHORS - HIGHEST PRIORITY):
+     The user directly uploaded photo(s) of the following PRIMARY MUST-VISIT PLACES:
+${places.map((p, idx) => `     * Place ${idx + 1}: "${p}"`).join("\n")}
+     
+     MANDATORY INCLUSION RULES (CANNOT BE VIOLATED):
+     - EVERY SINGLE USER-UPLOADED PLACE LISTED ABOVE MUST BE EXPLICITLY INCLUDED IN THE ITINERARY AS A SCHEDULED VISIT ACTIVITY.
+     - IT IS STRICTLY FORBIDDEN to omit any user-uploaded place, and STRICTLY FORBIDDEN to replace it with nearby alternatives. (For example, if the user uploaded "${places[0] || 'the landmark'}", "${places[0] || 'the landmark'}" itself MUST appear as a scheduled visit activity in the final schedule, NOT just other venues in the neighborhood!)
+     - DO NOT treat user-uploaded places as merely the general trip destination or city name. They MUST be individual scheduled activity stops (with title matching or containing the place name, appropriate time, accurate lat/lng, and descriptive content).
+     - SCHEDULING GUIDELINES:
+       * If 1 place is provided: Schedule it prominently on Day 1 (or Day 2) during a prime visiting slot (Morning 09:30-11:30 or Afternoon 14:00-16:00). Build the day's other activities around this primary anchor.
+       * If multiple places are provided: Distribute each user-uploaded place across the days according to geographic proximity (e.g. 1 user landmark per day as that day's main anchor, or grouped if in the same neighborhood).
+  0b. MANDATORY TRIP DURATION & MULTI-DAY EXPANSION (CRITICAL):
      - The user explicitly requested a ${totalDays}-DAY itinerary.
      - You MUST generate an "itinerary" array containing EXACTLY ${totalDays} separate day objects (from Day 1 up to Day ${totalDays}).
      - NEVER return fewer than ${totalDays} days!
@@ -987,31 +1024,57 @@ ${dayClusters.map((c) => `Day ${c.day} Geographic Zone:
        * Schedule the user's uploaded location(s) in Day 1 (and/or Day 2) anchored in its natural local zone.
        * For all other days (Day 2, Day 3, up to Day ${totalDays}), YOU MUST ACTIVELY EXPAND and introduce the best complementary attractions in DIFFERENT, NON-OVERLAPPING geographic districts radiating outward from the center.
        * Each day must be a full, engaging schedule with 3 to 5 realistic activities (Morning Sightseeing, Midday Lunch, Afternoon Attraction, Dinner/Nightlife).
-  1. UNTANGLED DAILY ROUTE & TIGHT NEIGHBORHOOD CLUSTERING:
-     - All activities within a single day MUST be clustered within ONE specific neighborhood/zone (radius <= 3.5 - 4.0 km).
-     - NEVER jump across distant districts within the same day (e.g. jumping between Phahonyothin/Sanam Pao, Old Town, Sathon, and Rama 3 on the same day is strictly forbidden!).
-     - DO NOT force the 1st point and the last point of the day to meet or loop back to each other. Real travelers follow an OPEN forward corridor path across the district.
+  0c. DAY 1 FULL DAY START & MORNING SIGHTSEEING (MANDATORY - NO LATE ARRIVAL STARTS):
+     - Day 1 is a FULL TRAVEL DAY starting promptly in the morning between 09:00 - 09:30 AM.
+     - DO NOT generate Day 1 as an arrival-only evening schedule (e.g., NEVER start Day 1 at 16:00, 17:00, or 18:00)!
+     - Day 1 MUST include a full morning slot (09:00 - 11:30), midday lunch (11:30 - 13:00), afternoon sightseeing (14:00 - 16:30), and evening dinner/nightlife (18:30 - 21:00).
+  0d. STRICT OPERATING HOURS FOR TEMPLES, PALACES & MUSEUMS (MANDATORY):
+     - Historic temples, grand palaces, ancient ruins, museums, and shrines (e.g., Grand Palace, Wat Phra Kaew, Wat Pho, National Museum) CLOSE EARLY (between 15:30 and 17:30)!
+     - It is STRICTLY FORBIDDEN to schedule any temple, palace, or museum after 16:00 or in the evening/night (17:00 - 21:00).
+     - All daytime cultural attractions MUST be scheduled in the morning (09:00 - 11:30) or early afternoon (13:30 - 15:30).
+     - Night markets, rooftop bars, walking streets, and dinner dining MUST ONLY be scheduled in the evening (18:00 - 21:30).
+  1. MONOTONIC FORWARD DIRECTION & NO CRISS-CROSSING / RIVER PING-PONG (2-Opt TSP):
+     - UNIDIRECTIONAL FORWARD CORRIDOR: Activities in each day MUST be ordered along an open, forward-moving corridor (e.g. 1 -> 2 -> 3 -> 4 -> 5 progressing smoothly across the district without backtracking, zigzagging, or looping back to the start).
+     - ZERO CRISS-CROSSING: Consecutive route lines must NEVER intersect or cross over each other on the map (0 edge crossings).
+     - NO RIVER / WATERWAY PING-PONG: When visiting attractions on opposite banks of a river (e.g. Chao Phraya River), visit ALL attractions on one bank first before crossing to the opposite bank. NEVER cross back and forth repeatedly!
+     - TIGHT NEIGHBORHOOD CLUSTERING: All activities within a single day MUST be clustered within ONE specific neighborhood/zone (radius <= 3.5 - 4.0 km). NEVER jump across distant districts within the same day. All consecutive hops must be <= 3.0 km.
   2. RADIAL DISTRIBUTION & STRICT NON-OVERLAPPING DAILY ZONES:
      - Daily trips MUST radiate outward around the user's uploaded locations into distinct sectors across the city without repeating or overlapping zones across days.
      - Day 1 anchors the user's uploaded location(s) in its local zone (e.g. Historic Old Town & Riverside).
      - Subsequent days radiate outward to complementary, mutually exclusive geographic zones (e.g. Day 2: Downtown Siam/Pathum Wan, Day 3: Chatuchak/Ari, Day 4: Riverside South/Silom).
      - NEVER scatter places from the same district across different days (e.g., avoid visiting Grand Palace on Day 1 and returning to Wat Pho on Day 3).
-  3. MANDATORY MIDDAY LUNCH (11:00 - 13:00 / 11:30 - 13:00):
-     - EVERY single day MUST include a dedicated lunch restaurant/food activity in the midday slot (11:30 - 13:00) located within walking distance (<= 600m - 1km) of the morning attraction.
+  3. MANDATORY MIDDAY LUNCH (11:00 - 13:00 / 11:30 - 13:00) & DUAL DINING SELECTION MODES:
+     - EVERY single day MUST include a dedicated lunch restaurant/food activity in the midday slot (11:30 - 13:00) located within walking distance (<= 600m - 1km) of the morning attraction, and evening dinner at 18:00 - 20:30.
+     - DUAL DINING SELECTION ARCHITECTURE (CHOOSE ACCORDING TO AREA CONTEXT & SUITABILITY):
+       * Case 1: Specific Real Restaurant (ร้านอาหารที่มีอยู่จริง):
+         When selecting an established, authentic sit-down restaurant (e.g. "ร้านเจ๊โอว", "ทิพย์สมัย ผัดไทยประตูผี", "Thipsamai", "ครัวอัปษร", "Somtum Der"), use the exact authentic restaurant name for title/title_th/title_en and use the exact real coordinates ("lat", "lng") of that restaurant.
+         STRICTLY NEVER append "(อาหารเย็น)", "(อาหารกลางวัน)", "(Lunch)", or "(Dinner)" to the title!
+       * Case 2: Street Food / Area Free Dining near Landmark (Street Food หรือ ให้หากินเองรอบย่าน/สถานที่หลัก):
+         When the area has popular street food stalls, food vendors, or open-ended dining around a key landmark (e.g. around Bangkok Art and Culture Centre, Siam Square, Yaowarat, or near a famous temple), use the zone coordinates ("lat", "lng") of that anchor landmark.
+         Format the title cleanly to guide travelers to try street food around that spot:
+         - English: "Street Food, Lunch near [Landmark]" or "Street Food, Dinner near [Landmark]" (e.g. "Street Food, Lunch near Bangkok Cultural Center", "Street Food near Wat Phra Kaew", "Dinner & Street Food near Yaowarat")
+         - Thai: "สตรีทฟู้ด มื้อกลางวันรอบ[ชื่อสถานที่]" or "สตรีทฟู้ด มื้อค่ำรอบ[ชื่อสถานที่]" (e.g. "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ", "สตรีทฟู้ดรอบวัดพระแก้ว")
+     - Dynamically select between Case 1 and Case 2 based on what fits each location best!
   4. STRICTLY NO CONSECUTIVE RESTAURANTS:
      - DO NOT schedule back-to-back restaurants or cafes in the same day without a sightseeing or cultural activity in between.
      - Structure per day: Morning Sightseeing -> Lunch (11:30-13:00) -> Afternoon Attraction -> Sunset/Golden Hour (17:00-18:30) -> Dinner/Nightlife (18:30-21:00).
   5. DEDICATED DAY-TRIP EXCURSION DAYS (>20 KM):
      - If visiting attractions outside the central urban area (>20-40 km, e.g. Ayutthaya, Safari World, Damnoen Saduak, Mt. Fuji), dedicate ONE ENTIRE DAY exclusively as a "Day-Trip Excursion". DO NOT mix a distant excursion with city-center walking spots on the same day.
   6. REAL-WORLD TIMING, CLOSING BUFFER & DWELL TIME (MANDATORY):
-     - DWELL TIME CLOSING BUFFER: Do NOT schedule a venue right before it closes! The activity start time plus visit duration (dwell time, typically 1.5 - 2 hours) MUST be less than or equal to closing time (e.g., if a temple/museum closes at 18:00, schedule it to begin at 16:00 - 16:30 at the latest so visitors have ample time).
+     - DWELL TIME CLOSING BUFFER: Do NOT schedule a venue right before it closes! The activity start time plus visit duration (dwell time, typically 1.5 - 2 hours) MUST be less than or equal to closing time (e.g., if a temple/museum closes at 17:00-18:00, schedule it to begin at 15:00 - 15:30 at the latest so visitors have ample time).
+     - ALL DAYS (INCLUDING DAY 1) MUST START AT 09:00 - 09:30 AM! Never start Day 1 in the late afternoon.
+     - Temples, palaces, and museums close by 15:30 - 17:30. Never place them after 16:00 or in evening slots.
      - 24-HOUR ZONE EXCEPTION: Public districts, old towns, street food areas, walking streets, riverfronts, and beaches are open public zones assumed to be 24 hours.
      - Place observation decks/viewpoints/sunset spots at 16:30 - 18:30 (Golden Hour).
      - Place night markets, evening cruises, and nightlife after 18:30.
   7. COORDINATES RULE (MANDATORY & ACCURATE):
      - Provide real, accurate latitude and longitude ("lat" and "lng") for every activity, suggestion, and accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
-  8. ACCOMMODATIONS RULE (MANDATORY): You MUST provide at least 5 to 8 diverse, real accommodations/hotels (luxury, boutique, mid-range, budget) located in or near the trip destinations. Include real hotel names with priceLevel from 1 (budget) to 4 (luxury).
-  9. Use ONLY real, geocodable, specific POI names for activity "title". DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll") in the "title". DO NOT invent generic places or duplicate sibling park numbers (e.g. do NOT schedule "Park 1" and "Park 2" on the same day). Place descriptions in the "description" field.
+  9. PURE REAL POI NAME & CLEAN TITLES (MANDATORY & STRICT):
+     - For regular attractions and Case 1 restaurants: Use ONLY real, authentic, geocodable, specific POI names for activity "title", "title_th", "title_en", and "english_name" (e.g., "ถนนบรรทัดทอง", "ร้านเจ๊โอว", "Wat Phra Kaew", "Thipsamai Pad Thai").
+     - For Case 2 street food exploration: Follow the clean zone format (e.g. "Street Food, Lunch near Bangkok Cultural Center" / "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ").
+     - NEVER append or include meal or time labels such as "(Lunch)", "(Dinner)", "(อาหารกลางวัน)", "(อาหารเย็น)", "(มื้อค่ำ)", "(อาหารค่ำ)", "(Sunset)", or "- Dinner" in the title!
+     - DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll", "เที่ยวชม", "กินข้าวที่") in the "title". DO NOT invent generic places or duplicate sibling park numbers.
+     - Place all dining info, meal details, and descriptions in the "description", "description_th", and "description_en" fields only.
   10. CATEGORY TYPE ACCURACY (MANDATORY):
       - Each activity "type" MUST accurately match its true function from one of these categories:
         * "culture" (historic temples, museums, ancient ruins, palaces, heritage monuments, art galleries)
@@ -1782,26 +1845,32 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
   const itinerary: DayPlan[] = await Promise.all((result.itinerary || []).map(async (day: any, dayIdx: number) => ({
     ...day,
     activities: await Promise.all((day.activities || []).map(async (act: any, actIdx: number) => {
-      const searchKeyword = act.image_keyword || act.english_name || act.title;
+      const cleanTitle = sanitizePlaceTitle(act.title);
+      const cleanEnglish = act.english_name ? sanitizePlaceTitle(act.english_name) : undefined;
+      const searchKeyword = act.image_keyword || cleanEnglish || cleanTitle;
       const indexOffset = dayIdx * 10 + actIdx;
       const details = await fetchPlaceDetails(
-        act.title,
+        cleanTitle,
         (act.lat && act.lng) ? { lat: act.lat, lng: act.lng } : undefined,
         act.type,
         cityName,
         searchKeyword,
-        { countryName, wikiTitle: act.wiki_title, indexOffset }
+        { countryName, wikiTitle: act.wiki_title, indexOffset, englishName: cleanEnglish }
       );
-      const accurateType = inferActivityType(act.title, act.description, act.type, details?.types);
-      const resolvedLat = (act.lat && act.lat !== 0) ? act.lat : (details.lat ?? 0);
-      const resolvedLng = (act.lng && act.lng !== 0) ? act.lng : (details.lng ?? 0);
-      const photo = details.photo_url || getCuratedFallbackPhoto(accurateType, searchKeyword || act.title, { cityName, countryName, indexOffset });
+      const accurateType = inferActivityType(cleanTitle, act.description, act.type, details?.types);
+      // Priority 1: Verified real coordinates from Places API (details.lat/lng)
+      // Fallback: AI proposed coordinate
+      const resolvedLat = (details.lat != null && details.lat !== 0) ? details.lat : ((act.lat && act.lat !== 0) ? act.lat : 0);
+      const resolvedLng = (details.lng != null && details.lng !== 0) ? details.lng : ((act.lng && act.lng !== 0) ? act.lng : 0);
+      const photo = details.photo_url || getCuratedFallbackPhoto(accurateType, searchKeyword || cleanTitle, { cityName, countryName, indexOffset });
       return {
         ...act,
+        title: cleanTitle,
         type: accurateType,
         id: act.id || `gen-${Math.random().toString(36).substr(2, 9)}`,
         lat: resolvedLat,
         lng: resolvedLng,
+        placeId: details.placeId || act.placeId || null,
         image_url: photo,
         image: photo,
         photo_url: photo,
@@ -1812,11 +1881,11 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
         priceLevel: details.priceLevel,
         website: details.website,
         phoneNumber: details.phoneNumber,
-        title_th: (act.title_th && hasThaiScript(act.title_th)) ? act.title_th : (hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "th")),
-        title_en: (act.title_en && !hasThaiScript(act.title_en)) ? act.title_en : (act.english_name || (!hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "en"))),
+        title_th: (act.title_th && hasThaiScript(act.title_th)) ? sanitizePlaceTitle(act.title_th) : (hasThaiScript(cleanTitle) ? cleanTitle : translateTextSync(cleanTitle, "th")),
+        title_en: (act.title_en && !hasThaiScript(act.title_en)) ? sanitizePlaceTitle(act.title_en) : (cleanEnglish || (!hasThaiScript(cleanTitle) ? cleanTitle : translateTextSync(cleanTitle, "en"))),
         description_th: (act.description_th && hasThaiScript(act.description_th)) ? act.description_th : (hasThaiScript(act.description) ? act.description : ""),
         description_en: (act.description_en && !hasThaiScript(act.description_en)) ? act.description_en : (!hasThaiScript(act.description) ? act.description : ""),
-        english_name: (act.english_name && !hasThaiScript(act.english_name)) ? act.english_name : (act.title_en || (!hasThaiScript(act.title) ? act.title : translateTextSync(act.title, "en"))),
+        english_name: cleanEnglish || (act.title_en && !hasThaiScript(act.title_en) ? sanitizePlaceTitle(act.title_en) : (!hasThaiScript(cleanTitle) ? cleanTitle : translateTextSync(cleanTitle, "en"))),
         wiki_title: act.wiki_title,
         image_keyword: act.image_keyword,
       };
@@ -1824,31 +1893,37 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
   })));
 
   const suggestions: SuggestedPlace[] = await Promise.all((result.suggestions || []).map(async (sug: any, sugIdx: number) => {
-    const searchKeyword = sug.image_keyword || sug.english_name || sug.name;
+    const cleanName = sanitizePlaceTitle(sug.name);
+    const cleanEnglish = sug.english_name ? sanitizePlaceTitle(sug.english_name) : undefined;
+    const searchKeyword = sug.image_keyword || cleanEnglish || cleanName;
     const indexOffset = 100 + sugIdx;
     const details = await fetchPlaceDetails(
-      sug.name,
+      cleanName,
       (sug.lat && sug.lng) ? { lat: sug.lat, lng: sug.lng } : undefined,
       sug.category,
       cityName,
       searchKeyword,
-      { countryName, wikiTitle: sug.wiki_title, indexOffset }
+      { countryName, wikiTitle: sug.wiki_title, indexOffset, englishName: cleanEnglish }
     );
-    const accurateCategory = inferActivityType(sug.name, sug.description, sug.category, details?.types);
-    const resolvedPhoto = details.photo_url || getCuratedFallbackPhoto(accurateCategory, searchKeyword || sug.name, { cityName, countryName, indexOffset });
-    const name_th = (sug.name_th && hasThaiScript(sug.name_th)) ? sug.name_th : (hasThaiScript(sug.name) ? sug.name : translateTextSync(sug.name, "th"));
-    const name_en = (sug.name_en && !hasThaiScript(sug.name_en)) ? sug.name_en : (sug.english_name || (!hasThaiScript(sug.name) ? sug.name : translateTextSync(sug.name, "en")));
+    const accurateCategory = inferActivityType(cleanName, sug.description, sug.category, details?.types);
+    const resolvedPhoto = details.photo_url || getCuratedFallbackPhoto(accurateCategory, searchKeyword || cleanName, { cityName, countryName, indexOffset });
+    const resolvedLat = (details.lat != null && details.lat !== 0) ? details.lat : ((sug.lat && sug.lat !== 0) ? sug.lat : 0);
+    const resolvedLng = (details.lng != null && details.lng !== 0) ? details.lng : ((sug.lng && sug.lng !== 0) ? sug.lng : 0);
+    const name_th = (sug.name_th && hasThaiScript(sug.name_th)) ? sanitizePlaceTitle(sug.name_th) : (hasThaiScript(cleanName) ? cleanName : translateTextSync(cleanName, "th"));
+    const name_en = (sug.name_en && !hasThaiScript(sug.name_en)) ? sanitizePlaceTitle(sug.name_en) : (cleanEnglish || (!hasThaiScript(cleanName) ? cleanName : translateTextSync(cleanName, "en")));
     const desc_th = (sug.description_th && hasThaiScript(sug.description_th)) ? sug.description_th : (hasThaiScript(sug.description) ? sug.description : "");
     const desc_en = (sug.description_en && !hasThaiScript(sug.description_en)) ? sug.description_en : (!hasThaiScript(sug.description) ? sug.description : "");
     return {
       ...sug,
+      name: cleanName,
+      placeId: details.placeId || sug.placeId || null,
       category: (accurateCategory === "transport" ? "attraction" : accurateCategory) as any,
       id: `sug-${Math.random().toString(36).substr(2, 9)}`,
       image: resolvedPhoto,
       image_url: resolvedPhoto,
       photo_url: resolvedPhoto,
-      lat: (sug.lat && sug.lat !== 0) ? sug.lat : (details.lat ?? 0),
-      lng: (sug.lng && sug.lng !== 0) ? sug.lng : (details.lng ?? 0),
+      lat: resolvedLat,
+      lng: resolvedLng,
       openingHours: details.openingHours,
       rating: details.rating ?? sug.rating,
       userRatingsTotal: details.userRatingsTotal ?? sug.userRatingsTotal,
@@ -1869,30 +1944,36 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
   }));
 
   const accommodations: SuggestedPlace[] = await Promise.all((result.accommodations || []).map(async (acc: any, accIdx: number) => {
-    const searchKeyword = acc.image_keyword || acc.english_name || acc.name;
+    const cleanName = sanitizePlaceTitle(acc.name);
+    const cleanEnglish = acc.english_name ? sanitizePlaceTitle(acc.english_name) : undefined;
+    const searchKeyword = acc.image_keyword || cleanEnglish || cleanName;
     const indexOffset = 200 + accIdx;
     const details = await fetchPlaceDetails(
-      acc.name,
+      cleanName,
       (acc.lat && acc.lng) ? { lat: acc.lat, lng: acc.lng } : undefined,
       "hotel",
       cityName,
       searchKeyword,
-      { countryName, wikiTitle: acc.wiki_title, indexOffset }
+      { countryName, wikiTitle: acc.wiki_title, indexOffset, englishName: cleanEnglish }
     );
-    const resolvedPhoto = details.photo_url || getCuratedFallbackPhoto("hotel", searchKeyword || acc.name, { cityName, countryName, indexOffset });
-    const name_th = (acc.name_th && hasThaiScript(acc.name_th)) ? acc.name_th : (hasThaiScript(acc.name) ? acc.name : translateTextSync(acc.name, "th"));
-    const name_en = (acc.name_en && !hasThaiScript(acc.name_en)) ? acc.name_en : (acc.english_name || (!hasThaiScript(acc.name) ? acc.name : translateTextSync(acc.name, "en")));
+    const resolvedPhoto = details.photo_url || getCuratedFallbackPhoto("hotel", searchKeyword || cleanName, { cityName, countryName, indexOffset });
+    const resolvedLat = (details.lat != null && details.lat !== 0) ? details.lat : ((acc.lat && acc.lat !== 0) ? acc.lat : 0);
+    const resolvedLng = (details.lng != null && details.lng !== 0) ? details.lng : ((acc.lng && acc.lng !== 0) ? acc.lng : 0);
+    const name_th = (acc.name_th && hasThaiScript(acc.name_th)) ? sanitizePlaceTitle(acc.name_th) : (hasThaiScript(cleanName) ? cleanName : translateTextSync(cleanName, "th"));
+    const name_en = (acc.name_en && !hasThaiScript(acc.name_en)) ? sanitizePlaceTitle(acc.name_en) : (cleanEnglish || (!hasThaiScript(cleanName) ? cleanName : translateTextSync(cleanName, "en")));
     const desc_th = (acc.description_th && hasThaiScript(acc.description_th)) ? acc.description_th : (hasThaiScript(acc.description) ? acc.description : "");
     const desc_en = (acc.description_en && !hasThaiScript(acc.description_en)) ? acc.description_en : (!hasThaiScript(acc.description) ? acc.description : "");
     return {
       ...acc,
+      name: cleanName,
+      placeId: details.placeId || acc.placeId || null,
       category: "hotel" as const,
       id: `acc-${Math.random().toString(36).substr(2, 9)}`,
       image: resolvedPhoto,
       image_url: resolvedPhoto,
       photo_url: resolvedPhoto,
-      lat: (acc.lat && acc.lat !== 0) ? acc.lat : (details.lat ?? 0),
-      lng: (acc.lng && acc.lng !== 0) ? acc.lng : (details.lng ?? 0),
+      lat: resolvedLat,
+      lng: resolvedLng,
       openingHours: details.openingHours,
       rating: details.rating ?? acc.rating,
       userRatingsTotal: details.userRatingsTotal ?? acc.userRatingsTotal,

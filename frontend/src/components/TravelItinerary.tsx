@@ -76,6 +76,7 @@ export interface Activity {
   website?: string | null;
   phoneNumber?: string | null;
   isCoordsVerified?: boolean;
+  placeId?: string | null;
 }
 
 export interface DayPlan {
@@ -819,6 +820,7 @@ const SortableCard = ({
               placeName: activity.title,
               cityName: cityName,
               isCoordsVerified: activity.isCoordsVerified,
+              placeId: activity.placeId,
               mode: "directions",
             })}
             target="_blank"
@@ -842,6 +844,7 @@ const SortableCard = ({
                 placeName: activity.title,
                 cityName: cityName,
                 isCoordsVerified: activity.isCoordsVerified,
+                placeId: activity.placeId,
                 mode: "streetview",
               })}
               target="_blank"
@@ -863,6 +866,7 @@ const SortableCard = ({
                 placeName: activity.title,
                 cityName: cityName,
                 isCoordsVerified: activity.isCoordsVerified,
+                placeId: activity.placeId,
                 mode: "search",
               })}
               target="_blank"

@@ -176,6 +176,14 @@ export const UI_STRINGS = {
   },
 };
 
+export function stripMealLabels(text?: string | null): string {
+  if (!text) return "";
+  const mealParentheses = /\s*\((?:อาหารเย็น|อาหารกลางวัน|อาหารค่ำ|อาหารเช้า|อาหารบ่าย|อาหารว่าง|ของว่าง|อาหาร|มื้อเย็น|มื้อค่ำ|มื้อเที่ยง|มื้อกลางวัน|มื้อเช้า|มื้อดึก|กินข้าว|ทานอาหาร|lunch|dinner|breakfast|brunch|supper|snack|dinner\s*\/\s*night|lunch\s*\/\s*midday|sunset|night\s*market|street\s*food|nightlife|drinks?|cafe|food|[^\)]*(?:อาหาร|มื้อ|dinner|lunch|breakfast)[^\)]*)\)\s*/gi;
+  const mealBrackets = /\s*\[(?:อาหารเย็น|อาหารกลางวัน|อาหารค่ำ|อาหารเช้า|อาหารบ่าย|อาหารว่าง|ของว่าง|อาหาร|มื้อเย็น|มื้อค่ำ|มื้อเที่ยง|มื้อกลางวัน|มื้อเช้า|มื้อดึก|lunch|dinner|breakfast|brunch|supper|snack)\]\s*/gi;
+  const mealDashes = /\s*[-–—]\s*(?:อาหารเย็น|อาหารกลางวัน|อาหารค่ำ|อาหารเช้า|มื้อเย็น|มื้อค่ำ|มื้อเที่ยง|มื้อกลางวัน|มื้อเช้า|lunch|dinner|breakfast|brunch|supper)\s*$/gi;
+  return text.replace(mealParentheses, " ").replace(mealBrackets, " ").replace(mealDashes, "").replace(/\s{2,}/g, " ").trim();
+}
+
 export function getLocalizedPlace(
   item: LocalizablePlace | null | undefined,
   language: Language,
@@ -183,17 +191,33 @@ export function getLocalizedPlace(
 ): string {
   if (!item) return "";
 
+  // Strip meal/time labels (e.g. "(อาหารเย็น)", "(อาหารกลางวัน)", "(Lunch)", "(Dinner)")
+  // to guarantee authentic place names
+  const cleanItem: LocalizablePlace = {
+    ...item,
+    title_th: item.title_th ? stripMealLabels(item.title_th) : undefined,
+    title_en: item.title_en ? stripMealLabels(item.title_en) : undefined,
+    name_th: item.name_th ? stripMealLabels(item.name_th) : undefined,
+    name_en: item.name_en ? stripMealLabels(item.name_en) : undefined,
+    english_name: item.english_name ? stripMealLabels(item.english_name) : undefined,
+    title: item.title ? stripMealLabels(item.title) : undefined,
+    name: item.name ? stripMealLabels(item.name) : undefined,
+    place_th: item.place_th ? stripMealLabels(item.place_th) : undefined,
+    place_en: item.place_en ? stripMealLabels(item.place_en) : undefined,
+    place: item.place ? stripMealLabels(item.place) : undefined,
+  };
+
   if (language === "th") {
     // 1. Explicit Thai fields (must have Thai script or bilingual th)
-    const explicitTh = (item.title_th || item.name_th || item.place_th || "").trim();
+    const explicitTh = (cleanItem.title_th || cleanItem.name_th || cleanItem.place_th || "").trim();
     if (explicitTh) {
       const bilingual = extractBilingualText(explicitTh);
-      if (bilingual?.th) return bilingual.th;
-      if (hasThaiScript(explicitTh)) return explicitTh;
+      if (bilingual?.th) return stripMealLabels(bilingual.th);
+      if (hasThaiScript(explicitTh)) return stripMealLabels(explicitTh);
     }
 
     // 2. Check general title/name/place
-    const rawCandidate = (item.title || item.name || item.place || "").trim();
+    const rawCandidate = (cleanItem.title || cleanItem.name || cleanItem.place || "").trim();
     if (rawCandidate) {
       const bilingual = extractBilingualText(rawCandidate);
       if (bilingual?.th) return bilingual.th;
@@ -210,6 +234,38 @@ export function getLocalizedPlace(
         const place = match?.[1]?.trim() || "";
         const placeTh = place ? (DICTIONARY_EN_TO_TH[place.toLowerCase()] || extractBilingualText(place)?.th || getLocalizedPlace({ title: place }, "th", onAsyncResolve) || place) : "";
         return placeTh ? `เช็คเอาต์: ${placeTh}` : "เช็คเอาต์จากที่พัก";
+      }
+
+      // Zone Street Food patterns (English -> Thai)
+      if (/^(?:Street Food,?\s*Lunch\s*(?:near|around|at)\s*)(.*)$/i.test(rawCandidate)) {
+        const match = rawCandidate.match(/^(?:Street Food,?\s*Lunch\s*(?:near|around|at)\s*)(.*)$/i);
+        const anchor = match?.[1]?.trim() || "";
+        const anchorTh = anchor ? (DICTIONARY_EN_TO_TH[anchor.toLowerCase()] || extractBilingualText(anchor)?.th || getLocalizedPlace({ title: anchor }, "th", onAsyncResolve) || anchor) : "";
+        return anchorTh ? `สตรีทฟู้ด มื้อกลางวันรอบ${anchorTh}` : "สตรีทฟู้ด มื้อกลางวัน";
+      }
+      if (/^(?:Street Food,?\s*Dinner\s*(?:near|around|at)\s*)(.*)$/i.test(rawCandidate)) {
+        const match = rawCandidate.match(/^(?:Street Food,?\s*Dinner\s*(?:near|around|at)\s*)(.*)$/i);
+        const anchor = match?.[1]?.trim() || "";
+        const anchorTh = anchor ? (DICTIONARY_EN_TO_TH[anchor.toLowerCase()] || extractBilingualText(anchor)?.th || getLocalizedPlace({ title: anchor }, "th", onAsyncResolve) || anchor) : "";
+        return anchorTh ? `สตรีทฟู้ด มื้อค่ำรอบ${anchorTh}` : "สตรีทฟู้ด มื้อค่ำ";
+      }
+      if (/^(?:Dinner\s*&\s*Street Food\s*(?:near|around|at)\s*)(.*)$/i.test(rawCandidate)) {
+        const match = rawCandidate.match(/^(?:Dinner\s*&\s*Street Food\s*(?:near|around|at)\s*)(.*)$/i);
+        const anchor = match?.[1]?.trim() || "";
+        const anchorTh = anchor ? (DICTIONARY_EN_TO_TH[anchor.toLowerCase()] || extractBilingualText(anchor)?.th || getLocalizedPlace({ title: anchor }, "th", onAsyncResolve) || anchor) : "";
+        return anchorTh ? `มื้อค่ำและสตรีทฟู้ดแถว${anchorTh}` : "มื้อค่ำและสตรีทฟู้ด";
+      }
+      if (/^(?:Lunch\s*&\s*Street Food\s*(?:near|around|at)\s*)(.*)$/i.test(rawCandidate)) {
+        const match = rawCandidate.match(/^(?:Lunch\s*&\s*Street Food\s*(?:near|around|at)\s*)(.*)$/i);
+        const anchor = match?.[1]?.trim() || "";
+        const anchorTh = anchor ? (DICTIONARY_EN_TO_TH[anchor.toLowerCase()] || extractBilingualText(anchor)?.th || getLocalizedPlace({ title: anchor }, "th", onAsyncResolve) || anchor) : "";
+        return anchorTh ? `มื้อกลางวันและสตรีทฟู้ดแถว${anchorTh}` : "มื้อกลางวันและสตรีทฟู้ด";
+      }
+      if (/^(?:Street Food\s*(?:near|around|at)\s*)(.*)$/i.test(rawCandidate)) {
+        const match = rawCandidate.match(/^(?:Street Food\s*(?:near|around|at)\s*)(.*)$/i);
+        const anchor = match?.[1]?.trim() || "";
+        const anchorTh = anchor ? (DICTIONARY_EN_TO_TH[anchor.toLowerCase()] || extractBilingualText(anchor)?.th || getLocalizedPlace({ title: anchor }, "th", onAsyncResolve) || anchor) : "";
+        return anchorTh ? `สตรีทฟู้ดรอบ${anchorTh}` : "สตรีทฟู้ด";
       }
 
       // Check if already purely Thai
@@ -245,28 +301,28 @@ export function getLocalizedPlace(
     }
 
     // 3. Fallback
-    const sourceText = (hasThaiScript(explicitTh) ? explicitTh : "") || rawCandidate || item.english_name || item.title_en || item.name_en || item.place_en || "";
+    const sourceText = (hasThaiScript(explicitTh) ? explicitTh : "") || rawCandidate || cleanItem.english_name || cleanItem.title_en || cleanItem.name_en || cleanItem.place_en || "";
     const cachedSource = typeof window !== "undefined" && sourceText ? localStorage.getItem(`trans_th:${sourceText}`) : null;
-    if (cachedSource && hasThaiScript(cachedSource)) return cachedSource;
+    if (cachedSource && hasThaiScript(cachedSource)) return stripMealLabels(cachedSource);
 
-    return (hasThaiScript(explicitTh) ? explicitTh : "") || (hasThaiScript(rawCandidate) ? rawCandidate : "") || sourceText;
+    return stripMealLabels((hasThaiScript(explicitTh) ? explicitTh : "") || (hasThaiScript(rawCandidate) ? rawCandidate : "") || sourceText);
   }
 
   // English
   // 1. Explicit English fields (must have Latin/English letters)
-  const explicitEn = (item.title_en || item.name_en || item.place_en || item.english_name || "").trim();
+  const explicitEn = (cleanItem.title_en || cleanItem.name_en || cleanItem.place_en || cleanItem.english_name || "").trim();
   if (explicitEn) {
     const bilingual = extractBilingualText(explicitEn);
-    if (bilingual?.en) return bilingual.en;
-    if (/[a-zA-Z]/.test(explicitEn) && !hasThaiScript(explicitEn)) return explicitEn;
-    if (/[a-zA-Z]/.test(explicitEn)) return explicitEn;
+    if (bilingual?.en) return stripMealLabels(bilingual.en);
+    if (/[a-zA-Z]/.test(explicitEn) && !hasThaiScript(explicitEn)) return stripMealLabels(explicitEn);
+    if (/[a-zA-Z]/.test(explicitEn)) return stripMealLabels(explicitEn);
   }
 
   // 2. Check general title/name/place
-  const rawCandidate = (item.title || item.name || item.place || "").trim();
+  const rawCandidate = (cleanItem.title || cleanItem.name || cleanItem.place || "").trim();
   if (rawCandidate) {
     const bilingual = extractBilingualText(rawCandidate);
-    if (bilingual?.en) return bilingual.en;
+    if (bilingual?.en) return stripMealLabels(bilingual.en);
 
     // Thai Check-in / Check-out patterns
     if (/^(เช็คอิน|เช็คอินเข้าที่พัก):?\s*(.*)$/i.test(rawCandidate)) {
@@ -292,26 +348,58 @@ export function getLocalizedPlace(
       return place ? `Check out: ${place}` : "Check out from hotel";
     }
 
+    // Zone Street Food patterns (Thai -> English)
+    if (/^(?:สตรีทฟู้ด\s*มื้อกลางวัน(?:รอบ|แถว|บริเวณ)\s*)(.*)$/i.test(rawCandidate)) {
+      const match = rawCandidate.match(/^(?:สตรีทฟู้ด\s*มื้อกลางวัน(?:รอบ|แถว|บริเวณ)\s*)(.*)$/i);
+      const anchor = match?.[1]?.trim() || "";
+      const anchorEn = anchor ? (DICTIONARY_TH_TO_EN[anchor.toLowerCase()] || extractBilingualText(anchor)?.en || getLocalizedPlace({ title: anchor }, "en", onAsyncResolve) || anchor) : "";
+      return anchorEn ? `Street Food, Lunch near ${anchorEn}` : "Street Food, Lunch";
+    }
+    if (/^(?:สตรีทฟู้ด\s*มื้อค่ำ(?:รอบ|แถว|บริเวณ)\s*)(.*)$/i.test(rawCandidate)) {
+      const match = rawCandidate.match(/^(?:สตรีทฟู้ด\s*มื้อค่ำ(?:รอบ|แถว|บริเวณ)\s*)(.*)$/i);
+      const anchor = match?.[1]?.trim() || "";
+      const anchorEn = anchor ? (DICTIONARY_TH_TO_EN[anchor.toLowerCase()] || extractBilingualText(anchor)?.en || getLocalizedPlace({ title: anchor }, "en", onAsyncResolve) || anchor) : "";
+      return anchorEn ? `Street Food, Dinner near ${anchorEn}` : "Street Food, Dinner";
+    }
+    if (/^(?:มื้อค่ำและสตรีทฟู้ด(?:แถว|รอบ|บริเวณ)\s*)(.*)$/i.test(rawCandidate)) {
+      const match = rawCandidate.match(/^(?:มื้อค่ำและสตรีทฟู้ด(?:แถว|รอบ|บริเวณ)\s*)(.*)$/i);
+      const anchor = match?.[1]?.trim() || "";
+      const anchorEn = anchor ? (DICTIONARY_TH_TO_EN[anchor.toLowerCase()] || extractBilingualText(anchor)?.en || getLocalizedPlace({ title: anchor }, "en", onAsyncResolve) || anchor) : "";
+      return anchorEn ? `Dinner & Street Food near ${anchorEn}` : "Dinner & Street Food";
+    }
+    if (/^(?:มื้อกลางวันและสตรีทฟู้ด(?:แถว|รอบ|บริเวณ)\s*)(.*)$/i.test(rawCandidate)) {
+      const match = rawCandidate.match(/^(?:มื้อกลางวันและสตรีทฟู้ด(?:แถว|รอบ|บริเวณ)\s*)(.*)$/i);
+      const anchor = match?.[1]?.trim() || "";
+      const anchorEn = anchor ? (DICTIONARY_TH_TO_EN[anchor.toLowerCase()] || extractBilingualText(anchor)?.en || getLocalizedPlace({ title: anchor }, "en", onAsyncResolve) || anchor) : "";
+      return anchorEn ? `Lunch & Street Food near ${anchorEn}` : "Lunch & Street Food";
+    }
+    if (/^(?:สตรีทฟู้ด(?:รอบ|แถว|บริเวณ|ย่าน)\s*)(.*)$/i.test(rawCandidate)) {
+      const match = rawCandidate.match(/^(?:สตรีทฟู้ด(?:รอบ|แถว|บริเวณ|ย่าน)\s*)(.*)$/i);
+      const anchor = match?.[1]?.trim() || "";
+      const anchorEn = anchor ? (DICTIONARY_TH_TO_EN[anchor.toLowerCase()] || extractBilingualText(anchor)?.en || getLocalizedPlace({ title: anchor }, "en", onAsyncResolve) || anchor) : "";
+      return anchorEn ? `Street Food near ${anchorEn}` : "Street Food";
+    }
+
     // Check if already purely Latin/English
     if (!hasThaiScript(rawCandidate) && /[a-zA-Z]/.test(rawCandidate)) {
-      return rawCandidate;
+      return stripMealLabels(rawCandidate);
     }
 
     // Direct full dictionary match
     const lowerKey = rawCandidate.toLowerCase();
     if (DICTIONARY_TH_TO_EN[lowerKey]) {
-      return DICTIONARY_TH_TO_EN[lowerKey];
+      return stripMealLabels(DICTIONARY_TH_TO_EN[lowerKey]);
     }
 
     // Synchronous translateTextSync
     const syncResult = translateTextSync(rawCandidate, "en");
     if (syncResult !== rawCandidate && !hasThaiScript(syncResult)) {
-      return syncResult;
+      return stripMealLabels(syncResult);
     }
 
     // Check cache
     const cached = typeof window !== "undefined" ? localStorage.getItem(`trans_en:${rawCandidate}`) : null;
-    if (cached && !hasThaiScript(cached)) return cached;
+    if (cached && !hasThaiScript(cached)) return stripMealLabels(cached);
 
     // Trigger async AI translation
     if (onAsyncResolve && hasThaiScript(rawCandidate)) {
@@ -322,11 +410,11 @@ export function getLocalizedPlace(
   }
 
   // 3. Fallback
-  const sourceText = (/[a-zA-Z]/.test(explicitEn) ? explicitEn : "") || rawCandidate || item.title_th || item.name_th || item.place_th || "";
+  const sourceText = (/[a-zA-Z]/.test(explicitEn) ? explicitEn : "") || rawCandidate || cleanItem.title_th || cleanItem.name_th || cleanItem.place_th || "";
   const cachedSource = typeof window !== "undefined" && sourceText ? localStorage.getItem(`trans_en:${sourceText}`) : null;
-  if (cachedSource && !hasThaiScript(cachedSource)) return cachedSource;
+  if (cachedSource && !hasThaiScript(cachedSource)) return stripMealLabels(cachedSource);
 
-  return (/[a-zA-Z]/.test(explicitEn) ? explicitEn : "") || (!hasThaiScript(rawCandidate) && rawCandidate ? rawCandidate : "") || sourceText;
+  return stripMealLabels((/[a-zA-Z]/.test(explicitEn) ? explicitEn : "") || (!hasThaiScript(rawCandidate) && rawCandidate ? rawCandidate : "") || sourceText);
 }
 
 export function getLocalizedDescription(

@@ -11,9 +11,15 @@ import {
   sequenceDayClusters,
   calculateCoherenceScore,
   auditItineraryRules,
+  auditItineraryIssues,
+  assignDeterministicTimeSlots,
+  optimizeDayActivities,
   scrubAndRelocateDayOutliers,
   enforceMaxHopDistance,
+  scorePOIs,
+  selectDiversePOIs,
   type POICandidate,
+  type DayCluster,
 } from "../api/spatialPlanner";
 
 describe("Spatial Optimization & 2-Opt Algorithm (Academic Verification)", () => {
@@ -496,5 +502,124 @@ describe("Spatial Optimization & 2-Opt Algorithm (Academic Verification)", () =>
       expect(sequenced[2].pois[0].name).toBe("Chatuchak");
     });
   });
+
+  // ── 9. User Uploaded Places Guaranteed Inclusion & Priority Anchor ──────────
+  describe("User Uploaded Primary Places Priority & Guaranteed Inclusion", () => {
+    it("should assign unconditional top score (999.0) to user recognized seed places in scorePOIs", () => {
+      const center = { lat: 13.7500, lng: 100.5000 };
+      const pois: POICandidate[] = [
+        { name: "Ordinary Cafe", lat: 13.7510, lng: 100.5010, rating: 4.8, userRatingsTotal: 5000, type: "food" },
+        { name: "Wat Arun (User Upload)", lat: 13.7437, lng: 100.4889, type: "recognized_image_landmark", isUserSeed: true },
+        { name: "Famous Mall", lat: 13.7460, lng: 100.5350, rating: 4.9, userRatingsTotal: 100000, type: "shopping" },
+      ];
+
+      const scored = scorePOIs(pois, center, ["food", "shopping"]);
+      const userSeed = scored.find(p => p.name === "Wat Arun (User Upload)");
+      const mall = scored.find(p => p.name === "Famous Mall");
+
+      expect(userSeed).toBeDefined();
+      expect(userSeed?.score).toBe(999.0);
+      expect(userSeed!.score).toBeGreaterThan(mall!.score);
+    });
+
+    it("should GUARANTEE inclusion of all user seed landmarks in selectDiversePOIs even with strict quota", () => {
+      const scored: (POICandidate & { score: number })[] = [
+        { name: "User Landmark 1", lat: 13.74, lng: 100.48, type: "recognized_image_landmark", isUserSeed: true, score: 999 },
+        { name: "User Landmark 2", lat: 13.75, lng: 100.49, type: "recognized_image_landmark", isUserSeed: true, score: 999 },
+        { name: "Temple A", lat: 13.76, lng: 100.50, type: "attraction", score: 0.95 },
+        { name: "Temple B", lat: 13.77, lng: 100.51, type: "attraction", score: 0.90 },
+        { name: "Mall C", lat: 13.78, lng: 100.52, type: "shopping", score: 0.85 },
+        { name: "Park D", lat: 13.79, lng: 100.53, type: "nature", score: 0.80 },
+      ];
+
+      // Target count = 3: Both user seeds MUST be included
+      const selected = selectDiversePOIs(scored, 3);
+      expect(selected.some(p => p.name === "User Landmark 1")).toBe(true);
+      expect(selected.some(p => p.name === "User Landmark 2")).toBe(true);
+      expect(selected.length).toBe(3);
+    });
+
+    it("should never relocate user photo activities in scrubAndRelocateDayOutliers", () => {
+      const days = [
+        {
+          day: 1,
+          activities: [
+            { id: "1", time: "09:00", title: "Morning Walk", type: "attraction" as const, lat: 13.7500, lng: 100.5000 },
+            { id: "2", time: "11:00", title: "Historic Spot", type: "attraction" as const, lat: 13.7520, lng: 100.5020 },
+            // User photo place is 8 km away from the day's medoid
+            { id: "3", time: "14:00", title: "User Uploaded Beach", type: "landmark" as const, lat: 13.8200, lng: 100.5600, isUserPhoto: true },
+          ]
+        }
+      ];
+
+      const scrubbed = scrubAndRelocateDayOutliers(days);
+      const userAct = scrubbed[0].activities.find(a => a.title === "User Uploaded Beach");
+
+      // Coordinates of user photo place must remain completely untouched!
+      expect(userAct?.lat).toBe(13.8200);
+      expect(userAct?.lng).toBe(100.5600);
+      expect((userAct as any)?.isOutlierRelocated).toBeUndefined();
+    });
+
+    it("should audit and flag day schedules that begin excessively late or place daytime venues in the evening", () => {
+      const badTimingItinerary = [
+        {
+          day: 1,
+          date: "Day 1",
+          activities: [
+            { id: "1", time: "17:00", title: "The Grand Palace & Wat Phra Kaew", type: "culture" as const, lat: 13.7500, lng: 100.4914 },
+            { id: "2", time: "19:00", title: "Wat Pho", type: "culture" as const, lat: 13.7465, lng: 100.4933 },
+            { id: "3", time: "20:30", title: "Thip Samai Pad Thai", type: "food" as const, lat: 13.7527, lng: 100.5048 },
+          ]
+        }
+      ];
+
+      const audit = auditItineraryIssues(badTimingItinerary as any);
+      expect(audit.warnings.some(w => w.includes("begins excessively late"))).toBe(true);
+      expect(audit.warnings.some(w => w.includes("Daytime attraction") || w.includes("outside operating hours") || w.includes("insufficient dwell time"))).toBe(true);
+    });
+
+    it("should assign daytime venues to morning/afternoon and evening venues to 18:00+ in assignDeterministicTimeSlots", () => {
+      const mixedActivities = [
+        { id: "1", time: "17:00", title: "Jodd Fairs Night Market", type: "shopping" as const, lat: 13.7563, lng: 100.5660, openingHours: ["Monday: 17:00 – 00:00"] },
+        { id: "2", time: "17:00", title: "Wat Pho (Temple of Reclining Buddha)", type: "culture" as const, lat: 13.7465, lng: 100.4933, openingHours: ["Monday: 08:00 – 18:30"] },
+        { id: "3", time: "12:00", title: "Local Noodle Shop", type: "food" as const, lat: 13.7480, lng: 100.4950 },
+      ];
+
+      const timed = assignDeterministicTimeSlots(mixedActivities, "Moderate", 1);
+      const watPho = timed.find(a => a.title.includes("Wat Pho"));
+      const joddFairs = timed.find(a => a.title.includes("Jodd Fairs"));
+
+      expect(watPho).toBeDefined();
+      expect(joddFairs).toBeDefined();
+
+      // Wat Pho must be scheduled during daytime (before 16:30)
+      const watPhoMinutes = parseInt(watPho!.time!.split(":")[0], 10) * 60 + parseInt(watPho!.time!.split(":")[1], 10);
+      expect(watPhoMinutes).toBeLessThan(16 * 60 + 30);
+
+      // Jodd Fairs night market must be scheduled in the evening (>= 17:00)
+      const joddFairsMinutes = parseInt(joddFairs!.time!.split(":")[0], 10) * 60 + parseInt(joddFairs!.time!.split(":")[1], 10);
+      expect(joddFairsMinutes).toBeGreaterThanOrEqual(17 * 60);
+    });
+
+    it("should optimize Chao Phraya river cluster into a 0-crossing forward corridor without criss-cross zigzags", () => {
+      // 5 points matching the user's screenshot
+      const riversideActs = [
+        { id: "1", title: "Museum Siam / Sanam Chai", lat: 13.7441, lng: 100.4950, type: "culture" as const },
+        { id: "2", title: "Wat Arun", lat: 13.7438, lng: 100.4885, type: "culture" as const },
+        { id: "3", title: "Wat Pho", lat: 13.7465, lng: 100.4933, type: "culture" as const },
+        { id: "4", title: "Bang Luang Mosque", lat: 13.7330, lng: 100.4890, type: "culture" as const },
+        { id: "5", title: "Tha Tien Riverfront Dinner & Sunset", lat: 13.7450, lng: 100.4910, type: "food" as const },
+      ];
+
+      const optimized = optimizeDayActivities(riversideActs, "Moderate", { lat: 13.7441, lng: 100.4950 }, 1);
+      const crossings = countIntersectingEdges(optimized);
+      console.log("Optimized order:", optimized.map(a => `${a.time} - ${a.title}`));
+      console.log("Crossings count:", crossings);
+
+      expect(crossings).toBe(0);
+    });
+  });
 });
+
 

@@ -1,4 +1,4 @@
-import { Coordinates, getCoordinates } from "./geocode";
+import { Coordinates, getCoordinates, isZoneDining } from "./geocode";
 import { isFoursquareRateLimited, setFoursquareRateLimited } from "./foursquareClient";
 import { type Activity } from "@/components/TravelItinerary";
 
@@ -12,6 +12,7 @@ export interface POICandidate {
   openingHours?: string[] | null;
   type?: string;
   place_id?: string;
+  isUserSeed?: boolean;
 }
 
 export interface DayCluster {
@@ -110,7 +111,8 @@ export function partitionPoisIntoNonOverlappingSectors(
   let urbanPois = pois.filter(p => haversineDistance(p, masterHub) < 20.0);
 
   // If trip radius envelope is specified, filter out distant suburban outliers (> maxTripRadiusKm)
-  const withinEnvelope = urbanPois.filter(p => haversineDistance(p, masterHub) <= maxTripRadiusKm);
+  // CRITICAL: Always preserve user recognized seeds so they are never filtered out
+  const withinEnvelope = urbanPois.filter(p => haversineDistance(p, masterHub) <= maxTripRadiusKm || p.type === "recognized_image_landmark" || p.isUserSeed);
   if (withinEnvelope.length >= Math.max(k * 3, 6)) {
     urbanPois = withinEnvelope;
   }
@@ -184,9 +186,16 @@ export function partitionPoisIntoNonOverlappingSectors(
     }
   }
 
-  // Compute final centroids and cluster radii (km)
+  // Compute final centroids and cluster radii (km), prioritizing user seeds at the top of each day
   clusters.forEach(c => {
     if (c.pois.length > 0) {
+      // Sort so user recognized landmarks are at the top of the day's POI list
+      c.pois.sort((a, b) => {
+        const aSeed = (a.type === "recognized_image_landmark" || a.isUserSeed) ? 1 : 0;
+        const bSeed = (b.type === "recognized_image_landmark" || b.isUserSeed) ? 1 : 0;
+        return bSeed - aSeed;
+      });
+
       const avgLat = c.pois.reduce((acc, p) => acc + p.lat, 0) / c.pois.length;
       const avgLng = c.pois.reduce((acc, p) => acc + p.lng, 0) / c.pois.length;
       c.centroid = { lat: avgLat, lng: avgLng };
@@ -742,7 +751,7 @@ export function solve2OptTSP<T extends { lat?: number; lng?: number }>(
           // dot < -0.5 corresponds to turn angle > 120 degrees (sharp U-turn / backtracking)
           if (dot < -0.5) {
             const prevLegDist = haversineDistance(pPrev, pCurr);
-            if (prevLegDist > 2.5 && legDist > 2.5) {
+            if (prevLegDist > 0.4 && legDist > 0.4) {
               const severity = (-dot - 0.5) * 2; // 0 to 1
               const turnPenalty = (prevLegDist + legDist) * 0.8 * severity;
               total += turnPenalty;
@@ -751,6 +760,25 @@ export function solve2OptTSP<T extends { lat?: number; lng?: number }>(
         }
       }
     }
+
+    // Redundant waterway / river barrier ping-pong penalty (e.g. Chao Phraya River)
+    // Redundant crossings beyond 1 back-and-forth crossing get penalized to encourage visiting all spots on one bank first
+    let riverCrossings = 0;
+    for (let i = 0; i < tour.length - 1; i++) {
+      const a = tour[i];
+      const b = tour[i + 1];
+      if (a.lat !== undefined && a.lng !== undefined && b.lat !== undefined && b.lng !== undefined) {
+        if (a.lat >= 13.70 && a.lat <= 13.80 && b.lat >= 13.70 && b.lat <= 13.80) {
+          const aWest = a.lng < 100.4905;
+          const bWest = b.lng < 100.4905;
+          if (aWest !== bWest) riverCrossings++;
+        }
+      }
+    }
+    if (riverCrossings > 1) {
+      total += (riverCrossings - 1) * 3.5;
+    }
+
     if (endDepotCoord) {
       total += haversineDistance({ lat: tour[tour.length - 1].lat!, lng: tour[tour.length - 1].lng! }, endDepotCoord);
     }
@@ -849,6 +877,11 @@ export function scorePOIs(
   const maxRadius = 20; // 20 km max penalty threshold (reduced by 20%)
 
   return pois.map(poi => {
+    // User recognized / uploaded seed landmarks always get unconditional top priority score
+    if (poi.type === "recognized_image_landmark" || poi.isUserSeed) {
+      return { ...poi, score: 999.0 };
+    }
+
     const ratingScore = (poi.rating ?? 3.5) / 5;
     const reviewLog = Math.log10((poi.userRatingsTotal ?? 0) + 1);
     const popularityScore = Math.min(1, reviewLog / 5); // caps at ~100k reviews
@@ -878,15 +911,31 @@ export function scorePOIs(
 
 /**
  * Stratified Round-Robin Selection to ensure category diversity
+ * Guarantees that all user recognized / uploaded seed POIs are included first!
  */
 export function selectDiversePOIs(
   scoredPois: (POICandidate & { score: number })[],
   targetCount: number
 ): POICandidate[] {
-  if (scoredPois.length <= targetCount) return scoredPois;
+  // 1. Separate user recognized / uploaded seed landmarks so they are GUARANTEED to be included
+  const guaranteedSeeds: POICandidate[] = [];
+  const standardPois: (POICandidate & { score: number })[] = [];
 
-  const groups: Record<string, typeof scoredPois> = {};
   scoredPois.forEach(poi => {
+    if (poi.type === "recognized_image_landmark" || poi.isUserSeed) {
+      guaranteedSeeds.push(poi);
+    } else {
+      standardPois.push(poi);
+    }
+  });
+
+  const remainingTarget = Math.max(0, targetCount - guaranteedSeeds.length);
+  if (standardPois.length <= remainingTarget) {
+    return [...guaranteedSeeds, ...standardPois];
+  }
+
+  const groups: Record<string, typeof standardPois> = {};
+  standardPois.forEach(poi => {
     const cat = poi.type ? mapPlaceTypeToCategory([poi.type]) : "attraction";
     if (!groups[cat]) groups[cat] = [];
     groups[cat].push(poi);
@@ -898,10 +947,10 @@ export function selectDiversePOIs(
 
   const selected: POICandidate[] = [];
   const categories = Object.keys(groups);
-  if (categories.length === 0) return scoredPois.slice(0, targetCount);
+  if (categories.length === 0) return [...guaranteedSeeds, ...standardPois.slice(0, remainingTarget)];
 
   let index = 0;
-  while (selected.length < targetCount && categories.length > 0) {
+  while (selected.length < remainingTarget && categories.length > 0) {
     const cat = categories[index % categories.length];
     const group = groups[cat];
     if (group && group.length > 0) {
@@ -912,7 +961,7 @@ export function selectDiversePOIs(
     index++;
   }
 
-  return selected;
+  return [...guaranteedSeeds, ...selected];
 }
 
 /**
@@ -935,7 +984,7 @@ export async function gatherCandidatePOIs(
     }
   };
 
-  // 1. Geocode user recognized places from images first (Highest Priority)
+  // 1. Geocode user recognized places from images first (Highest Priority Anchor)
   for (const placeName of userRecognizedPlaces) {
     try {
       const coords = await getCoordinates(placeName, centerCoords, destinationName);
@@ -944,6 +993,9 @@ export async function gatherCandidatePOIs(
         lat: coords.lat,
         lng: coords.lng,
         type: "recognized_image_landmark",
+        rating: 5.0,
+        userRatingsTotal: 100000,
+        isUserSeed: true,
       });
     } catch (e) {
       console.warn(`[gatherCandidatePOIs] Could not geocode recognized place: ${placeName}`, e);
@@ -1514,6 +1566,9 @@ export function calculateCoherenceScore(
               schedulingPenalty += 8;
             }
           }
+        } else if (isDaytimeOnlyVenue(act, dayOfWeek) && actTimeMin >= 16 * 60 + 30) {
+          warnings.push(`Day ${day.day}: Daytime attraction "${act.title}" is scheduled at ${act.time} after standard visiting hours (temples, palaces, and museums typically close by 15:30 - 17:00). Move to morning or early afternoon.`);
+          schedulingPenalty += 10;
         }
       }
 
@@ -1690,6 +1745,17 @@ export function calculateCoherenceScore(
     if (!hasLunch && activities.length >= 3) {
       warnings.push(`Day ${day.day}: Missing dedicated lunch spot between 11:00-13:30.`);
       schedulingPenalty += 6;
+    }
+
+    // Day Start Timing Check: trip days should not start in late afternoon
+    const regularActs = activities.filter(a => a.type !== "hotel" && a.type !== "transport");
+    if (regularActs.length > 0) {
+      const firstAct = regularActs[0];
+      const firstTimeMin = parseTimeToMinutes(firstAct.time);
+      if (firstTimeMin !== null && firstTimeMin >= 15 * 60) {
+        warnings.push(`Day ${day.day}: Day schedule begins excessively late (${firstAct.time}) at "${firstAct.title}". Trip days should begin in the morning (08:30 - 10:00 AM) to maximize sightseeing.`);
+        schedulingPenalty += 12;
+      }
     }
 
     dailyDistanceKm.push(dayDist);
@@ -1896,16 +1962,81 @@ export function isFoodActivity(act: Activity | ActivityItem): boolean {
   const t = ((act.title || "") + " " + ((act as any).description || "") + " " + (act.type || "")).toLowerCase();
   return (
     act.type === "food" ||
+    isZoneDining(act.title) ||
     t.includes("lunch") ||
     t.includes("dinner") ||
     t.includes("restaurant") ||
     t.includes("dining") ||
     t.includes("cafe") ||
+    t.includes("street food") ||
+    t.includes("streetfood") ||
+    t.includes("สตรีทฟู้ด") ||
     t.includes("อาหาร") ||
     t.includes("มื้อ") ||
     t.includes("ร้านอาหาร") ||
-    t.includes("ทานอาหาร")
+    t.includes("ทานอาหาร") ||
+    t.includes("ของกิน")
   );
+}
+
+/**
+ * Checks if an activity is strictly a daytime attraction that typically closes by 16:30 - 18:00
+ * (e.g. Grand Palace, Wat Phra Kaew, Wat Pho, National Museum, Temples, Palaces, Ruins, Shrines)
+ */
+export function isDaytimeOnlyVenue(act: Activity | ActivityItem, dayOfWeek?: number): boolean {
+  const t = ((act.title || "") + " " + ((act as any).description || "") + " " + (act.type || "")).toLowerCase();
+
+  // Exclude food, street food, night markets, or evening dining activities
+  // that happen to mention a daytime landmark (e.g. "Street Food near Wat Phra Kaew", "Street Food, Dinner near Bangkok Cultural Center")
+  if (
+    isFoodActivity(act) ||
+    isZoneDining(act.title) ||
+    t.includes("night market") ||
+    t.includes("ตลาดกลางคืน") ||
+    t.includes("dinner") ||
+    t.includes("อาหารค่ำ")
+  ) {
+    return false;
+  }
+
+  // Culture, spiritual, or heritage attractions
+  if (act.type === "culture" || act.type === "spiritual") return true;
+
+  // Keyword check for temples, palaces, museums, ancient ruins, shrines, galleries
+  if (
+    t.includes("wat ") || t.includes("temple") || t.includes("palace") || t.includes("museum") ||
+    t.includes("sanctuary") || t.includes("gallery") || t.includes("ruins") || t.includes("historical park") ||
+    t.includes("วัด") || t.includes("วัง") || t.includes("พิพิธภัณฑ์") || t.includes("หอศิลป์") || t.includes("โบราณสถาน")
+  ) {
+    return true;
+  }
+
+  // Check actual opening hours if available: if venue closes at or before 18:30 (1110 min)
+  if (dayOfWeek !== undefined && act.openingHours && act.openingHours.length > 0 && !isZoneOrArea(act)) {
+    const hours = parseOpeningHours(act.openingHours, dayOfWeek);
+    if (hours && hours.closeMinutes > hours.openMinutes && hours.closeMinutes <= 18 * 60 + 30) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Checks if an activity is strictly an evening-only venue (opens at or after 16:30 or is nightlife/dinner)
+ */
+export function isEveningOnlyVenue(act: Activity | ActivityItem, dayOfWeek?: number): boolean {
+  if (isEveningActivity(act)) return true;
+
+  // Check actual opening hours if available: if venue only opens at or after 16:30 (990 min)
+  if (dayOfWeek !== undefined && act.openingHours && act.openingHours.length > 0 && !isZoneOrArea(act)) {
+    const hours = parseOpeningHours(act.openingHours, dayOfWeek);
+    if (hours && hours.openMinutes >= 16 * 60 + 30) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -2175,47 +2306,94 @@ export function twoOptRouteOptimization(
 }
 
 /**
- * Aligns route direction so daytime/morning spots appear first and evening/dinner spots appear last
+ * Aligns route direction so daytime/morning spots appear first and evening/dinner spots appear last.
+ * For geographic routes, strictly preserves the spatial 2-Opt corridor progression (0 crossings, identical distance)
+ * by evaluating forward vs reverse corridor traversal instead of destructively binning activities.
  */
-export function alignSemanticDirection(activities: Activity[]): Activity[] {
+export function alignSemanticDirection(activities: Activity[], dayOfWeek?: number): Activity[] {
   if (activities.length <= 1) return activities;
 
-  const first = activities[0];
-  const last = activities[activities.length - 1];
-
   let res = [...activities];
+  const geoCount = res.filter(a => a.lat !== undefined && a.lng !== undefined && !isNaN(a.lat) && !isNaN(a.lng)).length;
 
-  // If the path starts with an evening spot and ends with daytime, reverse the entire spatial progression
-  const startsEvening = isEveningActivity(first);
-  const endsEvening = isEveningActivity(last);
-  const startsMorning = isMorningActivity(first);
-  const endsMorning = isMorningActivity(last);
+  if (geoCount < 3) {
+    // Purely semantic / non-geographic ordering for abstract tasks or unit tests without coordinates
+    const morningActs: Activity[] = [];
+    const lunchActs: Activity[] = [];
+    const afternoonActs: Activity[] = [];
+    const sunsetActs: Activity[] = [];
+    const eveningActs: Activity[] = [];
 
-  if ((startsEvening && !endsEvening) || (!startsMorning && endsMorning)) {
-    res.reverse();
+    res.forEach(a => {
+      if (isEveningOnlyVenue(a, dayOfWeek) || isEveningActivity(a)) {
+        eveningActs.push(a);
+      } else if (isSunsetSpot(a)) {
+        sunsetActs.push(a);
+      } else if (isFoodActivity(a)) {
+        lunchActs.push(a);
+      } else if (isDaytimeOnlyVenue(a, dayOfWeek) || isMorningActivity(a)) {
+        morningActs.push(a);
+      } else {
+        afternoonActs.push(a);
+      }
+    });
+
+    return [
+      ...morningActs,
+      ...lunchActs,
+      ...afternoonActs,
+      ...sunsetActs,
+      ...eveningActs,
+    ];
   }
 
-  // Reverse if evening / dinner activity appears before daytime lunch
-  const firstEveningIdx = res.findIndex(a => isEveningActivity(a));
-  const daytimeLunchIdx = res.findIndex(a => isFoodActivity(a) && !isEveningActivity(a));
-  if (firstEveningIdx !== -1 && daytimeLunchIdx !== -1 && firstEveningIdx < daytimeLunchIdx) {
-    res.reverse();
-  }
+  // Geographic route: PRESERVE SPATIAL 2-OPT PROGRESSION (Route Determines Time).
+  // Evaluate forward traversal vs reverse traversal along the open corridor.
+  // Reversing an open path maintains identical distance and 0 edge crossings.
+  const scoreDirection = (route: Activity[]): number => {
+    let score = 0;
+    const n = route.length;
+    for (let i = 0; i < n; i++) {
+      const act = route[i];
+      const progress = n > 1 ? i / (n - 1) : 0; // 0.0 at morning start -> 1.0 at evening end
+      const isEve = isEveningActivity(act) || isEveningOnlyVenue(act, dayOfWeek);
+      const isMorn = isMorningActivity(act) || isDaytimeOnlyVenue(act, dayOfWeek);
+      const isSunset = isSunsetSpot(act);
+      const isFood = isFoodActivity(act) && !isEve;
 
-  // Smoothly position dinner / nightlife activities toward the end of the day without scrambling the spatial route
-  const eveningIndices = res
-    .map((a, idx) => ({ act: a, idx }))
-    .filter(({ act }) => isEveningActivity(act));
-
-  if (eveningIndices.length > 0) {
-    const lastEvening = eveningIndices[eveningIndices.length - 1];
-    if (lastEvening.idx < res.length - 1) {
-      const endAct = res[res.length - 1];
-      if (!isEveningActivity(endAct) && isMorningActivity(endAct)) {
-        const [moved] = res.splice(lastEvening.idx, 1);
-        res.push(moved);
+      if (isEve) {
+        if (progress < 0.3) score -= 40;
+        else if (progress >= 0.6) score += 25;
+      }
+      if (isMorn) {
+        if (progress <= 0.4) score += 20;
+        else if (progress > 0.75) score -= 25;
+      }
+      if (isSunset) {
+        if (progress >= 0.5 && progress <= 0.9) score += 15;
+        else if (progress < 0.3) score -= 15;
+      }
+      if (isFood) {
+        if (progress >= 0.2 && progress <= 0.6) score += 12;
       }
     }
+    return score;
+  };
+
+  const fwdScore = scoreDirection(res);
+  const revScore = scoreDirection([...res].reverse());
+
+  if (revScore > fwdScore) {
+    res.reverse();
+  }
+
+  // If first activity is evening-only while the last activity is daytime-only, reverse
+  const first = res[0];
+  const last = res[res.length - 1];
+  const startsEvening = isEveningActivity(first) || isEveningOnlyVenue(first, dayOfWeek);
+  const endsDaytime = isMorningActivity(last) || isDaytimeOnlyVenue(last, dayOfWeek);
+  if (startsEvening && endsDaytime) {
+    res.reverse();
   }
 
   return res;
@@ -2450,8 +2628,11 @@ export function assignDeterministicTimeSlots(
     return res;
   }
 
+  // Pre-sort regular activities to ensure daytime venues ALWAYS precede evening venues
+  const sortedRegular = alignSemanticDirection(regularActivities, dayOfWeek);
+
   const p = pace.toLowerCase();
-  let currentMinutes = 9 * 60; // 09:00 AM standard
+  let currentMinutes = 9 * 60; // 09:00 AM standard morning start
 
   if (p.includes("relax")) {
     currentMinutes = 9 * 60 + 30; // 09:30 AM slow & scenic morning start
@@ -2460,22 +2641,26 @@ export function assignDeterministicTimeSlots(
   }
 
   const assignedRegular: Activity[] = [];
-  const lunchIdx = regularActivities.findIndex(a => isFoodActivity(a) && !isEveningActivity(a));
+  const lunchIdx = sortedRegular.findIndex(a => isFoodActivity(a) && !isEveningActivity(a) && !isEveningOnlyVenue(a, dayOfWeek));
 
-  for (let index = 0; index < regularActivities.length; index++) {
-    const act = regularActivities[index];
+  for (let index = 0; index < sortedRegular.length; index++) {
+    const act = sortedRegular[index];
     let actTimeMinutes = currentMinutes;
 
-    if (index === lunchIdx || (isFoodActivity(act) && !isEveningActivity(act) && currentMinutes < 14 * 60)) {
+    const isEvening = isEveningActivity(act) || isEveningOnlyVenue(act, dayOfWeek);
+    const isSunset = isSunsetSpot(act);
+    const isLunch = index === lunchIdx || (isFoodActivity(act) && !isEvening && currentMinutes >= 11 * 60 && currentMinutes < 14 * 60);
+
+    if (isLunch) {
       if (currentMinutes < 11 * 60 + 30) {
-        actTimeMinutes = 12 * 60; // Wait for midday lunch window
+        actTimeMinutes = 12 * 60; // Wait for midday lunch window (12:00 PM)
       } else {
         actTimeMinutes = currentMinutes;
       }
-    } else if (isSunsetSpot(act)) {
-      actTimeMinutes = Math.max(17 * 60, currentMinutes);
-    } else if (isEveningActivity(act)) {
-      actTimeMinutes = Math.max(18 * 60 + 30, currentMinutes);
+    } else if (isSunset) {
+      actTimeMinutes = Math.max(16 * 60 + 45, currentMinutes); // 16:45 Golden Hour
+    } else if (isEvening) {
+      actTimeMinutes = Math.max(18 * 60, currentMinutes); // 18:00 Dinner / Evening
     }
 
     let dwellTime = getEstimatedDwellMinutes(act, pace);
@@ -2490,18 +2675,32 @@ export function assignDeterministicTimeSlots(
     }
 
     // Check Google Maps opening hours constraints with dwell-time buffer
-    if (dayOfWeek !== undefined && act.openingHours && act.openingHours.length > 0 && !isZoneOrArea(act)) {
-      const hours = parseOpeningHours(act.openingHours, dayOfWeek);
+    if (act.openingHours && act.openingHours.length > 0 && !isZoneOrArea(act)) {
+      const hours = parseOpeningHours(act.openingHours, dayOfWeek ?? 1);
       if (hours && hours.openMinutes !== -1) {
         if (actTimeMinutes < hours.openMinutes) {
           actTimeMinutes = hours.openMinutes;
         }
         // Ensure visit starts with ample time to complete the visit before venue closes
-        const closeBuffer = Math.max(60, Math.min(150, dwellTime + 15));
+        const closeBuffer = Math.max(45, Math.min(120, dwellTime + 15));
         if (hours.closeMinutes > hours.openMinutes && actTimeMinutes > hours.closeMinutes - closeBuffer) {
-          if (hours.closeMinutes - closeBuffer >= currentMinutes) {
-            actTimeMinutes = hours.closeMinutes - closeBuffer;
+          const latestAllowed = Math.max(hours.openMinutes, hours.closeMinutes - closeBuffer);
+          const prevTime = assignedRegular.length > 0 ? (parseTimeToMinutes(assignedRegular[assignedRegular.length - 1].time) || 0) : 0;
+          if (latestAllowed >= prevTime) {
+            actTimeMinutes = latestAllowed;
           }
+        }
+      }
+    } else if (isDaytimeOnlyVenue(act, dayOfWeek) && !isZoneOrArea(act)) {
+      // Standard daytime venues without explicit hours schedule: typically close between 16:30 - 17:30
+      // Ensure visit starts no later than 15:30
+      const standardCloseMinutes = 17 * 60;
+      const closeBuffer = Math.max(60, dwellTime + 15);
+      if (actTimeMinutes > standardCloseMinutes - closeBuffer) {
+        const latestAllowed = standardCloseMinutes - closeBuffer;
+        const prevTime = assignedRegular.length > 0 ? (parseTimeToMinutes(assignedRegular[assignedRegular.length - 1].time) || 0) : 0;
+        if (latestAllowed >= prevTime) {
+          actTimeMinutes = latestAllowed;
         }
       }
     }
@@ -2510,8 +2709,7 @@ export function assignDeterministicTimeSlots(
     if (assignedRegular.length > 0) {
       const prevTimeStr = assignedRegular[assignedRegular.length - 1].time;
       if (prevTimeStr) {
-        const [prevH, prevM] = prevTimeStr.split(":").map(Number);
-        const prevMinutes = prevH * 60 + prevM;
+        const prevMinutes = parseTimeToMinutes(prevTimeStr) || 0;
         if (actTimeMinutes < prevMinutes) {
           actTimeMinutes = prevMinutes;
         }
@@ -2524,8 +2722,8 @@ export function assignDeterministicTimeSlots(
     });
 
     // Dynamic travel time to next activity using realistic urban transit model
-    if (index < regularActivities.length - 1) {
-      const nextAct = regularActivities[index + 1];
+    if (index < sortedRegular.length - 1) {
+      const nextAct = sortedRegular[index + 1];
       const fromCoord = act.lat && act.lng ? { lat: act.lat, lng: act.lng } : undefined;
       const toCoord = nextAct.lat && nextAct.lng ? { lat: nextAct.lat, lng: nextAct.lng } : undefined;
       const transitMinutes = calculateRealisticTransitMinutes(fromCoord, toCoord, pace);
@@ -2689,7 +2887,7 @@ export function optimizeDayActivities(
   optimized = untangleIntersectingEdges(optimized);
 
   // 7. Align Semantic Direction (Morning -> Lunch -> Afternoon -> Sunset -> Dinner/Night)
-  optimized = alignSemanticDirection(optimized);
+  optimized = alignSemanticDirection(optimized, dayOfWeek);
 
   // 8. Prevent consecutive meals while preserving progression
   optimized = preventConsecutiveMeals(optimized);
@@ -2736,6 +2934,9 @@ export function optimizeDayActivities(
 
   // 10b. Hard Pair Distance Enforcement: Ensure no consecutive hop exceeds 4.0 km
   optimized = enforceMaxHopDistance(optimized, 4.0);
+
+  // 10c. Final uncrossing pass
+  optimized = untangleIntersectingEdges(optimized);
 
   // 11. Assign deterministic time slots adhering to opening hours, lunch window, and dwell times
   const allToSchedule = [...optimized];
@@ -2805,7 +3006,35 @@ export function enforceMaxHopDistance(
         const distA = haversineDistance({ lat: actA.lat, lng: actA.lng }, medoidCoord);
         const distB = haversineDistance({ lat: actB.lat, lng: actB.lng }, medoidCoord);
 
-        if (distB >= distA && actB.type !== "hotel") {
+        if (actB.isUserPhoto && !actA.isUserPhoto) {
+          // actB is user's primary uploaded place: keep B firmly in place and relocate A near B if needed
+          if (actA.type !== "hotel") {
+            const angle = ((i * 67 + 53) * Math.PI) / 180;
+            const offsetKm = 1.0 + (i % 3) * 0.4;
+            const latOffset = (offsetKm / 111) * Math.sin(angle);
+            const lngOffset = (offsetKm / (111 * Math.cos((actB.lat * Math.PI) / 180))) * Math.cos(angle);
+            result[i] = {
+              ...actA,
+              lat: actB.lat + latOffset,
+              lng: actB.lng + lngOffset,
+              isOutlierRelocated: true,
+            };
+          }
+        } else if (actA.isUserPhoto && !actB.isUserPhoto) {
+          // actA is user's primary uploaded place: keep A firmly in place and relocate B near A if needed
+          if (actB.type !== "hotel") {
+            const angle = ((i * 67 + 23) * Math.PI) / 180;
+            const offsetKm = 1.0 + (i % 3) * 0.4;
+            const latOffset = (offsetKm / 111) * Math.sin(angle);
+            const lngOffset = (offsetKm / (111 * Math.cos((actA.lat * Math.PI) / 180))) * Math.cos(angle);
+            result[i + 1] = {
+              ...actB,
+              lat: actA.lat + latOffset,
+              lng: actA.lng + lngOffset,
+              isOutlierRelocated: true,
+            };
+          }
+        } else if (distB >= distA && actB.type !== "hotel") {
           // Relocate B near A along the active corridor
           const angle = ((i * 67 + 23) * Math.PI) / 180;
           const offsetKm = 1.0 + (i % 3) * 0.4; // 1.0 - 1.8 km
@@ -2876,6 +3105,12 @@ export function scrubAndRelocateDayOutliers<T extends { day: number; activities:
 
     const newActivities = day.activities.map((act, actIdx) => {
       if (!act.lat || !act.lng || act.type === "hotel") return act;
+
+      // CRITICAL: NEVER relocate user uploaded photo activities!
+      // The user explicitly uploaded a picture of this exact place and wants to visit it.
+      if (act.isUserPhoto) {
+        return act;
+      }
 
       const distToMedoid = haversineDistance({ lat: act.lat, lng: act.lng }, medoidCoord);
       const distToDest = destinationCoords && destinationCoords.lat && destinationCoords.lng

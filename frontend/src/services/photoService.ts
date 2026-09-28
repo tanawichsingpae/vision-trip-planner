@@ -1040,7 +1040,7 @@ export function findMatchingUserPhoto(
   activityTitle: string,
   englishName?: string,
   imageKeyword?: string,
-  detectedLocations: Array<{ place?: string; uploadedImageUrl?: string; photoUrl?: string }> = [],
+  detectedLocations: Array<{ place?: string; place_th?: string; place_en?: string; uploadedImageUrl?: string; photoUrl?: string }> = [],
   wikiTitle?: string
 ): string | null {
   if (!detectedLocations || detectedLocations.length === 0) return null;
@@ -1056,22 +1056,48 @@ export function findMatchingUserPhoto(
   const keyNorm = imageKeyword ? normalize(imageKeyword) : "";
   const wikiNorm = wikiTitle ? normalize(wikiTitle) : "";
 
-  for (const loc of detectedLocations) {
-    const locNorm = normalize(loc.place || "");
-    if (!locNorm || locNorm.length < 2) continue;
+  const actTokens = actNorm.split(/\s+/).filter(t => t.length > 1);
+  const engTokens = engNorm.split(/\s+/).filter(t => t.length > 1);
 
+  for (const loc of detectedLocations) {
     const userImg = loc.uploadedImageUrl || loc.photoUrl;
     if (!userImg) continue;
 
-    // Check if place name is contained in activity title, english name, keyword, or wiki title
-    if (
-      actNorm.includes(locNorm) ||
-      locNorm.includes(actNorm) ||
-      (engNorm && (engNorm.includes(locNorm) || locNorm.includes(engNorm))) ||
-      (keyNorm && (keyNorm.includes(locNorm) || locNorm.includes(keyNorm))) ||
-      (wikiNorm && (wikiNorm.includes(locNorm) || locNorm.includes(wikiNorm)))
-    ) {
-      return userImg;
+    const locCandidates = [loc.place, loc.place_th, loc.place_en]
+      .filter((p): p is string => Boolean(p && typeof p === "string" && p.trim().length > 1));
+
+    for (const cand of locCandidates) {
+      const candNorm = normalize(cand);
+      if (!candNorm || candNorm.length < 2) continue;
+
+      // 1. Direct Substring Check
+      if (
+        actNorm.includes(candNorm) ||
+        candNorm.includes(actNorm) ||
+        (engNorm && (engNorm.includes(candNorm) || candNorm.includes(engNorm))) ||
+        (keyNorm && (keyNorm.includes(candNorm) || candNorm.includes(keyNorm))) ||
+        (wikiNorm && (wikiNorm.includes(candNorm) || candNorm.includes(wikiNorm)))
+      ) {
+        return userImg;
+      }
+
+      // 2. Token Overlap Check (e.g. "Wat Arun" in "Visit Wat Arun Ratchawararam", or "วัดอรุณ" in "ชมวัดอรุณราชวราราม")
+      const candTokens = candNorm.split(/\s+/).filter(t => t.length > 1);
+      if (candTokens.length > 0) {
+        const matchCountAct = candTokens.filter(ct => actTokens.some(at => at.includes(ct) || ct.includes(at))).length;
+        const matchCountEng = engTokens.length > 0
+          ? candTokens.filter(ct => engTokens.some(et => et.includes(ct) || ct.includes(et))).length
+          : 0;
+
+        // If >= 60% of candidate tokens or at least 2 distinct tokens match
+        if (
+          (candTokens.length === 1 && candTokens[0].length >= 4 && (actNorm.includes(candTokens[0]) || engNorm.includes(candTokens[0]))) ||
+          matchCountAct >= Math.ceil(candTokens.length * 0.6) ||
+          matchCountEng >= Math.ceil(candTokens.length * 0.6)
+        ) {
+          return userImg;
+        }
+      }
     }
   }
 

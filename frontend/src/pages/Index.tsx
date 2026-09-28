@@ -89,7 +89,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { getCoordinates, distanceMetres, verifyCoordinatesHaveNearbyPOI } from "@/api/geocode";
+import { getCoordinates, distanceMetres, verifyCoordinatesHaveNearbyPOI, sanitizePlaceTitle } from "@/api/geocode";
 import { getNearbyAttractions, fetchPlaceDetails, fetchPlaceDetailsByPlaceId, getFallbackOpeningHours } from "@/api/places";
 import { gatherCandidatePOIs, kMeansCluster, partitionPoisIntoNonOverlappingSectors, calculateMasterHub, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, rebalanceCrossDayPOIs, scrubAndRelocateDayOutliers, enforceMaxHopDistance, auditItineraryIssues, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
 import { generateTravelPlan, refineItineraryWithAI, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, inferFallbackNonTravelContent, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
@@ -510,10 +510,17 @@ const Index = () => {
             day.activities.map(async (act) => {
               if (!act.lat || !act.lng || act.lat === 0 || act.lng === 0) {
                 try {
-                  const details = await fetchPlaceDetails(act.title);
+                  const cleanT = sanitizePlaceTitle(act.title);
+                  const details = await fetchPlaceDetails(cleanT);
                   if (details && details.lat && details.lng) {
                     didUpdate = true;
-                    return { ...act, lat: details.lat, lng: details.lng };
+                    return {
+                      ...act,
+                      title: cleanT,
+                      lat: details.lat,
+                      lng: details.lng,
+                      placeId: details.placeId || (act as any).placeId || null,
+                    };
                   }
                 } catch {
                   // Ignore fallback errors
@@ -1356,11 +1363,10 @@ const Index = () => {
         englishName?: string,
         wikiTitle?: string
       ): Promise<{ lat: number; lng: number } | null> {
-        const cleanedTitle = title
-          .replace(/^(Visit|Explore|See|Tour|Dinner at|Lunch at|Breakfast at|Relax at|ชมวิว|กินข้าวที่|เที่ยว|แวะ)\s+/i, "")
-          .trim();
+        const cleanedTitle = sanitizePlaceTitle(title);
+        const cleanedEnglish = englishName ? sanitizePlaceTitle(englishName) : undefined;
 
-        const candidateList = [englishName, wikiTitle, cleanedTitle, title].filter(
+        const candidateList = [cleanedEnglish, wikiTitle, cleanedTitle, title].filter(
           (c): c is string => Boolean(c && c.trim().length > 1)
         );
         const uniqueCandidates = Array.from(new Set(candidateList));
@@ -1398,12 +1404,17 @@ const Index = () => {
         const currentDayIndexGoogle = (dayDate.getDay() + 6) % 7; // Map JS Sunday=0 to Google Monday=0
 
         for (const activity of day.activities) {
-          setLoadingStep(`Plotting Itinerary Map: ${activity.title}...`);
+          const cleanTitle = sanitizePlaceTitle(activity.title);
+          const cleanEnglish = activity.english_name ? sanitizePlaceTitle(activity.english_name) : activity.english_name;
+          const cleanTitleTh = activity.title_th ? sanitizePlaceTitle(activity.title_th) : activity.title_th;
+          const cleanTitleEn = activity.title_en ? sanitizePlaceTitle(activity.title_en) : activity.title_en;
+
+          setLoadingStep(`Plotting Itinerary Map: ${cleanTitle}...`);
           await delay(80);
 
           const userUploadedPhoto = findMatchingUserPhoto(
-            activity.title,
-            activity.english_name,
+            cleanTitle,
+            cleanEnglish,
             activity.image_keyword,
             detectedLocations,
             activity.wiki_title
@@ -1413,7 +1424,7 @@ const Index = () => {
           try {
             // 1. Fetch rich venue details, real photos & exact coordinates (Foursquare + Smart Photo + Mapbox)
             const placeDetails = await fetchPlaceDetails(
-              activity.title,
+              cleanTitle,
               coords,
               activity.type,
               destinationCity,
@@ -1422,7 +1433,7 @@ const Index = () => {
                 countryName: mainLocation.country,
                 wikiTitle: activity.wiki_title,
                 indexOffset: dayIndex,
-                englishName: activity.english_name,
+                englishName: cleanEnglish,
               }
             );
 
@@ -1446,8 +1457,8 @@ const Index = () => {
 
             if (actLat == null || actLng == null) {
               const validated = await geocodeWithValidation(
-                activity.title,
-                activity.english_name,
+                cleanTitle,
+                cleanEnglish,
                 activity.wiki_title
               );
               if (validated) {
@@ -1469,14 +1480,14 @@ const Index = () => {
                   const isVerified = await verifyCoordinatesHaveNearbyPOI(
                     activity.lat,
                     activity.lng,
-                    activity.english_name || activity.title
+                    cleanEnglish || cleanTitle
                   );
                   if (isVerified) {
                     actLat = activity.lat;
                     actLng = activity.lng;
                     isCoordsVerified = true;
                   } else {
-                    console.warn(`[verify] AI coords for "${activity.title}" rejected — no real POI at (${activity.lat},${activity.lng})`);
+                    console.warn(`[verify] AI coords for "${cleanTitle}" rejected — no real POI at (${activity.lat},${activity.lng})`);
                   }
                 }
               }
@@ -1495,7 +1506,7 @@ const Index = () => {
             }
 
             // 3. Verify opening hours against current day of the trip
-            const openingHours = placeDetails.openingHours || activity.openingHours || getFallbackOpeningHours(activity.type, activity.title);
+            const openingHours = placeDetails.openingHours || activity.openingHours || getFallbackOpeningHours(activity.type, cleanTitle);
             let isClosed = false;
             if (openingHours && openingHours.length > 0) {
               const todayHoursText = (openingHours[currentDayIndexGoogle] || "").toLowerCase();
@@ -1505,8 +1516,12 @@ const Index = () => {
             }
 
             if (isClosed) {
-              console.warn(`[filter] Removed "${activity.title}" as it is closed on ${dayDate.toDateString()}`);
-              continue; // Skip adding this activity
+              if (isUserPhoto) {
+                console.warn(`[filter] User-uploaded place "${cleanTitle}" was reported closed on ${dayDate.toDateString()}, but keeping it in itinerary as requested by user.`);
+              } else {
+                console.warn(`[filter] Removed "${cleanTitle}" as it is closed on ${dayDate.toDateString()}`);
+                continue; // Skip adding this activity
+              }
             }
 
             // 4. Resolve the most accurate photo URL:
@@ -1515,6 +1530,11 @@ const Index = () => {
 
             enrichedActivities.push({
               ...activity,
+              title: cleanTitle,
+              title_th: cleanTitleTh || cleanTitle,
+              title_en: cleanTitleEn || cleanEnglish || cleanTitle,
+              english_name: cleanEnglish,
+              placeId: placeDetails.placeId || (activity as any).placeId || null,
               lat: actLat,
               lng: actLng,
               isCoordsVerified,
@@ -1530,12 +1550,12 @@ const Index = () => {
               phoneNumber: placeDetails.phoneNumber || activity.phoneNumber || null,
             });
           } catch (e) {
-            console.warn(`[enrichment] Fallback for "${activity.title}":`, e);
+            console.warn(`[enrichment] Fallback for "${cleanTitle}":`, e);
             let fallbackLat = coords.lat;
             let fallbackLng = coords.lng;
             let fallbackVerified = false;
             try {
-              const fallbackValidated = await geocodeWithValidation(activity.title, activity.english_name, activity.wiki_title);
+              const fallbackValidated = await geocodeWithValidation(cleanTitle, cleanEnglish, activity.wiki_title);
               if (fallbackValidated) {
                 fallbackLat = fallbackValidated.lat;
                 fallbackLng = fallbackValidated.lng;
@@ -1561,13 +1581,18 @@ const Index = () => {
             const finalPhoto = userUploadedPhoto || activity.photo_url || activity.image_url || null;
             enrichedActivities.push({
               ...activity,
+              title: cleanTitle,
+              title_th: cleanTitleTh || cleanTitle,
+              title_en: cleanTitleEn || cleanEnglish || cleanTitle,
+              english_name: cleanEnglish,
+              placeId: (activity as any).placeId || null,
               lat: fallbackLat,
               lng: fallbackLng,
               isCoordsVerified: fallbackVerified,
               photo_url: finalPhoto,
               image_url: finalPhoto,
               isUserPhoto: isUserPhoto,
-              openingHours: activity.openingHours || getFallbackOpeningHours(activity.type, activity.title),
+              openingHours: activity.openingHours || getFallbackOpeningHours(activity.type, cleanTitle),
             });
           }
         }
@@ -1629,17 +1654,133 @@ const Index = () => {
           website: hotelDetails?.website ?? null,
           phoneNumber: hotelDetails?.phoneNumber ?? null,
         };
-        // Prepend to Day 1 (appears first)
+        // Insert Check-in chronologically in Day 1 according to its time (default 15:00)
+        const day1Acts = [...enrichedItinerary[0].activities, checkInActivity];
+        day1Acts.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
         enrichedItinerary[0] = {
           ...enrichedItinerary[0],
-          activities: [checkInActivity, ...enrichedItinerary[0].activities],
+          activities: day1Acts,
         };
-        // Append to last day
+        // Append Check-out to last day chronologically (default 11:00)
         const lastIdx = enrichedItinerary.length - 1;
+        const lastDayActs = [...enrichedItinerary[lastIdx].activities, checkOutActivity];
+        lastDayActs.sort((a, b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
         enrichedItinerary[lastIdx] = {
           ...enrichedItinerary[lastIdx],
-          activities: [...enrichedItinerary[lastIdx].activities, checkOutActivity],
+          activities: lastDayActs,
         };
+      }
+
+      // ── Guaranteed Inclusion of Primary User-Uploaded Places (Fail-Safe Quality Gate) ──
+      // Ensure that ALL identifiable places uploaded by the user from photos are unconditionally
+      // scheduled in the itinerary. If any primary user place was omitted by the AI or substituted
+      // by surrounding secondary spots, seamlessly inject it into the most spatially appropriate day!
+      const validUserLocations = (detectedLocations || []).filter(
+        loc => loc && loc.is_identifiable_place !== false && loc.place && loc.place.trim().length > 1 && loc.type !== "non_travel"
+      );
+
+      for (const userLoc of validUserLocations) {
+        const normalize = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9\u0E00-\u0E7F]/g, " ").trim();
+        const locAliases = [userLoc.place, userLoc.place_th, userLoc.place_en]
+          .filter((p): p is string => Boolean(p && typeof p === "string" && p.trim().length > 1));
+
+        const isAlreadyInItinerary = enrichedItinerary.some(day =>
+          day.activities.some(act => {
+            if (act.isUserPhoto && (act.image_url === (userLoc.uploadedImageUrl || userLoc.photoUrl))) return true;
+            const actTitleNorm = normalize(act.title);
+            const actEngNorm = normalize(act.english_name);
+            const actWikiNorm = normalize(act.wiki_title);
+            return locAliases.some(alias => {
+              const aliasNorm = normalize(alias);
+              if (!aliasNorm) return false;
+              if (actTitleNorm.includes(aliasNorm) || aliasNorm.includes(actTitleNorm)) return true;
+              if (actEngNorm && (actEngNorm.includes(aliasNorm) || aliasNorm.includes(actEngNorm))) return true;
+              if (actWikiNorm && (actWikiNorm.includes(aliasNorm) || aliasNorm.includes(actWikiNorm))) return true;
+              return false;
+            });
+          })
+        );
+
+        if (!isAlreadyInItinerary && enrichedItinerary.length > 0) {
+          console.warn(`[GuaranteedInclusion] Primary user-uploaded location "${userLoc.place}" was omitted by AI. Injecting into itinerary...`);
+
+          // 1. Resolve exact coordinates
+          let locCoord = { lat: coords.lat, lng: coords.lng };
+          if (typeof userLoc.lat === "number" && typeof userLoc.lng === "number" && userLoc.lat !== 0 && userLoc.lng !== 0) {
+            locCoord = { lat: userLoc.lat, lng: userLoc.lng };
+          } else {
+            try {
+              const fetched = await getCoordinates(userLoc.place, coords, destinationCity);
+              if (fetched && fetched.lat && fetched.lng && !fetched.isFallback) {
+                locCoord = { lat: fetched.lat, lng: fetched.lng };
+              }
+            } catch (_) {}
+          }
+
+          // 2. Determine best day to inject (spatial proximity to day's activities)
+          let bestDayIdx = 0;
+          let minDayDist = Infinity;
+
+          enrichedItinerary.forEach((day, dIdx) => {
+            const validDayActs = day.activities.filter(a => a.type !== "hotel" && a.lat && a.lng);
+            if (validDayActs.length > 0) {
+              const avgLat = validDayActs.reduce((s, a) => s + a.lat!, 0) / validDayActs.length;
+              const avgLng = validDayActs.reduce((s, a) => s + a.lng!, 0) / validDayActs.length;
+              const d = distanceMetres(locCoord, { lat: avgLat, lng: avgLng });
+              if (d < minDayDist) {
+                minDayDist = d;
+                bestDayIdx = dIdx;
+              }
+            }
+          });
+
+          // 3. Create the guaranteed activity object
+          const userPhoto = userLoc.uploadedImageUrl || userLoc.photoUrl || null;
+          const displayTitle = userLoc.place_th || userLoc.place;
+          const actType = (userLoc.type && userLoc.type !== "non_travel" ? userLoc.type : "landmark") as any;
+
+          const newActivity: Activity = {
+            id: `primary-user-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            time: "10:00",
+            title: displayTitle,
+            title_th: userLoc.place_th || userLoc.place,
+            title_en: userLoc.place_en || userLoc.place,
+            english_name: userLoc.place_en || userLoc.place,
+            description: userLoc.detailed_description || `สัมผัสความงดงามของ ${displayTitle} จุดหมายหลักที่เป็นไฮไลต์สำคัญจากรูปที่คุณเลือก`,
+            description_th: userLoc.detailed_description || `สัมผัสความงดงามของ ${displayTitle} จุดหมายหลักที่เป็นไฮไลต์สำคัญจากรูปที่คุณเลือก`,
+            description_en: `Explore the iconic beauty of ${userLoc.place_en || userLoc.place}, a key highlight from your uploaded photo.`,
+            type: actType,
+            lat: locCoord.lat,
+            lng: locCoord.lng,
+            isCoordsVerified: true,
+            isUserPhoto: true,
+            photo_url: userPhoto,
+            image_url: userPhoto,
+            rating: 4.8,
+            userRatingsTotal: 1200,
+          };
+
+          // 4. Inject into the best day
+          const targetDayActs = enrichedItinerary[bestDayIdx].activities;
+          const nonHotelNonSeed = targetDayActs.filter(a => a.type !== "hotel" && !a.isUserPhoto && a.type !== "food");
+
+          if (targetDayActs.length >= 6 && nonHotelNonSeed.length > 0) {
+            // Replace the lowest priority non-user activity to maintain a balanced schedule
+            const replaceTarget = nonHotelNonSeed[nonHotelNonSeed.length - 1];
+            const replaceIdx = targetDayActs.indexOf(replaceTarget);
+            if (replaceIdx >= 0) {
+              targetDayActs[replaceIdx] = newActivity;
+            } else {
+              targetDayActs.splice(1, 0, newActivity);
+            }
+          } else {
+            // Insert at index 1 (or after check-in/first spot)
+            const insertIdx = targetDayActs.length > 0 && targetDayActs[0].type === "hotel" ? 1 : 0;
+            targetDayActs.splice(insertIdx, 0, newActivity);
+          }
+
+          toast.success(`บรรจุสถานที่หลัก "${displayTitle}" ลงในแผนการเดินทางเรียบร้อยแล้ว 📸✨`, { duration: 4000 });
+        }
       }
 
       // Apply Cross-Day Spatial Rebalancing (prevent visiting same neighborhood on multiple days)
@@ -2139,36 +2280,41 @@ const Index = () => {
     setSelectedActivity({ ...activity });
     setHoveredActivityId(activity.id);
 
+    const cleanTitle = sanitizePlaceTitle(activity.title);
     if (activity.lat && activity.lng && activity.lat !== 0 && activity.lng !== 0) {
       setSelectedPlace({ lat: activity.lat, lng: activity.lng });
     } else {
       // 1. Fallback: Try to find matching attraction for coordinates
-      const match = attractions.find(a => a.name.toLowerCase() === activity.title.toLowerCase());
+      const match = attractions.find(a => a.name.toLowerCase() === cleanTitle.toLowerCase() || a.name.toLowerCase() === activity.title.toLowerCase());
       if (match && match.lat && match.lng) {
         activity.lat = match.lat;
         activity.lng = match.lng;
+        activity.title = cleanTitle;
         setSelectedPlace({ lat: match.lat, lng: match.lng });
-        setSelectedActivity({ ...activity, lat: match.lat, lng: match.lng });
+        setSelectedActivity({ ...activity, title: cleanTitle, lat: match.lat, lng: match.lng });
       } else {
         // 2. Geocode on demand via fetchPlaceDetails if activity has no coords
         try {
-          const details = await fetchPlaceDetails(activity.title);
+          const details = await fetchPlaceDetails(cleanTitle);
           if (details && details.lat && details.lng) {
             const lat = details.lat;
             const lng = details.lng;
+            const placeId = details.placeId || (activity as any).placeId || null;
             activity.lat = lat;
             activity.lng = lng;
+            activity.title = cleanTitle;
+            if (placeId) (activity as any).placeId = placeId;
             setSelectedPlace({ lat, lng });
-            setSelectedActivity({ ...activity, lat, lng });
+            setSelectedActivity({ ...activity, title: cleanTitle, lat, lng, placeId });
 
             // Persist coordinates into itinerary and mapItinerary so pins update
             setItinerary(prev => prev.map(d => ({
               ...d,
-              activities: d.activities.map(a => a.id === activity.id ? { ...a, lat, lng } : a)
+              activities: d.activities.map(a => a.id === activity.id ? { ...a, title: cleanTitle, lat, lng, placeId } : a)
             })));
             setMapItinerary(prev => prev.map(d => ({
               ...d,
-              activities: d.activities.map(a => a.id === activity.id ? { ...a, lat, lng } : a)
+              activities: d.activities.map(a => a.id === activity.id ? { ...a, title: cleanTitle, lat, lng, placeId } : a)
             })));
           }
         } catch (err) {

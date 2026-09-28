@@ -476,6 +476,7 @@ const MapSection = ({
               placeName: m.activity.title,
               cityName: (location as any).city || location.name,
               isCoordsVerified: m.activity.isCoordsVerified,
+              placeId: (m.activity as any)?.placeId,
               mode: 'directions',
             })}" target="_blank" rel="noopener noreferrer" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 10px; border-radius: 6px; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 600; text-decoration: none; box-shadow: 0 1px 3px rgba(37,99,235,0.25);">
               <span>${navBtnText}</span>
@@ -487,6 +488,7 @@ const MapSection = ({
               placeName: m.activity.title,
               cityName: (location as any).city || location.name,
               isCoordsVerified: m.activity.isCoordsVerified,
+              placeId: (m.activity as any)?.placeId,
               mode: 'search',
             })}" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; padding: 6px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; font-size: 11px; font-weight: 500; text-decoration: none; border: 1px solid #cbd5e1;" title="${searchTooltip}">
               <span>${searchBtnText}</span>

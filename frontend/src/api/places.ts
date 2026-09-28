@@ -1,5 +1,5 @@
 import { validateApiKey } from "@/utils/apiUtils";
-import { fetchWikimediaPhoto, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres, containsThaiScript } from "./geocode";
+import { fetchWikimediaPhoto, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres, containsThaiScript, sanitizePlaceTitle, isZoneDining, extractZoneAnchorVenue } from "./geocode";
 import { getCuratedFallbackPhoto, fetchSmartPhoto } from "@/services/photoService";
 import { foursquareSearch, foursquareGetPhotos, isFoursquareRateLimited, setFoursquareRateLimited } from "./foursquareClient";
 
@@ -37,6 +37,10 @@ export interface PlaceDetails {
   phoneNumber: string | null;
   lat: number | null;
   lng: number | null;
+  canonicalName?: string | null;
+  canonicalNameEn?: string | null;
+  formattedAddress?: string | null;
+  placeId?: string | null;
 }
 
 /**
@@ -115,24 +119,10 @@ export function getCleanPhotoUrl(photoObj: any): string | null {
 }
 
 function cleanVenueSearchQuery(name: string): string {
-  let cleaned = name.trim();
-  const prefixes = [
-    /^(Explore|Visit|See|Tour|Check out|Discover|Experience|Enjoy|Attend|Watch|Ride|Take a|Catch a|Walk around|Walk through|Walk in|Walk to|Walk|Stroll around|Stroll through|Stroll|Hike up|Hike|Climb|Swim at|Snorkel at|Dive at|Relax at|Relax in|Chill at|Rest at|Wander around|Wander through|Shopping at|Shopping in|Head to|Go to|Travel to|Arrive at|Check in|Check out)\s+/i,
-    /^(Breakfast|Lunch|Dinner|Brunch|Supper|Snack|Coffee|Tea|Drink|Cocktail)\s+(at|in|near|by|around|along|by the)\s+/i,
-    /^(Grab|Have|Try|Eat|Taste|Sample)\s+(breakfast|lunch|dinner|brunch|coffee|tea|a meal|food|snacks?)\s+(at|in|near|by|around)?\s*/i,
-    /^(Night|Morning|Evening|Afternoon|Sunset|Sunrise)\s+(view|visit|walk|cruise|tour|market|show|performance|activity)\s+(of|at|in|near|along)?\s*/i,
-    /^(Traditional|Local|Authentic|Classic|Famous|Typical)\s+[\w\s]*(Lunch|Dinner|Breakfast|Brunch|Food|Market|Street Food|Eatery)\s+(at|in|near)?\s*/i,
-    /^(at|in|near|by|around|along|the)\s+/i,
-    /^(ชมวิวพระอาทิตย์ตกที่|ชมวิวที่|ชมความงามของ|ชมวิว|เที่ยวชม|เที่ยว|แวะเที่ยว|แวะชม|แวะถ่ายรูปที่|แวะถ่ายรูป|แวะ|ไหว้พระที่|ไหว้พระ|สักการะที่|สักการะ)\s*/,
-    /^(ทานอาหารกลางวันที่|ทานอาหารมื้อค่ำที่|ทานอาหารเย็นที่|ทานอาหารที่|ทานมื้อเที่ยงที่|ทานมื้อค่ำที่|กินข้าวกลางวันที่|กินข้าวเที่ยงที่|กินข้าวเย็นที่|กินข้าวที่|กินอาหารที่|กิน|จิบกาแฟที่|ดื่มกาแฟที่|นั่งชิลที่)\s*/,
-  ];
-
-  let prev = "";
-  while (prev !== cleaned) {
-    prev = cleaned;
-    for (const p of prefixes) cleaned = cleaned.replace(p, "").trim();
+  if (isZoneDining(name)) {
+    return extractZoneAnchorVenue(name);
   }
-  return cleaned || name.trim();
+  return sanitizePlaceTitle(name);
 }
 
 /** Fetch high-precision POI details, real user photos & hours from Foursquare Places API v3 */
@@ -207,6 +197,9 @@ async function fetchFoursquarePlaceDetails(
       phoneNumber: result.tel || null,
       lat,
       lng,
+      canonicalName: result.name || null,
+      formattedAddress: result.location?.formatted_address || result.location?.address || null,
+      placeId: placeId || null,
     };
   } catch (err) {
     console.warn("fetchFoursquarePlaceDetails error:", err);
@@ -255,14 +248,18 @@ export async function fetchPlaceDetails(
     });
 
     // 0. Check Famous Landmark Disambiguation first (Exact Pinpoint Match)
-    const normKey = placeName.toLowerCase().trim().replace(/,\s*(thailand|ประเทศไทย)$/i, "").trim();
-    const enNormKey = extraOptions?.englishName ? extraOptions.englishName.toLowerCase().trim().replace(/,\s*(thailand|ประเทศไทย)$/i, "").trim() : "";
+    const isZone = isZoneDining(placeName);
+    const searchTarget = cleanVenueSearchQuery(placeName);
+    const enSearchTarget = extraOptions?.englishName ? cleanVenueSearchQuery(extraOptions.englishName) : "";
+
+    const normKey = searchTarget.toLowerCase().trim().replace(/,\s*(thailand|ประเทศไทย)$/i, "").trim();
+    const enNormKey = enSearchTarget.toLowerCase().trim().replace(/,\s*(thailand|ประเทศไทย)$/i, "").trim();
     const disambigMatch = Object.entries(FAMOUS_LANDMARK_DISAMBIGUATION).find(
       ([k]) => normKey === k || normKey.includes(k) || k.includes(normKey) || (enNormKey && (enNormKey === k || enNormKey.includes(k) || k.includes(enNormKey)))
     );
     if (disambigMatch) {
       const [, d] = disambigMatch;
-      if (!bias || distanceMetres(d, bias) <= 150_000) {
+      if (!bias || !bias.lat || !bias.lng || distanceMetres(d, bias) <= 150_000) {
         const resolvedPhoto = await smartPhotoPromise;
         const fallbackPhoto = getCuratedFallbackPhoto(category, placeName, {
           cityName,
@@ -280,15 +277,18 @@ export async function fetchPlaceDetails(
           phoneNumber: null,
           lat: d.lat,
           lng: d.lng,
+          canonicalName: isZone ? sanitizePlaceTitle(placeName) : d.formattedAddress.split(",")[0].trim(),
+          formattedAddress: d.formattedAddress,
+          placeId: `disambig-${encodeURIComponent(disambigMatch[0])}`,
         };
       }
     }
 
     // 2. Fetch high-quality place info from Foursquare (if key available and not rate limited)
     if (FOURSQUARE_API_KEY && !isFoursquareRateLimited()) {
-      let fsqData = await fetchFoursquarePlaceDetails(placeName, bias);
-      if ((!fsqData || fsqData.lat === null) && extraOptions?.englishName && extraOptions.englishName !== placeName) {
-        fsqData = await fetchFoursquarePlaceDetails(extraOptions.englishName, bias);
+      let fsqData = await fetchFoursquarePlaceDetails(searchTarget, bias);
+      if ((!fsqData || fsqData.lat === null) && enSearchTarget && enSearchTarget !== searchTarget) {
+        fsqData = await fetchFoursquarePlaceDetails(enSearchTarget, bias);
       }
       if (fsqData && fsqData.lat !== null && fsqData.lng !== null) {
         const resolvedPhoto = await smartPhotoPromise;
@@ -300,6 +300,7 @@ export async function fetchPlaceDetails(
 
         return {
           ...fsqData,
+          canonicalName: isZone ? sanitizePlaceTitle(placeName) : fsqData.canonicalName,
           photo_url: fsqData.photo_url || resolvedPhoto || fallbackPhoto,
         };
       }
@@ -409,6 +410,9 @@ export async function fetchPlaceDetails(
                 phoneNumber: props.contact?.phone || props.datasource?.raw?.phone || null,
                 lat,
                 lng,
+                canonicalName: isZone ? sanitizePlaceTitle(placeName) : (props.name || props.formatted?.split(",")?.[0]?.trim() || null),
+                formattedAddress: props.formatted || null,
+                placeId: props.place_id || null,
               };
             }
           }
@@ -451,6 +455,9 @@ export async function fetchPlaceDetails(
           phoneNumber: null,
           lat: parseFloat(first.lat),
           lng: parseFloat(first.lon),
+          canonicalName: isZone ? sanitizePlaceTitle(placeName) : (first.display_name?.split(",")?.[0]?.trim() || null),
+          formattedAddress: first.display_name || null,
+          placeId: first.place_id ? String(first.place_id) : null,
         };
       }
     }
