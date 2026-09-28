@@ -434,14 +434,23 @@ const Index = () => {
         suggestions,
         accommodations,
         uploaded_locations: detectedLocations.length > 0
-          ? detectedLocations.map((loc) => ({
-              place: loc.place,
-              place_th: loc.place_th,
-              city: loc.city,
-              country: loc.country,
-              confidence: loc.confidence,
-              uploadedImageUrl: loc.uploadedImageUrl,
-            }))
+          ? detectedLocations.reduce<any[]>((acc, loc) => {
+              const isDup = acc.some((item) =>
+                (item.uploadedImageUrl && loc.uploadedImageUrl && item.uploadedImageUrl.trim() === loc.uploadedImageUrl.trim()) ||
+                (item.place && loc.place && item.place.trim().toLowerCase() === loc.place.trim().toLowerCase())
+              );
+              if (!isDup) {
+                acc.push({
+                  place: loc.place,
+                  place_th: loc.place_th,
+                  city: loc.city,
+                  country: loc.country,
+                  confidence: loc.confidence,
+                  uploadedImageUrl: loc.uploadedImageUrl,
+                });
+              }
+              return acc;
+            }, [])
           : undefined,
       });
       toast.success(

@@ -1641,14 +1641,101 @@ export default function BlindEvaluation() {
 
             {/* Input Locations from Uploaded Photos */}
             {(() => {
-              const uploadedLocs = candidateTrips
-                .flatMap((t) => (t as any).uploaded_locations || [])
-                .reduce<Array<any>>((acc, loc) => {
-                  if (!acc.some((l: any) => l.place.toLowerCase() === loc.place.toLowerCase())) {
-                    acc.push(loc);
+              const normalize = (str?: string) => (str || "").trim().toLowerCase();
+
+              const isSameImage = (urlA?: string, urlB?: string) => {
+                if (!urlA || !urlB) return false;
+                const a = urlA.trim();
+                const b = urlB.trim();
+                if (a === b) return true;
+                if (a.startsWith("http") && b.startsWith("http")) {
+                  const cleanA = a.split("?")[0];
+                  const cleanB = b.split("?")[0];
+                  if (cleanA === cleanB) return true;
+                }
+                return false;
+              };
+
+              const isSameLocation = (a: any, b: any) => {
+                // 1. Same image URL or image source data (primary check)
+                if (isSameImage(a.uploadedImageUrl, b.uploadedImageUrl)) {
+                  return true;
+                }
+
+                // 2. Same place name (primary, th, en)
+                const aPlace = normalize(a.place);
+                const bPlace = normalize(b.place);
+                if (aPlace && bPlace && aPlace === bPlace) return true;
+
+                const aTh = normalize(a.place_th);
+                const bTh = normalize(b.place_th);
+                if (aTh && bTh && aTh === bTh) return true;
+
+                const aEn = normalize(a.place_en);
+                const bEn = normalize(b.place_en);
+                if (aEn && bEn && aEn === bEn) return true;
+
+                // Cross match Thai and English place names
+                if (aPlace && (aPlace === bTh || aPlace === bEn)) return true;
+                if (bPlace && (bPlace === aTh || bPlace === aEn)) return true;
+
+                // 3. Proximity coordinates (< 300 meters)
+                if (
+                  a.lat !== undefined &&
+                  a.lng !== undefined &&
+                  b.lat !== undefined &&
+                  b.lng !== undefined
+                ) {
+                  const latDiff = Math.abs(Number(a.lat) - Number(b.lat));
+                  const lngDiff = Math.abs(Number(a.lng) - Number(b.lng));
+                  if (latDiff < 0.003 && lngDiff < 0.003) return true;
+                }
+
+                return false;
+              };
+
+              const tripsToScan = candidateTrips.length > 0 ? candidateTrips : (activeTrip ? [activeTrip] : []);
+              const rawLocs = tripsToScan.flatMap(
+                (t) => (t as any).uploaded_locations || (t as any).detected_locations || []
+              );
+
+              const uploadedLocs = rawLocs.reduce<Array<any>>((acc, loc) => {
+                if (!loc) return acc;
+                const existingIndex = acc.findIndex((item) => isSameLocation(item, loc));
+                if (existingIndex >= 0) {
+                  const existing = acc[existingIndex];
+                  const existingConf = typeof existing.confidence === "number" ? existing.confidence : 0;
+                  const newConf = typeof loc.confidence === "number" ? loc.confidence : 0;
+
+                  // Keep higher confidence entry and merge supplementary metadata
+                  if (newConf > existingConf) {
+                    acc[existingIndex] = {
+                      ...loc,
+                      place_th: loc.place_th || existing.place_th,
+                      place_en: loc.place_en || existing.place_en,
+                      city_th: loc.city_th || existing.city_th,
+                      city: loc.city || existing.city,
+                      country_th: loc.country_th || existing.country_th,
+                      country: loc.country || existing.country,
+                      uploadedImageUrl: loc.uploadedImageUrl || existing.uploadedImageUrl,
+                    };
+                  } else {
+                    acc[existingIndex] = {
+                      ...existing,
+                      place_th: existing.place_th || loc.place_th,
+                      place_en: existing.place_en || loc.place_en,
+                      city_th: existing.city_th || loc.city_th,
+                      city: existing.city || loc.city,
+                      country_th: existing.country_th || loc.country_th,
+                      country: existing.country || loc.country,
+                      uploadedImageUrl: existing.uploadedImageUrl || loc.uploadedImageUrl,
+                    };
                   }
-                  return acc;
-                }, []);
+                } else {
+                  acc.push({ ...loc });
+                }
+                return acc;
+              }, []);
 
               return (
                 <div className="mt-3 rounded-2xl border border-sky-200/80 dark:border-sky-900/50 bg-gradient-to-r from-sky-50/60 via-indigo-50/30 to-background dark:from-sky-950/25 dark:via-indigo-950/10 dark:to-background p-3.5 shadow-2xs">
