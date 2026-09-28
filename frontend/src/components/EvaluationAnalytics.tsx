@@ -55,6 +55,7 @@ import {
   Clock,
   MapPin,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 import {
   resolveEvaluatorName,
@@ -119,6 +120,7 @@ interface EvaluationAnalyticsProps {
   revealModels: boolean;
   setRevealModels: (reveal: boolean) => void;
   onRefreshResults: () => Promise<void>;
+  onOpenClearModal?: () => void;
 }
 
 export default function EvaluationAnalytics({
@@ -127,6 +129,7 @@ export default function EvaluationAnalytics({
   revealModels,
   setRevealModels,
   onRefreshResults,
+  onOpenClearModal,
 }: EvaluationAnalyticsProps) {
   // Filter states
   const [selectedScenarioFilter, setSelectedScenarioFilter] = useState<string>("all");
@@ -1043,6 +1046,19 @@ export default function EvaluationAnalytics({
                 <FileJson className="size-3.5 text-amber-600" />
                 <span>Full Dataset (JSON)</span>
               </Button>
+
+              {onOpenClearModal && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onOpenClearModal}
+                  className="h-8 text-xs rounded-full gap-1.5 px-3 bg-red-50/70 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-950/50 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/60"
+                  title="ล้างข้อมูลคะแนนและคำถามเชิงคุณภาพที่ใช้ทดสอบ (เก็บแผนการเดินทาง Benchmark ไว้)"
+                >
+                  <Trash2 className="size-3.5 text-red-500" />
+                  <span>ล้างข้อมูลทดสอบ (Dev)</span>
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>

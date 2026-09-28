@@ -37,6 +37,7 @@ import type { LocationData } from "@/components/LocationDisplay";
 import { DAY_COLORS, type Activity, typeConfig } from "@/components/TravelItinerary";
 import { getPlaceImage } from "@/utils/getPlaceImage";
 import EvaluationAnalytics from "@/components/EvaluationAnalytics";
+import ClearEvaluationsModal from "@/components/ClearEvaluationsModal";
 import {
   Plane,
   Eye,
@@ -237,6 +238,9 @@ export default function BlindEvaluation() {
 
   // Active Dimension Tab inside the Rubric
   const [activeDimTab, setActiveDimTab] = useState<string>("fa");
+
+  // Dev: Clear Evaluations Modal state
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
 
   // -------------------------------------------------------------
   // PART 1: EXPERT PROFILE PERSISTENCE (localStorage)
@@ -2023,27 +2027,22 @@ export default function BlindEvaluation() {
 
                 <CardContent className="p-4 space-y-4">
                   {/* Dedicated Academic Indicator: Vision-Plan Alignment (ความสอดคล้องกับรูปภาพ) */}
-                  <div className="p-3 rounded-2xl border border-sky-300 dark:border-sky-800 bg-sky-50/70 dark:bg-sky-950/30 space-y-2 shadow-2xs">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <div className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-700 dark:text-sky-400">
+                  <div className="p-3.5 rounded-2xl border border-sky-300 dark:border-sky-800 bg-sky-50/70 dark:bg-sky-950/30 space-y-2.5 shadow-2xs">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <div className="flex size-7.5 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-700 dark:text-sky-400 mt-0.5">
                           <Camera className="size-4" />
                         </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-sky-950 dark:text-sky-200">
-                              Vision-Plan Alignment (ความสอดคล้องกับรูปภาพ)
-                            </span>
-                            <Badge className="bg-sky-600 text-white text-[9px] px-1.5 py-0 h-4 rounded-md">
-                              ตัวชี้วัดวิจัย
-                            </Badge>
-                          </div>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                        <div className="min-w-0 space-y-0.5">
+                          <span className="text-xs font-bold text-sky-950 dark:text-sky-100 leading-snug block">
+                            Vision-Plan Alignment (ความสอดคล้องกับรูปภาพ)
+                          </span>
+                          <p className="text-[11px] text-muted-foreground leading-normal">
                             แผนบูรณาการสถานที่และแรงบันดาลใจจากรูปภาพที่อัปโหลดได้ครบถ้วนเพียงใด
                           </p>
                         </div>
                       </div>
-                      <span className="text-xs font-bold text-sky-700 dark:text-sky-300 px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900 border border-sky-300/60 dark:border-sky-800 shrink-0">
+                      <span className="text-xs font-bold text-sky-700 dark:text-sky-300 px-2.5 py-1 rounded-full bg-sky-100 dark:bg-sky-900 border border-sky-300/60 dark:border-sky-800 shrink-0 whitespace-nowrap">
                         {currentTripScores.cc6 || currentTripScores.vision_alignment || 4} / 5
                       </span>
                     </div>
@@ -2552,16 +2551,29 @@ export default function BlindEvaluation() {
               </div>
             </div>
 
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={syncingCloud}
-              onClick={handleSyncToCloud}
-              className="h-9 px-4 rounded-full gap-2 text-xs font-semibold bg-background hover:bg-purple-50 hover:text-purple-700 border-purple-300 shadow-2xs shrink-0 self-end sm:self-auto"
-            >
-              <RefreshCw className={`size-3.5 ${syncingCloud ? "animate-spin text-purple-600" : ""}`} />
-              <span>{syncingCloud ? "กำลังซิงก์ข้อมูลขึ้น Cloud..." : "ซิงก์ข้อมูล Local ขึ้น Supabase Cloud"}</span>
-            </Button>
+            <div className="flex items-center gap-2 flex-wrap shrink-0 self-end sm:self-auto">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={syncingCloud}
+                onClick={handleSyncToCloud}
+                className="h-9 px-4 rounded-full gap-2 text-xs font-semibold bg-background hover:bg-purple-50 hover:text-purple-700 border-purple-300 shadow-2xs"
+              >
+                <RefreshCw className={`size-3.5 ${syncingCloud ? "animate-spin text-purple-600" : ""}`} />
+                <span>{syncingCloud ? "กำลังซิงก์ข้อมูลขึ้น Cloud..." : "ซิงก์ข้อมูล Local ขึ้น Supabase Cloud"}</span>
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsClearModalOpen(true)}
+                className="h-9 px-3.5 rounded-full gap-2 text-xs font-semibold bg-background hover:bg-red-50 hover:text-red-700 border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 shadow-2xs"
+                title="ล้างข้อมูลคะแนนและคำถามเชิงคุณภาพที่ใช้ทดสอบ (เก็บแผนการเดินทาง Benchmark ไว้)"
+              >
+                <Trash2 className="size-3.5 text-red-500" />
+                <span>ล้างข้อมูลประเมินทดสอบ</span>
+              </Button>
+            </div>
           </div>
         </Card>
 
@@ -2571,6 +2583,14 @@ export default function BlindEvaluation() {
           revealModels={revealModels}
           setRevealModels={setRevealModels}
           onRefreshResults={loadResults}
+          onOpenClearModal={() => setIsClearModalOpen(true)}
+        />
+
+        <ClearEvaluationsModal
+          open={isClearModalOpen}
+          onOpenChange={setIsClearModalOpen}
+          resultsData={resultsData}
+          onCleared={loadResults}
         />
       </div>
     );

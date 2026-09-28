@@ -469,6 +469,102 @@ export async function deleteBlindTrip(tripId: string): Promise<void> {
 }
 
 /**
+ * Deletes a single blind evaluation record (Dev only).
+ */
+export async function deleteBlindEvaluation(evalId: string): Promise<void> {
+  // Try Supabase first
+  try {
+    const { error } = await supabase.from("blind_evaluations").delete().eq("id", evalId);
+    if (!error) return;
+  } catch (e) {
+    console.warn("Supabase deleteBlindEvaluation failed:", e);
+  }
+
+  // Fallback to Backend
+  const res = await fetch(`${API_BASE}/blind_eval/evaluation/${encodeURIComponent(evalId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Failed to delete blind evaluation");
+}
+
+/**
+ * Clears test evaluation scores and qualitative feedback (Dev only).
+ * PRESERVES blind_trips (benchmark scenarios & plans) safely!
+ */
+export async function clearBlindEvaluationResults(options?: {
+  target?: "all" | "expert";
+  expertId?: string;
+  role?: string;
+}): Promise<{ deletedEvals: number; deletedComps: number }> {
+  const target = options?.target || "all";
+  const expertId = options?.expertId?.trim().toLowerCase();
+  let deletedEvals = 0;
+  let deletedComps = 0;
+
+  // 1. Delete from Supabase
+  try {
+    if (target === "expert" && expertId) {
+      const { data: eData } = await supabase
+        .from("blind_evaluations")
+        .delete()
+        .ilike("expert_id", expertId)
+        .select("id");
+      const { data: cData } = await supabase
+        .from("blind_comparisons")
+        .delete()
+        .ilike("expert_id", expertId)
+        .select("id");
+      deletedEvals = eData?.length || 0;
+      deletedComps = cData?.length || 0;
+    } else {
+      const { data: eData } = await supabase
+        .from("blind_evaluations")
+        .delete()
+        .neq("id", "")
+        .select("id");
+      const { data: cData } = await supabase
+        .from("blind_comparisons")
+        .delete()
+        .neq("id", "")
+        .select("id");
+      deletedEvals = eData?.length || 0;
+      deletedComps = cData?.length || 0;
+    }
+  } catch (e) {
+    console.warn("Supabase clearBlindEvaluationResults failed, falling back to backend:", e);
+  }
+
+  // 2. Also delete from Local Backend JSON storage
+  try {
+    const res = await fetch(`${API_BASE}/blind_eval/clear_results`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        role: "dev",
+        target,
+        expert_id: expertId,
+      }),
+    });
+    if (res.ok) {
+      const bData = await res.json();
+      if (!deletedEvals) deletedEvals = bData.deleted_evals || 0;
+      if (!deletedComps) deletedComps = bData.deleted_comps || 0;
+    }
+  } catch (e) {
+    console.warn("Backend clear_results call failed:", e);
+  }
+
+  // 3. If clearing all, reset the expert naming registry in localStorage
+  if (target === "all" && typeof window !== "undefined") {
+    try {
+      localStorage.removeItem("pixinerary_expert_email_registry");
+    } catch {}
+  }
+
+  return { deletedEvals, deletedComps };
+}
+
+/**
  * Submits expert 6-dimension evaluation score to Supabase blind_evaluations table.
  */
 export async function submitBlindScore(

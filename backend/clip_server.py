@@ -3237,6 +3237,88 @@ def get_blind_results():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/blind_eval/clear_results", methods=["POST"])
+def clear_blind_results():
+    """
+    Dev-only: Clears test evaluation scores and qualitative feedback.
+    Preserves blind_trips.json (benchmark scenario trips) intact!
+    """
+    try:
+        data = request.get_json() or {}
+        role = (data.get("role") or "").strip().lower()
+        if role != "dev":
+            return jsonify({"error": "Unauthorized. Only 'dev' role can clear evaluation data."}), 403
+
+        target = data.get("target", "all")  # "all" or "expert"
+        expert_id = (data.get("expert_id") or "").strip().lower()
+
+        evals = _load_json_file(BLIND_EVALS_FILE, [])
+        comparisons = _load_json_file(BLIND_COMPARISONS_FILE, [])
+
+        initial_eval_count = len(evals)
+        initial_comp_count = len(comparisons)
+
+        if target == "expert" and expert_id:
+            # Filter out evaluations and comparisons by this specific expert
+            new_evals = [
+                e for e in evals
+                if (e.get("expert_id") or "").strip().lower() != expert_id
+            ]
+            new_comps = [
+                c for c in comparisons
+                if (c.get("expert_id") or "").strip().lower() != expert_id
+            ]
+            deleted_evals = initial_eval_count - len(new_evals)
+            deleted_comps = initial_comp_count - len(new_comps)
+
+            _save_json_file(BLIND_EVALS_FILE, new_evals)
+            _save_json_file(BLIND_COMPARISONS_FILE, new_comps)
+
+            return jsonify({
+                "status": "success",
+                "target": "expert",
+                "expert_id": expert_id,
+                "deleted_evals": deleted_evals,
+                "deleted_comps": deleted_comps,
+                "remaining_evals": len(new_evals),
+                "remaining_comps": len(new_comps)
+            })
+        else:
+            # Clear all evaluations and comparisons (preserve blind_trips.json!)
+            _save_json_file(BLIND_EVALS_FILE, [])
+            _save_json_file(BLIND_COMPARISONS_FILE, [])
+
+            return jsonify({
+                "status": "success",
+                "target": "all",
+                "deleted_evals": initial_eval_count,
+                "deleted_comps": initial_comp_count,
+                "remaining_evals": 0,
+                "remaining_comps": 0
+            })
+    except Exception as e:
+        print("[Error /blind_eval/clear_results]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/blind_eval/evaluation/<eval_id>", methods=["DELETE"])
+def delete_blind_evaluation(eval_id):
+    """
+    Dev-only: Delete a single evaluation record by its id.
+    """
+    try:
+        evals = _load_json_file(BLIND_EVALS_FILE, [])
+        new_evals = [e for e in evals if e.get("id") != eval_id]
+        if len(new_evals) == len(evals):
+            return jsonify({"error": "Evaluation not found"}), 404
+        _save_json_file(BLIND_EVALS_FILE, new_evals)
+        return jsonify({"status": "deleted", "eval_id": eval_id})
+    except Exception as e:
+        print("[Error /blind_eval/evaluation delete]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+
 @app.route("/users/roles", methods=["GET", "POST"])
 def manage_user_roles():
     try:
