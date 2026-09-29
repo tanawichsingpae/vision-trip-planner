@@ -555,6 +555,7 @@ export async function clearBlindEvaluationResults(options?: {
         .from("blind_comparisons")
         .delete()
         .neq("id", "")
+        .neq("id", "__system_default_role__")
         .select("id");
       deletedEvals = eData?.length || 0;
       deletedComps = cData?.length || 0;
@@ -814,7 +815,9 @@ export async function fetchBlindResults(): Promise<{
 
     if (!evalsRes.error && evalsRes.data && !tripsRes.error && tripsRes.data) {
       const trips = tripsRes.data;
-      const comps: ScenarioComparisonRecord[] = (compsRes.data || []).map((row: any) => {
+      const comps: ScenarioComparisonRecord[] = (compsRes.data || [])
+        .filter((row: any) => !row.id?.startsWith("__system_") && !row.scenario_id?.startsWith("__system_"))
+        .map((row: any) => {
         const prof = row.expert_profile || {};
         const geoFam = row.geographic_familiarity ?? prof.geographic_familiarity ?? 3;
         return {
@@ -1111,6 +1114,8 @@ export async function syncLocalToSupabase(): Promise<{
   return { tripsCount: syncedTrips, evalsCount: syncedEvals, compsCount: syncedComps };
 }
 
+export const DEFAULT_ROLE_INTERNAL_EMAIL = "__system_default_role__@pixinerary.internal";
+
 export async function fetchUserRoles(): Promise<UserRoleRecord[]> {
   const roleMap = new Map<string, UserRoleRecord>();
 
@@ -1119,9 +1124,12 @@ export async function fetchUserRoles(): Promise<UserRoleRecord[]> {
     const res = await fetch(`${API_BASE}/users/roles`);
     if (res.ok) {
       const data = await res.json();
+      if (data.default_role && ["dev", "expert", "user"].includes(data.default_role)) {
+        localStorage.setItem("pix_default_initial_role", data.default_role);
+      }
       const users: UserRoleRecord[] = data.users || [];
       for (const u of users) {
-        if (u.email) {
+        if (u.email && !u.email.startsWith("__system_")) {
           roleMap.set(u.email.toLowerCase(), {
             email: u.email.toLowerCase(),
             role: (u.role as "dev" | "expert" | "user") || "user",
@@ -1143,14 +1151,29 @@ export async function fetchUserRoles(): Promise<UserRoleRecord[]> {
 
     if (!error && profiles && profiles.length > 0) {
       for (const p of profiles) {
-        if (p.email) {
+        if (p.email && !p.email.startsWith("__system_")) {
           roleMap.set(p.email.toLowerCase(), {
             email: p.email.toLowerCase(),
             role: (p.role as "dev" | "expert" | "user") || "user",
             name: p.name || p.email.split("@")[0],
             updated_at: p.updated_at || p.created_at,
           });
+        } else if (p.email === DEFAULT_ROLE_INTERNAL_EMAIL && p.role) {
+          localStorage.setItem("pix_default_initial_role", p.role);
         }
+      }
+    }
+
+    // Also check blind_comparisons for system default role config
+    const { data: defRow } = await supabase
+      .from("blind_comparisons")
+      .select("qualitative_feedback")
+      .eq("id", "__system_default_role__")
+      .maybeSingle();
+    if (defRow?.qualitative_feedback?.default_role) {
+      const defRole = defRow.qualitative_feedback.default_role;
+      if (["dev", "expert", "user"].includes(defRole)) {
+        localStorage.setItem("pix_default_initial_role", defRole);
       }
     }
   } catch (e) {
@@ -1211,5 +1234,127 @@ export async function saveUserRole(record: {
     updated_at: new Date().toISOString(),
   };
 }
+
+/**
+ * Fetches the system-wide default role for newly registered/unassigned users.
+ * Robust resolution:
+ * 1. Supabase blind_comparisons table (with id: "__system_default_role__")
+ * 2. Backend API /system/default_role
+ * 3. LocalStorage cache & fallback to 'expert'
+ */
+export async function fetchSystemDefaultRole(): Promise<"dev" | "expert" | "user"> {
+  const cached = localStorage.getItem("pix_default_initial_role") as "dev" | "expert" | "user";
+
+  // 1. Try Supabase blind_comparisons config row
+  try {
+    const { data, error } = await supabase
+      .from("blind_comparisons")
+      .select("qualitative_feedback")
+      .eq("id", "__system_default_role__")
+      .maybeSingle();
+
+    if (!error && data?.qualitative_feedback?.default_role) {
+      const role = data.qualitative_feedback.default_role;
+      if (["dev", "expert", "user"].includes(role)) {
+        localStorage.setItem("pix_default_initial_role", role);
+        return role as "dev" | "expert" | "user";
+      }
+    }
+  } catch {}
+
+  // 2. Try Backend API
+  try {
+    const res = await fetch(`${API_BASE}/system/default_role`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.default_role && ["dev", "expert", "user"].includes(data.default_role)) {
+        localStorage.setItem("pix_default_initial_role", data.default_role);
+        return data.default_role;
+      }
+    }
+  } catch {}
+
+  if (cached && ["dev", "expert", "user"].includes(cached)) {
+    return cached;
+  }
+
+  // Default initial fallback is 'expert'
+  return "expert";
+}
+
+/**
+ * Saves the system-wide default role for new users into local storage, backend, and Supabase.
+ */
+export async function saveSystemDefaultRole(role: "dev" | "expert" | "user"): Promise<void> {
+  localStorage.setItem("pix_default_initial_role", role);
+
+  // 1. Backend
+  try {
+    await fetch(`${API_BASE}/system/default_role`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ default_role: role }),
+    });
+  } catch (e) {
+    console.warn("Backend save default role failed:", e);
+  }
+
+  // 2. Supabase: save to blind_comparisons as zero-config reliable storage
+  try {
+    await supabase.from("blind_comparisons").upsert(
+      {
+        id: "__system_default_role__",
+        scenario_id: "__system__",
+        expert_id: "__system__",
+        expert_name: "System Settings",
+        qualitative_feedback: { default_role: role },
+        submitted_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+  } catch (e) {
+    console.warn("Supabase save default role failed:", e);
+  }
+}
+
+/**
+ * Batch updates all users with a specific role to a new role.
+ */
+export async function batchUpdateUsersRole(
+  fromRole: "dev" | "expert" | "user",
+  toRole: "dev" | "expert" | "user"
+): Promise<number> {
+  let count = 0;
+
+  // 1. Backend
+  try {
+    const res = await fetch(`${API_BASE}/users/batch_role`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from_role: fromRole, to_role: toRole }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      count = data.updated_count || 0;
+    }
+  } catch {}
+
+  // 2. Supabase
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .update({ role: toRole, updated_at: new Date().toISOString() })
+      .eq("role", fromRole)
+      .neq("email", DEFAULT_ROLE_INTERNAL_EMAIL)
+      .select("email");
+
+    if (!error && data) {
+      count = Math.max(count, data.length);
+    }
+  } catch {}
+
+  return count;
+}
+
 
 

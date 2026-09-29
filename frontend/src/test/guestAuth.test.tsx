@@ -20,6 +20,9 @@ vi.mock("@/lib/supabaseClient", () => ({
 vi.mock("@/api/blindEvalApi", () => ({
   fetchUserRoles: vi.fn().mockResolvedValue([]),
   saveUserRole: vi.fn().mockResolvedValue(true),
+  fetchSystemDefaultRole: vi.fn().mockResolvedValue("user"),
+  saveSystemDefaultRole: vi.fn().mockResolvedValue(true),
+  batchUpdateUsersRole: vi.fn().mockResolvedValue(0),
 }));
 
 describe("Guest Authentication Flow", () => {

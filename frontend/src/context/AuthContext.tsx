@@ -1,7 +1,14 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
 import { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabaseClient'
-import { fetchUserRoles, saveUserRole, type UserRoleRecord } from '@/api/blindEvalApi'
+import {
+  fetchUserRoles,
+  saveUserRole,
+  fetchSystemDefaultRole,
+  saveSystemDefaultRole,
+  batchUpdateUsersRole,
+  type UserRoleRecord,
+} from '@/api/blindEvalApi'
 
 export type UserRole = 'dev' | 'expert' | 'user'
 
@@ -31,6 +38,9 @@ type AuthContextType = {
   userRolesList: UserRoleRecord[]
   refreshUserRoles: () => Promise<void>
   updateUserRole: (email: string, role: UserRole, name?: string) => Promise<void>
+  defaultInitialRole: UserRole // System default initial role for new users
+  setDefaultInitialRole: (role: UserRole) => Promise<void>
+  batchUpdateRoles: (fromRole: UserRole, toRole: UserRole) => Promise<number>
   signOut: () => Promise<void>
   isDev: boolean // True if user is a system developer/admin
   isGuest: boolean // True if current user is logged in as a guest
@@ -48,6 +58,9 @@ const AuthContext = createContext<AuthContextType>({
   userRolesList: [],
   refreshUserRoles: async () => {},
   updateUserRole: async () => {},
+  defaultInitialRole: 'expert',
+  setDefaultInitialRole: async () => {},
+  batchUpdateRoles: async () => 0,
   signOut: async () => {},
   isDev: true,
   isGuest: false,
@@ -71,6 +84,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return 'dev'
   })
 
+  // System-wide default role for newly registered/unassigned users (defaults to 'expert')
+  const [defaultInitialRole, setDefaultInitialRoleState] = useState<UserRole>(() => {
+    const saved = localStorage.getItem('pix_default_initial_role') as UserRole
+    if (saved === 'dev' || saved === 'expert' || saved === 'user') return saved
+    return 'expert'
+  })
+
   // Known developer emails for instant recognition
   const KNOWN_DEV_EMAILS = useMemo(
     () => ['tanawichsingpae@gmail.com', 'supannika1212548@gmail.com', 'dev@pixinerary.com'],
@@ -87,11 +107,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return 'dev'
     }
     const emailLower = user.email.toLowerCase()
+    if (KNOWN_DEV_EMAILS.includes(emailLower)) return 'dev'
     const found = userRolesList.find((u) => u.email.toLowerCase() === emailLower)
     if (found?.role) return found.role
-    if (KNOWN_DEV_EMAILS.includes(emailLower)) return 'dev'
-    return 'user'
-  }, [isGuest, user?.email, userRolesList, KNOWN_DEV_EMAILS])
+    return defaultInitialRole
+  }, [isGuest, user?.email, userRolesList, KNOWN_DEV_EMAILS, defaultInitialRole])
 
   const isDev = useMemo(() => !isGuest && actualRole === 'dev', [isGuest, actualRole])
 
@@ -117,26 +137,65 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [setRole])
 
   const refreshUserRoles = useCallback(async () => {
+    // 1. Synchronize system-wide default role
+    let currentDefRole: UserRole = defaultInitialRole
+    try {
+      const defRole = await fetchSystemDefaultRole()
+      if (defRole && ['dev', 'expert', 'user'].includes(defRole)) {
+        currentDefRole = defRole
+        setDefaultInitialRoleState(defRole)
+      }
+    } catch {}
+
     if (isGuest || !user?.email || user.email === 'guest@pixinerary.local') {
       return
     }
+
     try {
       let records = await fetchUserRoles()
 
-      // If user is logged in via Supabase, ensure their record is tracked
       if (user?.email) {
         const emailLower = user.email.toLowerCase()
+        const isKnownDev = KNOWN_DEV_EMAILS.includes(emailLower)
         const found = records.find((r) => r.email.toLowerCase() === emailLower)
-        if (!found) {
-          const isKnownDev = KNOWN_DEV_EMAILS.includes(emailLower)
+
+        if (isKnownDev) {
+          if (!found || found.role !== 'dev') {
+            const devRecord: UserRoleRecord = {
+              email: user.email,
+              role: 'dev',
+              name: user.user_metadata?.full_name || found?.name || user.email.split('@')[0],
+              updated_at: new Date().toISOString(),
+            }
+            records = records.map((r) => (r.email.toLowerCase() === emailLower ? devRecord : r))
+            if (!found) records = [devRecord, ...records]
+            saveUserRole(devRecord).catch(() => {})
+          }
+        } else if (!found) {
+          // Brand new user not found in records: assign system default role
           const newRecord: UserRoleRecord = {
             email: user.email,
-            role: isKnownDev ? 'dev' : 'expert',
+            role: currentDefRole,
             name: user.user_metadata?.full_name || user.email.split('@')[0],
             updated_at: new Date().toISOString(),
           }
           records = [newRecord, ...records]
           saveUserRole(newRecord).catch(() => {})
+        } else if (
+          found.role === 'user' &&
+          currentDefRole !== 'user' &&
+          !localStorage.getItem(`pix_role_assigned_${emailLower}`)
+        ) {
+          // Supabase trigger automatically created a profile with hardcoded role 'user' on signup.
+          // Because system default role is 'expert' (or 'dev'), initialize this new user to the default role.
+          const newRecord: UserRoleRecord = {
+            ...found,
+            role: currentDefRole,
+            updated_at: new Date().toISOString(),
+          }
+          records = records.map((r) => (r.email.toLowerCase() === emailLower ? newRecord : r))
+          saveUserRole(newRecord).catch(() => {})
+          localStorage.setItem(`pix_role_assigned_${emailLower}`, 'true')
         }
       }
 
@@ -144,11 +203,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (err) {
       console.warn('refreshUserRoles error:', err)
     }
-  }, [isGuest, user?.email, user?.user_metadata, KNOWN_DEV_EMAILS])
+  }, [isGuest, user?.email, user?.user_metadata, KNOWN_DEV_EMAILS, defaultInitialRole])
 
   // Admin function: explicitly update a user's role in DB
   const updateUserRole = async (email: string, targetRole: UserRole, name?: string) => {
     const emailLower = email.trim().toLowerCase()
+    localStorage.setItem(`pix_role_assigned_${emailLower}`, 'true')
 
     // 1. Optimistic UI update immediately
     setUserRolesList((prev) => {
@@ -182,6 +242,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     // 3. Refresh to ensure state is synchronized
     await refreshUserRoles()
   }
+
+  // Admin function: update system-wide default role for new users
+  const setDefaultInitialRole = useCallback(async (targetRole: UserRole) => {
+    setDefaultInitialRoleState(targetRole)
+    localStorage.setItem('pix_default_initial_role', targetRole)
+    try {
+      await saveSystemDefaultRole(targetRole)
+    } catch (err) {
+      console.warn('setDefaultInitialRole error:', err)
+      throw err
+    }
+    await refreshUserRoles()
+  }, [refreshUserRoles])
+
+  // Admin function: batch update existing users with fromRole to toRole
+  const batchUpdateRoles = useCallback(
+    async (fromRole: UserRole, toRole: UserRole): Promise<number> => {
+      setUserRolesList((prev) =>
+        prev.map((u) => {
+          if (u.role === fromRole) {
+            localStorage.setItem(`pix_role_assigned_${u.email.toLowerCase()}`, 'true')
+            return { ...u, role: toRole, updated_at: new Date().toISOString() }
+          }
+          return u
+        })
+      )
+      const count = await batchUpdateUsersRole(fromRole, toRole)
+      await refreshUserRoles()
+      return count
+    },
+    [refreshUserRoles]
+  )
 
   useEffect(() => {
     const storedIsGuest = localStorage.getItem('pix_is_guest') === 'true'
@@ -249,6 +341,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       userRolesList,
       refreshUserRoles,
       updateUserRole,
+      defaultInitialRole,
+      setDefaultInitialRole,
+      batchUpdateRoles,
       signOut,
       isDev,
       isGuest,

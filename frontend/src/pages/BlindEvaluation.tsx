@@ -224,7 +224,29 @@ const DEFAULT_SCORES: DetailedDimensionScores = {
 };
 
 export default function BlindEvaluation() {
-  const { role, setRole, userEmail, userRolesList, updateUserRole, refreshUserRoles, isDev } = useAuth();
+  const {
+    role,
+    setRole,
+    userEmail,
+    userRolesList,
+    updateUserRole,
+    refreshUserRoles,
+    defaultInitialRole,
+    setDefaultInitialRole,
+    batchUpdateRoles,
+    isDev,
+  } = useAuth();
+
+  // Dev: System Default Initial Role state
+  const [selectedDefaultRole, setSelectedDefaultRole] = useState<UserRole>(defaultInitialRole || "expert");
+  const [isSavingDefaultRole, setIsSavingDefaultRole] = useState(false);
+  const [isBatchUpdatingUsers, setIsBatchUpdatingUsers] = useState(false);
+
+  useEffect(() => {
+    if (defaultInitialRole) {
+      setSelectedDefaultRole(defaultInitialRole);
+    }
+  }, [defaultInitialRole]);
 
   // Active Main Tab (Dev only can switch tabs; Expert stays in 'eval')
   const [activeTab, setActiveTab] = useState<"eval" | "results" | "users">("eval");
@@ -2785,14 +2807,148 @@ export default function BlindEvaluation() {
   function renderUsersSection() {
     return (
       <div className="space-y-6">
+        {/* System-wide Default Initial Role Card */}
+        <Card className="rounded-3xl border-2 border-purple-300/80 dark:border-purple-800 bg-gradient-to-br from-purple-50/70 via-indigo-50/30 to-background dark:from-purple-950/40 dark:via-indigo-950/15 dark:to-background shadow-xs overflow-hidden">
+          <CardHeader className="pb-3 border-b border-border/50">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-purple-600 text-white rounded-full text-[10px] font-semibold px-2.5 py-0.5">
+                    System Configuration
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">สิทธิ์เริ่มต้นทั้งระบบ</span>
+                </div>
+                <CardTitle className="text-base font-bold mt-1 flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-purple-600" />
+                  บทบาทเริ่มต้นสำหรับผู้เข้าใช้งานใหม่ (Default Role for New Users)
+                </CardTitle>
+                <CardDescription className="text-xs mt-0.5">
+                  กำหนดว่าเมื่อมีผู้ประเมินหรืออาจารย์เข้าสู่ระบบใหม่เป็นครั้งแรก (ทั้งผ่าน Google และ Email) จะได้รับสิทธิ์ใดโดยอัตโนมัติ
+                </CardDescription>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-muted-foreground">สิทธิ์เริ่มต้นปัจจุบัน:</span>
+                <Badge
+                  className={`text-xs font-bold uppercase px-3 py-1 rounded-full ${
+                    defaultInitialRole === "expert"
+                      ? "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950 dark:text-sky-300"
+                      : defaultInitialRole === "dev"
+                        ? "bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950 dark:text-purple-300"
+                        : "bg-slate-100 text-slate-800 border-slate-300"
+                  }`}
+                >
+                  {defaultInitialRole === "expert"
+                    ? "Expert (ผู้เชี่ยวชาญ)"
+                    : defaultInitialRole === "dev"
+                      ? "Dev (ผู้ดูแลระบบ)"
+                      : "User (ผู้ใช้ทั่วไป)"}
+                </Badge>
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-5 space-y-4">
+            <div className="p-4 rounded-2xl bg-background/90 border border-purple-200/70 dark:border-purple-900/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs font-bold text-foreground">
+                  เลือกบทบาทเริ่มต้นเมื่อผู้ใช้ลงทะเบียนหรือเข้าสู่ระบบใหม่:
+                </Label>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  💡 <strong>แนะนำ:</strong> ตั้งเป็น <strong>Expert</strong> เพื่อให้อาจารย์ด้านการท่องเที่ยวหรือผู้ประเมินสามารถเข้าถึงและประเมินผลในหน้า Blind Evaluation Portal ได้ทันทีโดยไม่ต้องรอ Dev อนุมัติสิทธิ์ทีละคน
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+                <Select
+                  value={selectedDefaultRole}
+                  onValueChange={(v) => setSelectedDefaultRole(v as UserRole)}
+                >
+                  <SelectTrigger className="h-9 text-xs rounded-xl w-full md:w-[190px] border-purple-300 dark:border-purple-800 bg-background font-medium">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="expert">Expert (ผู้เชี่ยวชาญ - แนะนำ)</SelectItem>
+                    <SelectItem value="user">User (ผู้ใช้ทั่วไป)</SelectItem>
+                    <SelectItem value="dev">Dev (ผู้ดูแลระบบ)</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  type="button"
+                  disabled={isSavingDefaultRole || selectedDefaultRole === defaultInitialRole}
+                  onClick={async () => {
+                    setIsSavingDefaultRole(true);
+                    try {
+                      await setDefaultInitialRole(selectedDefaultRole);
+                      toast.success(
+                        `บันทึกบทบาทเริ่มต้นเป็น "${selectedDefaultRole.toUpperCase()}" เรียบร้อยแล้ว (ผู้ใช้ใหม่จะได้รับสิทธิ์นี้ทันที)`
+                      );
+                    } catch (err: any) {
+                      toast.error(`ไม่สามารถบันทึกได้: ${err.message || err}`);
+                    } finally {
+                      setIsSavingDefaultRole(false);
+                    }
+                  }}
+                  className="h-9 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold gap-1.5 shadow-xs shrink-0"
+                >
+                  <Save className="size-3.5" />
+                  <span>{isSavingDefaultRole ? "กำลังบันทึก..." : "บันทึกบทบาทเริ่มต้น"}</span>
+                </Button>
+              </div>
+            </div>
+
+            {/* Quick Batch Update Action for existing User accounts */}
+            {(() => {
+              const currentUsersCount = userRolesList.filter((u) => u.role === "user").length;
+              if (currentUsersCount === 0) return null;
+
+              return (
+                <div className="p-3.5 rounded-2xl bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200/70 dark:border-sky-900/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2 text-sky-900 dark:text-sky-200">
+                    <Info className="size-4 text-sky-600 shrink-0" />
+                    <span>
+                      พบผู้ใช้งานเดิมที่เป็น <strong>User (ผู้ใช้ทั่วไป)</strong> จำนวน <strong>{currentUsersCount} บัญชี</strong> ที่ยังไม่มีสิทธิ์เข้าหน้าประเมิน
+                    </span>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isBatchUpdatingUsers}
+                    onClick={async () => {
+                      setIsBatchUpdatingUsers(true);
+                      try {
+                        const count = await batchUpdateRoles("user", "expert");
+                        toast.success(
+                          `อัปเกรดผู้ใช้เดิม ${count || currentUsersCount} บัญชีเป็น "Expert" เรียบร้อยแล้ว!`
+                        );
+                      } catch (err: any) {
+                        toast.error(`เกิดข้อผิดพลาด: ${err.message || err}`);
+                      } finally {
+                        setIsBatchUpdatingUsers(false);
+                      }
+                    }}
+                    className="h-7 text-xs rounded-full border-sky-300 bg-sky-100/60 hover:bg-sky-200 text-sky-900 dark:bg-sky-900/40 dark:text-sky-200 font-semibold shrink-0 gap-1"
+                  >
+                    <RefreshCw className={`size-3 ${isBatchUpdatingUsers ? "animate-spin" : ""}`} />
+                    <span>ปรับผู้ใช้ User ทั้งหมด ({currentUsersCount}) ให้เป็น Expert ทันที</span>
+                  </Button>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+
+        {/* Manual Assign User Role Card */}
         <Card className="rounded-3xl border border-border/80 bg-background shadow-xs overflow-hidden">
           <CardHeader className="pb-3 border-b border-border/50">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
               <UserCheck className="size-4 text-purple-600" />
-              กำหนดสิทธิ์ผู้ใช้งานใหม่ (Assign User Role)
+              กำหนดสิทธิ์ผู้ใช้งานเฉพาะรายบุคคล (Assign Specific User Role)
             </CardTitle>
             <CardDescription className="text-xs">
-              กำหนดให้ผู้ใช้เป็น <strong>Expert</strong> เพื่อให้สามารถเข้าสู่ระบบประเมิน Blind Evaluation ได้ หรือ <strong>Dev</strong> เพื่อจัดการระบบ
+              ระบุอีเมลเพื่อกำหนดสิทธิ์ล่วงหน้าให้ผู้ใช้งานรายบุคคล (เช่น ระบุให้อาจารย์เป็น <strong>Expert</strong> หรือมอบสิทธิ์ <strong>Dev</strong>)
             </CardDescription>
           </CardHeader>
           <CardContent className="p-5">

@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -2860,6 +2861,7 @@ BLIND_TRIPS_FILE = os.path.join(EXPERIMENT_DIR, "blind_trips.json")
 BLIND_EVALS_FILE = os.path.join(EXPERIMENT_DIR, "blind_evaluations.json")
 BLIND_COMPARISONS_FILE = os.path.join(EXPERIMENT_DIR, "blind_comparisons.json")
 USER_ROLES_FILE = os.path.join(EXPERIMENT_DIR, "user_roles.json")
+SYSTEM_SETTINGS_FILE = os.path.join(EXPERIMENT_DIR, "system_settings.json")
 
 def _load_json_file(filepath, default_val):
     if not os.path.exists(filepath):
@@ -3351,11 +3353,23 @@ def manage_user_roles():
             }
         }
         roles = _load_json_file(USER_ROLES_FILE, default_roles)
+        settings = _load_json_file(SYSTEM_SETTINGS_FILE, {"default_role": "expert"})
 
         if request.method == "POST":
             data = request.get_json() or {}
+
+            # Support updating default_role via /users/roles payload
+            if "default_role" in data and not data.get("email"):
+                new_def_role = (data.get("default_role") or "expert").strip().lower()
+                if new_def_role in ["dev", "expert", "user"]:
+                    settings["default_role"] = new_def_role
+                    settings["updated_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    _save_json_file(SYSTEM_SETTINGS_FILE, settings)
+                    return jsonify({"status": "success", "default_role": new_def_role})
+                return jsonify({"error": "Invalid role"}), 400
+
             email = (data.get("email") or "").strip().lower()
-            role = (data.get("role") or "user").strip().lower()
+            role = (data.get("role") or settings.get("default_role", "expert")).strip().lower()
             name = (data.get("name") or email.split("@")[0]).strip()
 
             if not email:
@@ -3370,12 +3384,64 @@ def manage_user_roles():
                 "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             _save_json_file(USER_ROLES_FILE, roles)
-            return jsonify({"status": "success", "user": roles[email]})
+            return jsonify({
+                "status": "success",
+                "user": roles[email],
+                "default_role": settings.get("default_role", "expert")
+            })
 
-        # GET request returns list of users
-        return jsonify({"users": list(roles.values())})
+        # GET request returns list of users & current default_role
+        user_list = [v for k, v in roles.items() if not k.startswith("__")]
+        return jsonify({
+            "users": user_list,
+            "default_role": settings.get("default_role", "expert")
+        })
     except Exception as e:
         print("[Error /users/roles]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/system/default_role", methods=["GET", "POST"])
+def manage_default_role():
+    try:
+        settings = _load_json_file(SYSTEM_SETTINGS_FILE, {"default_role": "expert"})
+        if request.method == "POST":
+            data = request.get_json() or {}
+            new_role = (data.get("default_role") or data.get("role") or "expert").strip().lower()
+            if new_role not in ["dev", "expert", "user"]:
+                return jsonify({"error": "Invalid role. Must be 'dev', 'expert', or 'user'"}), 400
+            settings["default_role"] = new_role
+            settings["updated_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _save_json_file(SYSTEM_SETTINGS_FILE, settings)
+            return jsonify({"status": "success", "default_role": new_role})
+
+        return jsonify({"default_role": settings.get("default_role", "expert")})
+    except Exception as e:
+        print("[Error /system/default_role]:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/users/batch_role", methods=["POST"])
+def batch_update_user_roles():
+    try:
+        data = request.get_json() or {}
+        from_role = (data.get("from_role") or "user").strip().lower()
+        to_role = (data.get("to_role") or "expert").strip().lower()
+        if to_role not in ["dev", "expert", "user"] or from_role not in ["dev", "expert", "user"]:
+            return jsonify({"error": "Invalid roles"}), 400
+
+        roles = _load_json_file(USER_ROLES_FILE, {})
+        updated_count = 0
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for email, u in roles.items():
+            if not email.startswith("__") and u.get("role") == from_role:
+                u["role"] = to_role
+                u["updated_at"] = now_str
+                updated_count += 1
+        _save_json_file(USER_ROLES_FILE, roles)
+        return jsonify({"status": "success", "updated_count": updated_count})
+    except Exception as e:
+        print("[Error /users/batch_role]:", e)
         return jsonify({"error": str(e)}), 500
 
 

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/context/AuthContext'
+import { fetchSystemDefaultRole, saveUserRole } from '@/api/blindEvalApi'
 import './Login.css'
 
 interface ExperienceItem {
@@ -111,14 +112,27 @@ export default function Login() {
 
     try {
       if (isSignUp) {
+        const sysRole = await fetchSystemDefaultRole()
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
+            data: {
+              role: sysRole,
+              full_name: email.split('@')[0],
+            },
             emailRedirectTo: `${window.location.origin}/`
           }
         })
         if (error) throw error
+
+        // Pre-save role to backend & database
+        await saveUserRole({
+          email,
+          role: sysRole,
+          name: email.split('@')[0],
+        }).catch(() => {})
+
         if (data?.session) {
           navigate('/')
         } else {
