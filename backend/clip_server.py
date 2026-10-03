@@ -671,6 +671,43 @@ def clean_conversational_text(text: str, user_text: str = "") -> str:
 
     return cleaned.strip()
 
+
+# --------------------
+# Benchmark Model Pricing Table (USD per 1M tokens: input, output)
+# Used as fallback accounting when OpenRouter API omits usage.cost
+# --------------------
+BENCHMARK_MODEL_PRICING = {
+    "anthropic/claude-sonnet-5": (3.00, 15.00),
+    "claude-sonnet": (3.00, 15.00),
+    "openai/gpt-5.4-mini": (0.15, 0.60),
+    "gpt-5.4-mini": (0.15, 0.60),
+    "openai/gpt-5.4": (2.50, 10.00),
+    "gpt-5.4": (2.50, 10.00),
+    "google/gemini-3.8-flash": (0.10, 0.40),
+    "gemini-3.8-flash": (0.10, 0.40),
+    "qwen/qwen3.8-flash": (0.20, 0.80),
+    "qwen3.8-flash": (0.20, 0.80),
+    "meta-llama/llama-4-maverick": (0.20, 0.60),
+    "llama-4-maverick": (0.20, 0.60),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.00),
+    "gemini-2.5-flash": (0.10, 0.40),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "llama-3.3-70b": (0.20, 0.60),
+}
+
+def calculate_fallback_cost(model_name: str, p_tokens: int, c_tokens: int) -> float:
+    """Calculates cost in USD based on official input/output token pricing table when API omits usage.cost."""
+    m = (model_name or "").lower()
+    in_rate, out_rate = 0.50, 1.50
+    for key, (r_in, r_out) in BENCHMARK_MODEL_PRICING.items():
+        if key in m:
+            in_rate, out_rate = r_in, r_out
+            break
+    calc = (p_tokens * in_rate + c_tokens * out_rate) / 1_000_000.0
+    return round(calc, 7)
+
+
 @app.route("/ai", methods=["POST"])
 @app.route("/openai", methods=["POST"])
 @app.route("/gemini", methods=["POST"])
@@ -953,6 +990,10 @@ def call_ai():
                             cost_usd = r_dump.get("usage", {}).get("cost", 0.0) or 0.0
                         except Exception:
                             pass
+
+                    # Fallback pricing calculation if cost_usd is 0.0 or omitted by OpenRouter
+                    if (not cost_usd or float(cost_usd) <= 0.0) and (prompt_tokens > 0 or completion_tokens > 0):
+                        cost_usd = calculate_fallback_cost(current_model, prompt_tokens, completion_tokens)
 
                     tokens_per_sec = round(completion_tokens / latency_sec, 2) if latency_sec > 0 else 0.0
                     gen_id = getattr(response, "id", None) or ""

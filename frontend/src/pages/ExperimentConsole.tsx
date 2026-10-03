@@ -80,6 +80,7 @@ import { LatexExportModal } from "@/components/experiment/LatexExportModal";
 import { ECEReliabilityModal } from "@/components/experiment/ECEReliabilityModal";
 import { BatchEvaluationCard, BatchItemResult } from "@/components/experiment/BatchEvaluationCard";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
+import { HumanDoubleCheckButton } from "@/components/experiment/HumanDoubleCheckButton";
 import {
   VPRTier,
   TIER_CONFIGS,
@@ -99,6 +100,7 @@ interface TrialResult {
   recall_rank: number;
   match_score: number;
   matched_alias: string | null;
+  user_verified?: boolean;
   failure_mode?: FailureMode;
   temperature?: number;
   tier?: VPRTier;
@@ -342,6 +344,7 @@ export default function ExperimentConsole() {
           recall_rank: evalResult.rank,
           match_score: evalResult.matchScore,
           matched_alias: evalResult.matchedAlias,
+          user_verified: false,
           failure_mode: failureMode,
           temperature: benchmarkTemperature,
           tier: singleTier,
@@ -373,6 +376,7 @@ export default function ExperimentConsole() {
       copy[index] = {
         ...copy[index],
         is_correct: value,
+        user_verified: true,
         recall_rank: value ? (copy[index].recall_rank > 0 ? copy[index].recall_rank : 1) : 0,
         failure_mode: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
       };
@@ -1019,16 +1023,18 @@ export default function ExperimentConsole() {
                               type="button"
                               onClick={() => setSingleTier(tierKey)}
                               disabled={isRunning}
-                              className={`flex items-start gap-2 p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                              className={`flex items-start gap-2 p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
                                 isSelected
                                   ? `${cfg.badgeClass} ring-2 ring-indigo-500 font-semibold shadow-xs`
-                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50/80"
                               }`}
                             >
-                              <span className="text-base leading-none mt-0.5">{cfg.icon}</span>
-                              <div className="truncate">
-                                <div className="font-bold text-[11px] leading-tight truncate">{cfg.shortLabel}</div>
-                                <div className="text-[9px] text-slate-400 truncate mt-0.5">{cfg.description}</div>
+                              <span className="text-lg leading-none mt-0.5 shrink-0">{cfg.icon}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-xs leading-tight text-slate-800">{cfg.shortLabel}</div>
+                                <div className="text-[10px] text-slate-500 line-clamp-2 leading-snug mt-0.5" title={cfg.description}>
+                                  {cfg.description}
+                                </div>
                               </div>
                             </button>
                           );
@@ -1257,9 +1263,9 @@ export default function ExperimentConsole() {
                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Recall Rank</TableHead>
                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Tokens (In / Out)</TableHead>
                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Cost / Req</TableHead>
-                                <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Latency & Speed</TableHead>
-                                <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Verification</TableHead>
-                                <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Failure Mode</TableHead>
+                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Latency & Speed</TableHead>
+                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Double-Check (Verdict)</TableHead>
+                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Failure Mode</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -1321,32 +1327,13 @@ export default function ExperimentConsole() {
                                     )}
                                   </TableCell>
                                   <TableCell className="py-3 text-center">
-                                    <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
-                                      <button
-                                        type="button"
-                                        onClick={() => updateCorrectness(idx, true)}
-                                        className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
-                                          row.is_correct
-                                            ? "bg-emerald-600 text-white font-bold shadow-xs"
-                                            : "text-slate-500 hover:text-emerald-700"
-                                        }`}
-                                      >
-                                        <CheckCircle2 className="w-3 h-3 mr-0.5" />
-                                        <span>Correct</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => updateCorrectness(idx, false)}
-                                        className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
-                                          !row.is_correct
-                                            ? "bg-rose-600 text-white font-bold shadow-xs"
-                                            : "text-slate-500 hover:text-rose-700"
-                                        }`}
-                                      >
-                                        <XCircle className="w-3 h-3 mr-0.5" />
-                                        <span>Wrong</span>
-                                      </button>
-                                    </div>
+                                    <HumanDoubleCheckButton
+                                      isCorrect={row.is_correct}
+                                      matchScore={row.match_score}
+                                      matchedAlias={row.matched_alias}
+                                      isVerified={row.user_verified}
+                                      onChange={(val) => updateCorrectness(idx, val)}
+                                    />
                                   </TableCell>
                                   <TableCell className="py-3 text-center">
                                     {row.is_correct ? (

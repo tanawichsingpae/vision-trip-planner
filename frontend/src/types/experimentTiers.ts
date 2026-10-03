@@ -2,9 +2,13 @@ export type VPRTier = "tier1_iconic" | "tier2_longtail" | "tier3_nature" | "tier
 
 export interface TierConfig {
   id: VPRTier;
+  icon: string;
+  shortLabel: string;
+  label: string;
   labelEn: string;
   shortName: string;
   badge: string;
+  badgeClass: string;
   color: string;
   bgColor: string;
   borderColor: string;
@@ -16,49 +20,65 @@ export interface TierConfig {
 export const TIER_CONFIGS: Record<VPRTier, TierConfig> = {
   tier1_iconic: {
     id: "tier1_iconic",
-    labelEn: "Tier 1: Iconic Landmarks",
-    shortName: "T1: Iconic",
-    badge: "Head / Iconic",
+    icon: "🏛️",
+    shortLabel: "Tier 1",
+    label: "Tier 1: Famous Landmarks",
+    labelEn: "Tier 1: Famous Landmarks",
+    shortName: "Tier 1",
+    badge: "Tier 1",
+    badgeClass: "bg-blue-50 text-blue-700 border-blue-200",
     color: "#2563eb",
     bgColor: "#eff6ff",
     borderColor: "#bfdbfe",
-    description: "Famous landmarks with distinctive architectural geometry and high representation in pre-training data.",
+    description: "Famous landmarks with distinctive architecture",
     thesisNotes: "Head distribution baseline. Expected accuracy > 90%.",
-    detectionKeywords: ["t1", "tier1", "iconic", "landmark", "famous"],
+    detectionKeywords: ["t1", "tier1", "iconic", "landmark", "famous", "architecture"],
   },
   tier2_longtail: {
     id: "tier2_longtail",
-    labelEn: "Tier 2: Long-Tail Attractions",
-    shortName: "T2: Long-Tail",
-    badge: "Tail / Cultural",
+    icon: "🏮",
+    shortLabel: "Tier 2",
+    label: "Tier 2: Local Heritage & Markets",
+    labelEn: "Tier 2: Local Heritage & Markets",
+    shortName: "Tier 2",
+    badge: "Tier 2",
+    badgeClass: "bg-purple-50 text-purple-700 border-purple-200",
     color: "#7c3aed",
     bgColor: "#f5f3ff",
     borderColor: "#ddd6fe",
-    description: "Lesser-known local heritage, cultural districts, markets, and regional temples with limited web photos.",
+    description: "Lesser-known local heritage, cultural districts, markets",
     thesisNotes: "Fine-grained visual recognition & database coverage test.",
-    detectionKeywords: ["t2", "tier2", "longtail", "tail", "cultural", "local", "market", "cafe"],
+    detectionKeywords: ["t2", "tier2", "longtail", "tail", "cultural", "local", "market", "cafe", "heritage"],
   },
   tier3_nature: {
     id: "tier3_nature",
-    labelEn: "Tier 3: Natural Landscapes",
-    shortName: "T3: Nature",
-    badge: "A-geometric Nature",
+    icon: "🏞️",
+    shortLabel: "Tier 3",
+    label: "Tier 3: Nature & Waterfalls",
+    labelEn: "Tier 3: Nature & Waterfalls",
+    shortName: "Tier 3",
+    badge: "Tier 3",
+    badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
     color: "#059669",
     bgColor: "#ecfdf5",
     borderColor: "#a7f3d0",
-    description: "Mountains, beaches, islands, and waterfalls lacking man-made geometry; relies on terrain and natural textures.",
+    description: "Mountains, beaches, islands, and waterfalls",
     thesisNotes: "Spatial & environmental reasoning. Highlights geometric failure modes.",
     detectionKeywords: ["t3", "tier3", "nature", "mountain", "beach", "island", "waterfall", "park", "sea", "doy"],
   },
   tier4_ugc: {
     id: "tier4_ugc",
-    labelEn: "Tier 4: In-The-Wild UGC",
-    shortName: "T4: UGC / Social",
-    badge: "Social / UGC",
+    icon: "📱",
+    shortLabel: "Tier 4",
+    label: "Tier 4: Casual UGC / Social",
+    labelEn: "Tier 4: Casual UGC / Social",
+    shortName: "Tier 4",
+    badge: "Tier 4",
+    badgeClass: "bg-amber-50 text-amber-800 border-amber-200",
     color: "#ea580c",
     bgColor: "#fff7ed",
     borderColor: "#fed7aa",
-    description: "Casual user-generated photos from IG, TikTok, or smartphones with occlusions (selfies, food), vertical aspect, or color filters.",
+    description: "Casual user-generated photos from IG, TikTok",
     thesisNotes: "Real-world domain shift & robustness under authentic user photography.",
     detectionKeywords: ["t4", "tier4", "ugc", "social", "ig", "tiktok", "selfie", "wild", "phone"],
   },
@@ -73,10 +93,14 @@ export const TIER_ORDER: VPRTier[] = [
 
 export const TIER_OPTIONS = TIER_ORDER.map((tier) => ({
   value: tier,
-  label: TIER_CONFIGS[tier].labelEn,
+  label: `${TIER_CONFIGS[tier].shortLabel} (${TIER_CONFIGS[tier].description})`,
+  shortLabel: TIER_CONFIGS[tier].shortLabel,
   shortName: TIER_CONFIGS[tier].shortName,
+  icon: TIER_CONFIGS[tier].icon,
   badge: TIER_CONFIGS[tier].badge,
+  badgeClass: TIER_CONFIGS[tier].badgeClass,
   color: TIER_CONFIGS[tier].color,
+  description: TIER_CONFIGS[tier].description,
 }));
 
 /**
@@ -90,11 +114,11 @@ export function detectTierFromFilename(filename: string): VPRTier {
   if (!filename) return "tier1_iconic";
   const lower = filename.toLowerCase();
 
-  // 1. Direct explicit prefix patterns
-  if (/^(\[?(t1|tier1|tier-1|tier_1)\]?[-_\s])/i.test(lower)) return "tier1_iconic";
-  if (/^(\[?(t2|tier2|tier-2|tier_2)\]?[-_\s])/i.test(lower)) return "tier2_longtail";
-  if (/^(\[?(t3|tier3|tier-3|tier_3)\]?[-_\s])/i.test(lower)) return "tier3_nature";
-  if (/^(\[?(t4|tier4|tier-4|tier_4)\]?[-_\s])/i.test(lower)) return "tier4_ugc";
+  // 1. Direct explicit prefix patterns (e.g. "tier 1", "tier-1", "t1", "[Tier 1]", "tier1")
+  if (/^(\[?(t1|tier[\s-_]*1)\]?[-_\s])/i.test(lower)) return "tier1_iconic";
+  if (/^(\[?(t2|tier[\s-_]*2)\]?[-_\s])/i.test(lower)) return "tier2_longtail";
+  if (/^(\[?(t3|tier[\s-_]*3)\]?[-_\s])/i.test(lower)) return "tier3_nature";
+  if (/^(\[?(t4|tier[\s-_]*4)\]?[-_\s])/i.test(lower)) return "tier4_ugc";
 
   // 2. Keyword scanning in filename
   for (const [tierKey, config] of Object.entries(TIER_CONFIGS)) {
@@ -106,27 +130,66 @@ export function detectTierFromFilename(filename: string): VPRTier {
     }
   }
 
-  // Default fallback for unannotated images: Tier 1 (Iconic)
+  // Default fallback for unannotated images: Tier 1
   return "tier1_iconic";
 }
 
 /**
- * Normalizes any string representation to a valid VPRTier.
+ * Normalizes any string representation (e.g. "Tier 1", "tier 2", "tier1_iconic", "T3", "Tier 4: Casual UGC") to a valid VPRTier.
  */
 export function normalizeTier(rawTier?: string | null): VPRTier {
   if (!rawTier) return "tier1_iconic";
   const cleaned = rawTier.trim().toLowerCase();
+  const normalized = cleaned.replace(/[\s-_]/g, "");
 
-  if (cleaned.includes("tier1") || cleaned.includes("t1") || cleaned.includes("iconic")) {
+  // Tier 1 checks
+  if (
+    normalized.includes("tier1") ||
+    normalized.includes("t1") ||
+    cleaned.includes("iconic") ||
+    cleaned.includes("landmark") ||
+    cleaned.includes("architecture") ||
+    cleaned.includes("famous")
+  ) {
     return "tier1_iconic";
   }
-  if (cleaned.includes("tier2") || cleaned.includes("t2") || cleaned.includes("longtail") || cleaned.includes("tail")) {
+
+  // Tier 2 checks
+  if (
+    normalized.includes("tier2") ||
+    normalized.includes("t2") ||
+    cleaned.includes("longtail") ||
+    cleaned.includes("tail") ||
+    cleaned.includes("heritage") ||
+    cleaned.includes("market") ||
+    cleaned.includes("cultural")
+  ) {
     return "tier2_longtail";
   }
-  if (cleaned.includes("tier3") || cleaned.includes("t3") || cleaned.includes("nature") || cleaned.includes("mountain")) {
+
+  // Tier 3 checks
+  if (
+    normalized.includes("tier3") ||
+    normalized.includes("t3") ||
+    cleaned.includes("nature") ||
+    cleaned.includes("mountain") ||
+    cleaned.includes("beach") ||
+    cleaned.includes("island") ||
+    cleaned.includes("waterfall")
+  ) {
     return "tier3_nature";
   }
-  if (cleaned.includes("tier4") || cleaned.includes("t4") || cleaned.includes("ugc") || cleaned.includes("social")) {
+
+  // Tier 4 checks
+  if (
+    normalized.includes("tier4") ||
+    normalized.includes("t4") ||
+    cleaned.includes("ugc") ||
+    cleaned.includes("social") ||
+    cleaned.includes("tiktok") ||
+    cleaned.includes("selfie") ||
+    cleaned.includes("casual")
+  ) {
     return "tier4_ugc";
   }
 

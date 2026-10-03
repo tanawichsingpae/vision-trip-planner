@@ -18,6 +18,7 @@ import {
   FAILURE_MODE_CONFIGS,
 } from "@/utils/evaluationMetrics";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
+import { HumanDoubleCheckButton } from "@/components/experiment/HumanDoubleCheckButton";
 import {
   VPRTier,
   TIER_CONFIGS,
@@ -43,7 +44,9 @@ import {
   Check,
   Play,
   RotateCcw,
+  Download,
 } from "lucide-react";
+import { downloadCsv } from "@/utils/csvExport";
 import {
   ResponsiveContainer,
   BarChart,
@@ -82,6 +85,8 @@ interface Exp3Result {
   confidence: number;
   time_ms: number;
   is_correct: boolean;
+  match_score?: number;
+  user_verified?: boolean;
   matched_alias?: string | null;
   failure_mode?: FailureMode;
   temperature?: number;
@@ -308,6 +313,8 @@ export default function Exp3RobustnessTest() {
           confidence: res.confidence || 0.0,
           time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
           is_correct: match.isCorrect,
+          match_score: match.matchScore,
+          user_verified: false,
           matched_alias: match.matchedAlias,
           failure_mode: failureMode,
           temperature: 0.1,
@@ -334,6 +341,7 @@ export default function Exp3RobustnessTest() {
       updated[index] = {
         ...updated[index],
         is_correct: value,
+        user_verified: true,
         failure_mode: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
       };
       return updated;
@@ -499,6 +507,81 @@ ${catRows}
     setTimeout(() => setCopiedLatex(false), 2000);
   };
 
+  // Export Full CSV for thesis analysis / Python script
+  const exportFullCSV = () => {
+    const records = dbLogs.length > 0 ? dbLogs : currentResults.map((r) => ({
+      timestamp: new Date().toISOString(),
+      image_name: r.image_name || "current_trial",
+      ground_truth: groundTruth,
+      condition_category: r.condition_category,
+      condition_label: r.condition_label,
+      tier: r.tier || singleTier,
+      model: r.modelLabel,
+      predicted: r.predicted,
+      confidence: r.confidence,
+      time_ms: r.time_ms,
+      is_correct: r.is_correct,
+      failure_mode: r.failure_mode,
+      temperature: r.temperature ?? 0.0,
+      prompt_tokens: r.prompt_tokens,
+      completion_tokens: r.completion_tokens,
+      total_tokens: r.total_tokens,
+      cost_usd: r.cost_usd,
+      tokens_per_sec: r.tokens_per_sec,
+    }));
+
+    if (records.length === 0) {
+      toast.error("No robustness records available to export.");
+      return;
+    }
+
+    const headers = [
+      "Timestamp",
+      "Image Name",
+      "Ground Truth",
+      "Condition Category",
+      "Condition Label",
+      "Tier",
+      "Model",
+      "Predicted Place",
+      "Confidence",
+      "Time MS",
+      "Is Correct",
+      "Failure Mode",
+      "Prompt Tokens",
+      "Completion Tokens",
+      "Total Tokens",
+      "Cost USD",
+      "Tokens Per Sec",
+      "Temperature",
+    ];
+
+    const rows = records.map((log) => [
+      log.timestamp,
+      log.image_name || "",
+      log.ground_truth || "",
+      log.condition_category || "",
+      log.condition_label || "",
+      normalizeTier(log.tier),
+      log.model,
+      log.predicted || "",
+      log.confidence !== undefined ? Number(log.confidence).toFixed(4) : "",
+      log.time_ms,
+      isTruthy(log.is_correct) ? "True" : "False",
+      log.failure_mode || "none",
+      log.prompt_tokens ?? "",
+      log.completion_tokens ?? "",
+      log.total_tokens ?? "",
+      log.cost_usd !== undefined ? Number(log.cost_usd).toFixed(6) : "",
+      log.tokens_per_sec !== undefined ? Number(log.tokens_per_sec).toFixed(2) : "",
+      log.temperature ?? 0.0,
+    ]);
+
+    const filename = `VPR_Thesis_Exp3_Robustness_${new Date().toISOString().slice(0, 10)}.csv`;
+    downloadCsv(filename, headers, rows);
+    toast.success(`Exported ${rows.length} Exp3 records to CSV!`);
+  };
+
   return (
     <ExperimentLayout>
       <div className="space-y-6">
@@ -519,6 +602,15 @@ ${catRows}
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportFullCSV}
+              className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
+            >
+              <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+              Download Full CSV
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -846,7 +938,8 @@ ${catRows}
                                     const cfg = TIER_CONFIGS[tierKey];
                                     return (
                                       <SelectItem key={tierKey} value={tierKey} className="text-xs">
-                                        {cfg.icon} {cfg.shortLabel}
+                                        <span className="font-semibold">{cfg.icon} {cfg.shortLabel}:</span>{" "}
+                                        <span className="text-slate-500">{cfg.description}</span>
                                       </SelectItem>
                                     );
                                   })}
@@ -969,7 +1062,7 @@ ${catRows}
                           <TableHead className="py-2.5 text-center">Tokens (In / Out)</TableHead>
                           <TableHead className="py-2.5 text-center">Cost ($)</TableHead>
                           <TableHead className="py-2.5 text-center">Latency</TableHead>
-                          <TableHead className="py-2.5 text-center">Status</TableHead>
+                          <TableHead className="py-2.5 text-center">Double-Check (Verdict)</TableHead>
                           <TableHead className="py-2.5 text-center">Failure Mode</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -998,26 +1091,13 @@ ${catRows}
                               {r.time_ms}ms
                             </TableCell>
                             <TableCell className="text-center py-2">
-                              <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
-                                <button
-                                  type="button"
-                                  onClick={() => updateCorrectness(idx, true)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                    r.is_correct ? "bg-emerald-600 text-white" : "text-slate-500"
-                                  }`}
-                                >
-                                  ✓
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => updateCorrectness(idx, false)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                    !r.is_correct ? "bg-rose-600 text-white" : "text-slate-500"
-                                  }`}
-                                >
-                                  ✗
-                                </button>
-                              </div>
+                              <HumanDoubleCheckButton
+                                isCorrect={r.is_correct}
+                                matchScore={r.match_score}
+                                matchedAlias={r.matched_alias}
+                                isVerified={r.user_verified}
+                                onChange={(val) => updateCorrectness(idx, val)}
+                              />
                             </TableCell>
                             <TableCell className="text-center py-2">
                               {r.is_correct ? (
@@ -1047,10 +1127,23 @@ ${catRows}
 
             {/* Historical Log */}
             <Card className="bg-white border-slate-200 shadow-sm text-left">
-              <CardHeader className="pb-3 border-b border-slate-100">
-                <CardTitle className="text-sm font-bold text-slate-900">
-                  Historical Robustness Logs ({dbLogs.length} records)
-                </CardTitle>
+              <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm font-bold text-slate-900">
+                    Historical Robustness Logs ({dbLogs.length} records)
+                  </CardTitle>
+                </div>
+                {(dbLogs.length > 0 || currentResults.length > 0) && (
+                  <Button
+                    onClick={exportFullCSV}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                    Download Full CSV
+                  </Button>
+                )}
               </CardHeader>
               <CardContent className="pt-4 max-h-60 overflow-y-auto">
                 {dbLogs.length === 0 ? (

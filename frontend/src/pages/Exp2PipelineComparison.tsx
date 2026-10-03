@@ -17,6 +17,7 @@ import {
   FAILURE_MODE_CONFIGS,
 } from "@/utils/evaluationMetrics";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
+import { HumanDoubleCheckButton } from "@/components/experiment/HumanDoubleCheckButton";
 import {
   VPRTier,
   TIER_CONFIGS,
@@ -44,7 +45,9 @@ import {
   Copy,
   Info,
   Sparkles,
+  Download,
 } from "lucide-react";
+import { downloadCsv } from "@/utils/csvExport";
 import {
   ResponsiveContainer,
   BarChart,
@@ -67,6 +70,12 @@ interface Exp2Result {
   confidence_noclip: number;
   correct_clip: boolean;
   correct_noclip: boolean;
+  match_score_clip?: number;
+  match_score_noclip?: number;
+  matched_alias_clip?: string | null;
+  matched_alias_noclip?: string | null;
+  user_verified_clip?: boolean;
+  user_verified_noclip?: boolean;
   latency_clip: number;
   latency_noclip: number;
   delta_latency: number;
@@ -303,8 +312,14 @@ export default function Exp2PipelineComparison() {
         confidence_noclip: resNoClip.confidence ?? 0.0,
         correct_clip: matchClip.isCorrect,
         correct_noclip: matchNoClip.isCorrect,
-        latency_clip: resClip.metrics?.latency_ms ? Math.round(resClip.metrics.latency_ms) : timeClip,
-        latency_noclip: resNoClip.metrics?.latency_ms ? Math.round(resNoClip.metrics.latency_ms) : timeNoClip,
+        match_score_clip: matchClip.matchScore,
+        match_score_noclip: matchNoClip.matchScore,
+        matched_alias_clip: matchClip.matchedAlias,
+        matched_alias_noclip: matchNoClip.matchedAlias,
+        user_verified_clip: false,
+        user_verified_noclip: false,
+        latency_clip: timeClip,
+        latency_noclip: timeNoClip,
         delta_latency: timeNoClip - timeClip,
         tokens_clip: tokensClip,
         tokens_noclip: tokensNoClip,
@@ -322,6 +337,34 @@ export default function Exp2PipelineComparison() {
     setIsRunning(false);
     setProgressLabel("");
     toast.success("Pipeline Comparison Complete!");
+  };
+
+  const updateCorrectnessClip = (index: number, value: boolean) => {
+    setCurrentResults((prev) => {
+      const updated = [...prev];
+      const prevMode = updated[index].failure_mode_clip;
+      updated[index] = {
+        ...updated[index],
+        correct_clip: value,
+        user_verified_clip: true,
+        failure_mode_clip: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
+      };
+      return updated;
+    });
+  };
+
+  const updateCorrectnessNoClip = (index: number, value: boolean) => {
+    setCurrentResults((prev) => {
+      const updated = [...prev];
+      const prevMode = updated[index].failure_mode_noclip;
+      updated[index] = {
+        ...updated[index],
+        correct_noclip: value,
+        user_verified_noclip: true,
+        failure_mode_noclip: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
+      };
+      return updated;
+    });
   };
 
   const updateVerdict = (index: number, value: string) => {
@@ -525,6 +568,98 @@ ${rows}
     setTimeout(() => setCopiedLatex(false), 2000);
   };
 
+  // Export Full CSV for thesis analysis / Python script
+  const exportFullCSV = () => {
+    const records = dbLogs.length > 0 ? dbLogs : currentResults.map((r) => ({
+      timestamp: new Date().toISOString(),
+      image_name: imageFile?.name || "current_trial",
+      ground_truth: groundTruth,
+      tier: r.tier || singleTier,
+      model: r.modelLabel,
+      predicted_clip: r.predicted_clip,
+      predicted_noclip: r.predicted_noclip,
+      confidence_clip: r.confidence_clip,
+      confidence_noclip: r.confidence_noclip,
+      correct_clip: r.correct_clip,
+      correct_noclip: r.correct_noclip,
+      latency_clip: r.latency_clip,
+      latency_noclip: r.latency_noclip,
+      delta_latency: r.delta_latency,
+      tokens_clip: r.tokens_clip,
+      tokens_noclip: r.tokens_noclip,
+      cost_clip: r.cost_clip,
+      cost_noclip: r.cost_noclip,
+      delta_cost: r.delta_cost,
+      failure_mode_clip: r.failure_mode_clip,
+      failure_mode_noclip: r.failure_mode_noclip,
+      temperature: r.temperature ?? 0.0,
+    }));
+
+    if (records.length === 0) {
+      toast.error("No comparison records available to export.");
+      return;
+    }
+
+    const headers = [
+      "Timestamp",
+      "Image Name",
+      "Ground Truth",
+      "Tier",
+      "Model",
+      "Predicted (CLIP)",
+      "Predicted (No CLIP)",
+      "Confidence (CLIP)",
+      "Confidence (No CLIP)",
+      "Correct (CLIP)",
+      "Correct (No CLIP)",
+      "Verdict",
+      "Latency CLIP (ms)",
+      "Latency No CLIP (ms)",
+      "Delta Latency (ms)",
+      "Tokens CLIP",
+      "Tokens No CLIP",
+      "Cost CLIP (USD)",
+      "Cost No CLIP (USD)",
+      "Delta Cost (USD)",
+      "Failure Mode (CLIP)",
+      "Failure Mode (No CLIP)",
+      "Temperature",
+    ];
+
+    const rows = records.map((log) => {
+      const v = getVerdict(isTruthy(log.correct_clip), isTruthy(log.correct_noclip));
+      return [
+        log.timestamp,
+        log.image_name || "",
+        log.ground_truth || "",
+        normalizeTier(log.tier),
+        log.model,
+        log.predicted_clip || "",
+        log.predicted_noclip || "",
+        log.confidence_clip !== undefined ? Number(log.confidence_clip).toFixed(4) : "",
+        log.confidence_noclip !== undefined ? Number(log.confidence_noclip).toFixed(4) : "",
+        isTruthy(log.correct_clip) ? "True" : "False",
+        isTruthy(log.correct_noclip) ? "True" : "False",
+        v,
+        log.latency_clip,
+        log.latency_noclip,
+        log.delta_latency,
+        log.tokens_clip ?? "",
+        log.tokens_noclip ?? "",
+        log.cost_clip !== undefined ? Number(log.cost_clip).toFixed(6) : "",
+        log.cost_noclip !== undefined ? Number(log.cost_noclip).toFixed(6) : "",
+        log.delta_cost !== undefined ? Number(log.delta_cost).toFixed(6) : "",
+        log.failure_mode_clip || "none",
+        log.failure_mode_noclip || "none",
+        log.temperature ?? 0.0,
+      ];
+    });
+
+    const filename = `VPR_Thesis_Exp2_Pipeline_Ablation_${new Date().toISOString().slice(0, 10)}.csv`;
+    downloadCsv(filename, headers, rows);
+    toast.success(`Exported ${rows.length} Exp2 records to CSV!`);
+  };
+
   return (
     <ExperimentLayout>
       <div className="space-y-6">
@@ -545,6 +680,15 @@ ${rows}
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportFullCSV}
+              className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
+            >
+              <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+              Download Full CSV
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -984,16 +1128,18 @@ ${rows}
                           type="button"
                           onClick={() => setSingleTier(tierKey)}
                           disabled={isRunning}
-                          className={`flex items-start gap-2 p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                          className={`flex items-start gap-2 p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
                             isSelected
                               ? `${cfg.badgeClass} ring-2 ring-indigo-500 font-semibold shadow-xs`
-                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50/80"
                           }`}
                         >
-                          <span className="text-base leading-none mt-0.5">{cfg.icon}</span>
-                          <div className="truncate">
-                            <div className="font-bold text-[11px] leading-tight truncate">{cfg.shortLabel}</div>
-                            <div className="text-[9px] text-slate-400 truncate mt-0.5">{cfg.description}</div>
+                          <span className="text-lg leading-none mt-0.5 shrink-0">{cfg.icon}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-xs leading-tight text-slate-800">{cfg.shortLabel}</div>
+                            <div className="text-[10px] text-slate-500 line-clamp-2 leading-snug mt-0.5" title={cfg.description}>
+                              {cfg.description}
+                            </div>
                           </div>
                         </button>
                       );
@@ -1121,6 +1267,7 @@ ${rows}
                         <TableHeader className="bg-slate-50">
                           <TableRow className="border-b border-slate-200">
                             <TableHead className="text-xs font-semibold">Model</TableHead>
+                            <TableHead className="text-xs font-semibold">Tier</TableHead>
                             <TableHead className="text-xs font-semibold text-emerald-800 bg-emerald-50/50">2-Turn CLIP (Pred & Cost)</TableHead>
                             <TableHead className="text-xs font-semibold text-blue-800 bg-blue-50/50">1-Turn Direct (Pred & Cost)</TableHead>
                             <TableHead className="text-xs font-semibold text-center">Verdict</TableHead>
@@ -1135,40 +1282,60 @@ ${rows}
                             return (
                               <TableRow key={idx} className="border-b border-slate-100">
                                 <TableCell className="font-semibold text-xs text-slate-900">{r.modelLabel}</TableCell>
+                                <TableCell className="text-xs">
+                                  {(() => {
+                                    const cfg = TIER_CONFIGS[normalizeTier(r.tier || singleTier)];
+                                    return (
+                                      <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                        {cfg.icon} {cfg.shortLabel}
+                                      </Badge>
+                                    );
+                                  })()}
+                                </TableCell>
                                 <TableCell className="text-xs bg-emerald-50/20">
-                                  <div className="flex items-center space-x-1.5">
-                                    {r.correct_clip ? (
-                                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                    ) : (
-                                      <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
-                                    )}
-                                    <div>
-                                      <span className="font-medium text-slate-800 truncate max-w-[120px] block">{r.predicted_clip}</span>
-                                      <span className="text-[10px] text-emerald-700 font-mono">${(r.cost_clip ?? 0).toFixed(6)}</span>
-                                      {!r.correct_clip && r.failure_mode_clip && (
-                                        <span className="text-[9px] text-amber-700 bg-amber-50 px-1 rounded block mt-0.5 font-medium">
-                                          {FAILURE_MODE_CONFIGS[r.failure_mode_clip]?.shortLabel}
-                                        </span>
-                                      )}
+                                  <div className="flex flex-col gap-1.5">
+                                    <div className="flex items-center justify-between gap-1">
+                                      <div>
+                                        <span className="font-semibold text-slate-800 truncate max-w-[120px] block">{r.predicted_clip}</span>
+                                        <span className="text-[10px] text-emerald-700 font-mono">${(r.cost_clip ?? 0).toFixed(6)}</span>
+                                      </div>
+                                      <HumanDoubleCheckButton
+                                        compact
+                                        isCorrect={r.correct_clip}
+                                        matchScore={r.match_score_clip}
+                                        matchedAlias={r.matched_alias_clip}
+                                        isVerified={r.user_verified_clip}
+                                        onChange={(val) => updateCorrectnessClip(idx, val)}
+                                      />
                                     </div>
+                                    {!r.correct_clip && r.failure_mode_clip && (
+                                      <span className="text-[9px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded block font-medium">
+                                        {FAILURE_MODE_CONFIGS[r.failure_mode_clip]?.shortLabel}
+                                      </span>
+                                    )}
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-xs bg-blue-50/20">
-                                  <div className="flex items-center space-x-1.5">
-                                    {r.correct_noclip ? (
-                                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                    ) : (
-                                      <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
-                                    )}
-                                    <div>
-                                      <span className="font-medium text-slate-800 truncate max-w-[120px] block">{r.predicted_noclip}</span>
-                                      <span className="text-[10px] text-blue-700 font-mono">${(r.cost_noclip ?? 0).toFixed(6)}</span>
-                                      {!r.correct_noclip && r.failure_mode_noclip && (
-                                        <span className="text-[9px] text-amber-700 bg-amber-50 px-1 rounded block mt-0.5 font-medium">
-                                          {FAILURE_MODE_CONFIGS[r.failure_mode_noclip]?.shortLabel}
-                                        </span>
-                                      )}
+                                  <div className="flex flex-col gap-1.5">
+                                    <div className="flex items-center justify-between gap-1">
+                                      <div>
+                                        <span className="font-semibold text-slate-800 truncate max-w-[120px] block">{r.predicted_noclip}</span>
+                                        <span className="text-[10px] text-blue-700 font-mono">${(r.cost_noclip ?? 0).toFixed(6)}</span>
+                                      </div>
+                                      <HumanDoubleCheckButton
+                                        compact
+                                        isCorrect={r.correct_noclip}
+                                        matchScore={r.match_score_noclip}
+                                        matchedAlias={r.matched_alias_noclip}
+                                        isVerified={r.user_verified_noclip}
+                                        onChange={(val) => updateCorrectnessNoClip(idx, val)}
+                                      />
                                     </div>
+                                    {!r.correct_noclip && r.failure_mode_noclip && (
+                                      <span className="text-[9px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded block font-medium">
+                                        {FAILURE_MODE_CONFIGS[r.failure_mode_noclip]?.shortLabel}
+                                      </span>
+                                    )}
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-center">
@@ -1202,13 +1369,26 @@ ${rows}
 
             {/* Historical Table */}
             <Card className="bg-white border-slate-200 shadow-sm text-left">
-              <CardHeader className="pb-3 border-b border-slate-100">
-                <CardTitle className="text-sm font-bold text-slate-900">
-                  Historical Ablation Records ({dbLogs.length} trials)
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-500">
-                  Persistent records of pipeline comparison trials saved in database.
-                </CardDescription>
+              <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm font-bold text-slate-900">
+                    Historical Ablation Records ({dbLogs.length} trials)
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-500">
+                    Persistent records of pipeline comparison trials saved in database.
+                  </CardDescription>
+                </div>
+                {(dbLogs.length > 0 || currentResults.length > 0) && (
+                  <Button
+                    onClick={exportFullCSV}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                    Download Full CSV
+                  </Button>
+                )}
               </CardHeader>
               <CardContent className="pt-4 max-h-72 overflow-y-auto">
                 {dbLogs.length === 0 ? (

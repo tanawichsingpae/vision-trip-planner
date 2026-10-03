@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -18,6 +19,7 @@ import {
   FAILURE_MODE_OPTIONS,
 } from "@/utils/evaluationMetrics";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
+import { HumanDoubleCheckButton } from "@/components/experiment/HumanDoubleCheckButton";
 import {
   VPRTier,
   TIER_CONFIGS,
@@ -41,7 +43,9 @@ import {
   Play,
   RotateCcw,
   Sparkles,
+  Download,
 } from "lucide-react";
+import { downloadCsv } from "@/utils/csvExport";
 import {
   ResponsiveContainer,
   LineChart,
@@ -69,6 +73,8 @@ interface Exp5RunResult {
   confidence: number;
   time_ms: number;
   is_correct: boolean;
+  match_score?: number;
+  user_verified?: boolean;
   tier?: VPRTier;
   matched_alias?: string | null;
   failure_mode?: FailureMode;
@@ -110,7 +116,9 @@ export default function Exp5ConsistencyTest() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [groundTruth, setGroundTruth] = useState<string>("");
   const [singleTier, setSingleTier] = useState<VPRTier>("tier1_iconic");
-  const [selectedModel, setSelectedModel] = useState<AIModelType>("google-gemini-38-flash");
+  const [selectedModels, setSelectedModels] = useState<AIModelType[]>([
+    "google-gemini-38-flash",
+  ]);
   const [numRuns, setNumRuns] = useState<number>(5);
   const [temperature, setTemperature] = useState<number>(0.7);
 
@@ -174,69 +182,77 @@ export default function Exp5ConsistencyTest() {
       toast.error("Please upload an image and specify Ground Truth.");
       return;
     }
+    if (selectedModels.length === 0) {
+      toast.error("Please select at least one model.");
+      return;
+    }
 
     setIsRunning(true);
     setCurrentResults([]);
     const temp: Exp5RunResult[] = [];
 
-    const modelOpt = AI_MODEL_OPTIONS.find((m) => m.value === selectedModel);
-    const modelLabel = modelOpt ? modelOpt.label : selectedModel;
+    for (const mVal of selectedModels) {
+      const modelOpt = AI_MODEL_OPTIONS.find((m) => m.value === mVal);
+      const modelLabel = modelOpt ? modelOpt.label : mVal;
 
-    for (let i = 1; i <= numRuns; i++) {
-      setProgressLabel(`Run ${i} / ${numRuns} (${modelLabel})...`);
+      for (let i = 1; i <= numRuns; i++) {
+        setProgressLabel(`[${modelLabel}] Run ${i} / ${numRuns}...`);
 
-      const start = performance.now();
-      let res: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
-      try {
-        res = await analyzeImageDirect(
-          imageFile,
-          selectedModel,
-          (step) => setProgressLabel(`Run ${i}/${numRuns}: ${step}`),
-          { allowFallback: false, temperature }
-        );
-      } catch (err) {
-        console.error(`Exp5 Run ${i} error:`, err);
+        const start = performance.now();
+        let res: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
+        try {
+          res = await analyzeImageDirect(
+            imageFile,
+            mVal,
+            (step) => setProgressLabel(`[${modelLabel}] Run ${i}/${numRuns}: ${step}`),
+            { allowFallback: false, temperature }
+          );
+        } catch (err) {
+          console.error(`Exp5 [${modelLabel}] Run ${i} error:`, err);
+        }
+        const duration = Math.round(performance.now() - start);
+
+        const pred = res.place || "Unknown";
+
+        // Automated multi-alias evaluation
+        const match = evaluatePredictionWithAliases(pred, groundTruth, res.similar_locations || [], 0.70);
+
+        // Failure Mode Taxonomy (3 Symptoms)
+        const failureMode = classifyErrorCategory(pred, groundTruth, {
+          isCorrect: match.isCorrect,
+          confidence: res.confidence || 0.0,
+          tier: singleTier,
+        });
+
+        temp.push({
+          run_number: i,
+          total_runs: numRuns,
+          model: mVal,
+          modelLabel,
+          predicted: pred,
+          confidence: res.confidence || 0.0,
+          time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
+          is_correct: match.isCorrect,
+          match_score: match.matchScore,
+          user_verified: false,
+          tier: singleTier,
+          matched_alias: match.matchedAlias,
+          failure_mode: failureMode,
+          temperature,
+          prompt_tokens: res.metrics?.prompt_tokens ?? 0,
+          completion_tokens: res.metrics?.completion_tokens ?? 0,
+          total_tokens: res.metrics?.total_tokens ?? 0,
+          cost_usd: res.metrics?.cost_usd ?? 0.0,
+          tokens_per_sec: res.metrics?.tokens_per_sec ?? 0.0,
+        });
+
+        setCurrentResults([...temp]);
       }
-      const duration = Math.round(performance.now() - start);
-
-      const pred = res.place || "Unknown";
-
-      // Automated multi-alias evaluation
-      const match = evaluatePredictionWithAliases(pred, groundTruth, res.similar_locations || [], 0.70);
-
-      // Failure Mode Taxonomy (3 Symptoms)
-      const failureMode = classifyErrorCategory(pred, groundTruth, {
-        isCorrect: match.isCorrect,
-        confidence: res.confidence || 0.0,
-        tier: singleTier,
-      });
-
-      temp.push({
-        run_number: i,
-        total_runs: numRuns,
-        model: selectedModel,
-        modelLabel,
-        predicted: pred,
-        confidence: res.confidence || 0.0,
-        time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
-        is_correct: match.isCorrect,
-        tier: singleTier,
-        matched_alias: match.matchedAlias,
-        failure_mode: failureMode,
-        temperature,
-        prompt_tokens: res.metrics?.prompt_tokens ?? 0,
-        completion_tokens: res.metrics?.completion_tokens ?? 0,
-        total_tokens: res.metrics?.total_tokens ?? 0,
-        cost_usd: res.metrics?.cost_usd ?? 0.0,
-        tokens_per_sec: res.metrics?.tokens_per_sec ?? 0.0,
-      });
-
-      setCurrentResults([...temp]);
     }
 
     setIsRunning(false);
     setProgressLabel("");
-    toast.success(`Completed ${numRuns} repetition runs! Graded with aliases.`);
+    toast.success(`Completed ${numRuns} repetition runs across ${selectedModels.length} models!`);
   };
 
   const updateCorrectness = (index: number, value: boolean) => {
@@ -246,6 +262,7 @@ export default function Exp5ConsistencyTest() {
       updated[index] = {
         ...updated[index],
         is_correct: value,
+        user_verified: true,
         failure_mode: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
       };
       return updated;
@@ -332,8 +349,9 @@ export default function Exp5ConsistencyTest() {
 
     const latencies = currentResults.map((r) => r.time_ms);
     const meanLat = latencies.reduce((a, b) => a + b, 0) / N;
-    const varLat = latencies.reduce((a, b) => a + Math.pow(b - meanLat, 2), 0) / N;
+    const varLat = latencies.reduce((a, b) => a + Math.pow(b - meanLat, 2), 0) / (N > 1 ? N - 1 : 1);
     const sdLat = Math.round(Math.sqrt(varLat));
+    const cvLat = meanLat > 0 ? ((sdLat / meanLat) * 100).toFixed(1) : "0.0";
 
     const completionTokens = currentResults.map((r) => r.completion_tokens || 0);
     const meanTokens = Math.round(completionTokens.reduce((a, b) => a + b, 0) / N);
@@ -370,6 +388,7 @@ export default function Exp5ConsistencyTest() {
       accuracyRate,
       meanLat: Math.round(meanLat),
       sdLat,
+      cvLat,
       meanTokens,
       sdTokens,
       cvTokens,
@@ -399,7 +418,7 @@ export default function Exp5ConsistencyTest() {
       const opt = AI_MODEL_OPTIONS.find((o) => o.value === model);
       const acc = d.total > 0 ? Math.round((d.correct / d.total) * 100) : 0;
       const mean = d.times.length > 0 ? Math.round(d.times.reduce((a, b) => a + b, 0) / d.times.length) : 0;
-      const variance = d.times.length > 0 ? d.times.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / d.times.length : 0;
+      const variance = d.times.length > 1 ? d.times.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (d.times.length - 1) : 0;
       const sd = Math.round(Math.sqrt(variance));
 
       return {
@@ -443,6 +462,84 @@ ${rows}
     setTimeout(() => setCopiedLatex(false), 2000);
   };
 
+  // Export Full CSV for thesis analysis / Python script
+  const exportFullCSV = () => {
+    const records = dbLogs.length > 0 ? dbLogs : currentResults.map((r) => ({
+      timestamp: new Date().toISOString(),
+      session_id: `live_${Date.now()}`,
+      image_name: imageFile?.name || "current_trial",
+      ground_truth: groundTruth,
+      tier: r.tier || singleTier,
+      model: r.modelLabel,
+      run_number: r.run_number,
+      total_runs: r.total_runs,
+      predicted: r.predicted,
+      confidence: r.confidence,
+      time_ms: r.time_ms,
+      is_correct: r.is_correct,
+      failure_mode: r.failure_mode,
+      temperature: r.temperature ?? temperature,
+      prompt_tokens: r.prompt_tokens,
+      completion_tokens: r.completion_tokens,
+      total_tokens: r.total_tokens,
+      cost_usd: r.cost_usd,
+      tokens_per_sec: undefined,
+    }));
+
+    if (records.length === 0) {
+      toast.error("No consistency records available to export.");
+      return;
+    }
+
+    const headers = [
+      "Timestamp",
+      "Session ID",
+      "Image Name",
+      "Ground Truth",
+      "Tier",
+      "Model",
+      "Run Number",
+      "Total Runs",
+      "Temperature",
+      "Predicted Place",
+      "Confidence",
+      "Time MS",
+      "Is Correct",
+      "Failure Mode",
+      "Prompt Tokens",
+      "Completion Tokens",
+      "Total Tokens",
+      "Cost USD",
+      "Tokens Per Sec",
+    ];
+
+    const rows = records.map((log) => [
+      log.timestamp,
+      log.session_id || "",
+      log.image_name || "",
+      log.ground_truth || "",
+      normalizeTier(log.tier),
+      log.model,
+      log.run_number,
+      log.total_runs,
+      log.temperature ?? temperature,
+      log.predicted || "",
+      log.confidence !== undefined ? Number(log.confidence).toFixed(4) : "",
+      log.time_ms,
+      isTruthy(log.is_correct) ? "True" : "False",
+      log.failure_mode || "none",
+      log.prompt_tokens ?? "",
+      log.completion_tokens ?? "",
+      log.total_tokens ?? "",
+      log.cost_usd !== undefined ? Number(log.cost_usd).toFixed(6) : "",
+      log.tokens_per_sec !== undefined ? Number(log.tokens_per_sec).toFixed(2) : "",
+    ]);
+
+    const filename = `VPR_Thesis_Exp5_Consistency_${new Date().toISOString().slice(0, 10)}.csv`;
+    downloadCsv(filename, headers, rows);
+    toast.success(`Exported ${rows.length} Exp5 records to CSV!`);
+  };
+
   return (
     <ExperimentLayout>
       <div className="space-y-6">
@@ -463,6 +560,15 @@ ${rows}
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportFullCSV}
+              className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
+            >
+              <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+              Download Full CSV
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -529,7 +635,7 @@ ${rows}
                     {sessionMetrics.meanLat} <span className="text-xs text-slate-400 font-normal">± {sessionMetrics.sdLat} ms</span>
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
-                    Jitter SD (σ): {sessionMetrics.sdLat} ms
+                    Jitter SD (σ): {sessionMetrics.sdLat} ms (CV: {sessionMetrics.cvLat}%)
                   </p>
                 </CardContent>
               </Card>
@@ -722,16 +828,18 @@ ${rows}
                           type="button"
                           onClick={() => setSingleTier(tierKey)}
                           disabled={isRunning}
-                          className={`flex items-start gap-2 p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                          className={`flex items-start gap-2 p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
                             isSelected
                               ? `${cfg.badgeClass} ring-2 ring-rose-500 font-semibold shadow-xs`
-                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50/80"
                           }`}
                         >
-                          <span className="text-base leading-none mt-0.5">{cfg.icon}</span>
-                          <div className="truncate">
-                            <div className="font-bold text-[11px] leading-tight truncate">{cfg.shortLabel}</div>
-                            <div className="text-[9px] text-slate-400 truncate mt-0.5">{cfg.description}</div>
+                          <span className="text-lg leading-none mt-0.5 shrink-0">{cfg.icon}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-xs leading-tight text-slate-800">{cfg.shortLabel}</div>
+                            <div className="text-[10px] text-slate-500 line-clamp-2 leading-snug mt-0.5" title={cfg.description}>
+                              {cfg.description}
+                            </div>
                           </div>
                         </button>
                       );
@@ -739,25 +847,70 @@ ${rows}
                   </div>
                 </div>
 
-                {/* Model Selector */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Evaluation Model</Label>
-                  <Select
-                    value={selectedModel}
-                    onValueChange={(v) => setSelectedModel(v as AIModelType)}
-                    disabled={isRunning}
-                  >
-                    <SelectTrigger className="bg-white text-xs border-slate-200">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AI_MODEL_OPTIONS.map((m) => (
-                        <SelectItem key={m.value} value={m.value} className="text-xs">
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {/* Multi-Model Selector */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      Models to Benchmark ({selectedModels.length}/{AI_MODEL_OPTIONS.length})
+                    </Label>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedModels(AI_MODEL_OPTIONS.map((m) => m.value))}
+                        className="text-[10px] h-6 px-1.5 text-slate-500 hover:text-slate-900"
+                        disabled={isRunning}
+                      >
+                        All
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedModels([])}
+                        className="text-[10px] h-6 px-1.5 text-slate-500 hover:text-slate-900"
+                        disabled={isRunning}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                    {AI_MODEL_OPTIONS.map((opt) => {
+                      const isChecked = selectedModels.includes(opt.value);
+                      return (
+                        <div
+                          key={opt.value}
+                          onClick={() => {
+                            if (isRunning) return;
+                            setSelectedModels((prev) =>
+                              prev.includes(opt.value)
+                                ? prev.filter((m) => m !== opt.value)
+                                : [...prev, opt.value]
+                            );
+                          }}
+                          className={`flex items-center gap-2.5 p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                            isChecked
+                              ? "bg-rose-50/40 border-rose-200 text-slate-900"
+                              : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={() => {}}
+                            className="border-slate-300 data-[state=checked]:bg-rose-600 data-[state=checked]:border-rose-600"
+                            disabled={isRunning}
+                          />
+                          <img src={opt.icon} className="w-4 h-4 rounded-full object-cover shrink-0 bg-slate-100 border border-slate-200" alt="" />
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-semibold text-slate-800 block truncate">{opt.label}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Number of Runs */}
@@ -817,11 +970,22 @@ ${rows}
                 {/* Run Button */}
                 <Button
                   onClick={runConsistencyTest}
-                  disabled={isRunning || !imageFile || !groundTruth.trim()}
+                  disabled={
+                    isRunning ||
+                    !imageFile ||
+                    !groundTruth.trim() ||
+                    selectedModels.length === 0
+                  }
                   className="w-full bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-700 hover:to-pink-700 text-white font-semibold text-xs py-5 rounded-xl shadow-md flex items-center justify-center gap-2"
                 >
                   <Play className="w-4 h-4" />
-                  <span>{isRunning ? progressLabel : `Execute ${numRuns} Repetitions Stability Test`}</span>
+                  <span>
+                    {isRunning
+                      ? progressLabel
+                      : `Execute Stability Test (${numRuns} Runs × ${selectedModels.length} Models = ${
+                          numRuns * selectedModels.length
+                        } Trials)`}
+                  </span>
                 </Button>
               </CardContent>
             </Card>
@@ -864,20 +1028,35 @@ ${rows}
                     <Table>
                       <TableHeader className="bg-slate-50">
                         <TableRow className="border-b border-slate-200 text-xs">
+                          <TableHead className="py-2.5">Model</TableHead>
                           <TableHead className="py-2.5">Run #</TableHead>
+                          <TableHead className="py-2.5">Tier</TableHead>
                           <TableHead className="py-2.5">Prediction</TableHead>
                           <TableHead className="py-2.5 text-center">Tokens (In / Out)</TableHead>
                           <TableHead className="py-2.5 text-center">Cost ($)</TableHead>
                           <TableHead className="py-2.5 text-center">Latency</TableHead>
                           <TableHead className="py-2.5 text-center">Failure Mode</TableHead>
-                          <TableHead className="py-2.5 text-center">Verification</TableHead>
+                          <TableHead className="py-2.5 text-center">Double-Check (Verdict)</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {currentResults.map((r, idx) => (
                           <TableRow key={idx} className="border-b border-slate-100 text-xs">
+                            <TableCell className="font-semibold text-slate-800 py-2.5 text-xs whitespace-nowrap">
+                              {r.modelLabel}
+                            </TableCell>
                             <TableCell className="font-mono font-bold text-slate-600 py-2.5">
                               #{r.run_number}
+                            </TableCell>
+                            <TableCell className="py-2.5">
+                              {(() => {
+                                const cfg = TIER_CONFIGS[normalizeTier(r.tier || singleTier)];
+                                return (
+                                  <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                    {cfg.icon} {cfg.shortLabel}
+                                  </Badge>
+                                );
+                              })()}
                             </TableCell>
                             <TableCell className="py-2.5">
                               <span className="font-semibold text-slate-900 block truncate max-w-[150px]">{r.predicted}</span>
@@ -919,26 +1098,13 @@ ${rows}
                               )}
                             </TableCell>
                             <TableCell className="text-center py-2.5">
-                              <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
-                                <button
-                                  type="button"
-                                  onClick={() => updateCorrectness(idx, true)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                    r.is_correct ? "bg-emerald-600 text-white" : "text-slate-500"
-                                  }`}
-                                >
-                                  ✓
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => updateCorrectness(idx, false)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                    !r.is_correct ? "bg-rose-600 text-white" : "text-slate-500"
-                                  }`}
-                                >
-                                  ✗
-                                </button>
-                              </div>
+                              <HumanDoubleCheckButton
+                                isCorrect={r.is_correct}
+                                matchScore={r.match_score}
+                                matchedAlias={r.matched_alias}
+                                isVerified={r.user_verified}
+                                onChange={(val) => updateCorrectness(idx, val)}
+                              />
                             </TableCell>
                           </TableRow>
                         ))}
@@ -951,10 +1117,23 @@ ${rows}
 
             {/* Historical Table */}
             <Card className="bg-white border-slate-200 shadow-sm text-left">
-              <CardHeader className="pb-3 border-b border-slate-100">
-                <CardTitle className="text-sm font-bold text-slate-900">
-                  Historical Consistency Sessions ({dbLogs.length} entries)
-                </CardTitle>
+              <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm font-bold text-slate-900">
+                    Historical Consistency Sessions ({dbLogs.length} entries)
+                  </CardTitle>
+                </div>
+                {(dbLogs.length > 0 || currentResults.length > 0) && (
+                  <Button
+                    onClick={exportFullCSV}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                    Download Full CSV
+                  </Button>
+                )}
               </CardHeader>
               <CardContent className="pt-4 max-h-60 overflow-y-auto">
                 {dbLogs.length === 0 ? (

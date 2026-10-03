@@ -18,6 +18,7 @@ import {
   FailureMode,
   FAILURE_MODE_CONFIGS,
 } from "@/utils/evaluationMetrics";
+import { HumanDoubleCheckButton } from "@/components/experiment/HumanDoubleCheckButton";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
 import {
   VPRTier,
@@ -42,7 +43,13 @@ import {
   Sparkles,
   MessageSquare,
   BookOpen,
+  Copy,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
+  Download,
 } from "lucide-react";
+import { downloadCsv } from "@/utils/csvExport";
 import {
   ResponsiveContainer,
   BarChart,
@@ -91,7 +98,7 @@ const PROMPT_VARIANTS: PromptVariant[] = [
     academicRef: "Brown et al., 2020 (GPT-3 / NeurIPS)",
     description: "Minimal direct query — measures pure model baseline capability with zero guidance.",
     promptText: () =>
-      `What specific landmark, city, or place is shown in this image? Return strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["key visual feature"]}.`,
+      `What specific landmark, city, or place is shown in this image? Return strictly valid JSON: {"place": "Name", "country": "Country", "confidence": 0.95, "ai_reasoning": ["key visual feature"]}.`,
   },
   {
     id: "P2",
@@ -100,7 +107,7 @@ const PROMPT_VARIANTS: PromptVariant[] = [
     academicRef: "Reynolds & McDonell, 2021; White et al., 2023 (Prompt Patterns Catalog)",
     description: "Assigns an expert geographer role to the model — tests whether role-framing improves VPR accuracy.",
     promptText: () =>
-      `You are an expert geographer and visual landmark recognition specialist with encyclopedic knowledge of world landmarks, architecture, and travel destinations. Analyze this image and identify the specific landmark or place shown. Return strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["key visual feature"]}.`,
+      `You are an expert geographer and visual landmark recognition specialist with encyclopedic knowledge of world landmarks, architecture, and travel destinations. Analyze this image and identify the specific landmark or place shown. Return strictly valid JSON: {"place": "Name", "country": "Country", "confidence": 0.95, "ai_reasoning": ["key visual feature"]}.`,
   },
   {
     id: "P3",
@@ -109,7 +116,7 @@ const PROMPT_VARIANTS: PromptVariant[] = [
     academicRef: "Wei et al., 2022 (Chain-of-Thought Prompting / NeurIPS)",
     description: "Forces step-by-step visual feature decomposition before final answer — tests reasoning chain benefit.",
     promptText: () =>
-      `Analyze this image step-by-step:\n1. Identify the dominant architectural style, landscape type, or visible signage.\n2. List distinctive visual features (materials, shape, color, scale).\n3. Compare with known world landmarks matching those features.\n4. Conclude with the most likely specific place.\nReturn strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["step 1 observation", "step 2 distinctive feature", "step 3 comparison", "step 4 conclusion"]}.`,
+      `Analyze this image step-by-step:\n1. Identify the dominant architectural style, landscape type, or visible signage.\n2. List distinctive visual features (materials, shape, color, scale).\n3. Compare with known world landmarks matching those features.\n4. Conclude with the most likely specific place.\nReturn strictly valid JSON: {"place": "Name", "country": "Country", "confidence": 0.95, "ai_reasoning": ["step 1 observation", "step 2 distinctive feature", "step 3 comparison", "step 4 conclusion"]}.`,
   },
   {
     id: "P4",
@@ -118,7 +125,7 @@ const PROMPT_VARIANTS: PromptVariant[] = [
     academicRef: "Shi et al., 2022 (Language Models are Multilingual CoT Reasoners / ICLR 2023)",
     description: "Isomorphic Thai translation of P1 — structure is identical, only language changes. Isolates language variable strictly.",
     promptText: () =>
-      `สถานที่ท่องเที่ยว เมือง หรือแลนด์มาร์กใดปรากฏในภาพนี้? คืนค่าเป็น JSON ที่ถูกต้องเท่านั้น: {"place": "ชื่อสถานที่", "country": "ประเทศ", "ai_reasoning": ["ลักษณะภาพที่สำคัญ"]}.`,
+      `สถานที่ท่องเที่ยว เมือง หรือแลนด์มาร์กใดปรากฏในภาพนี้? คืนค่าเป็น JSON ที่ถูกต้องเท่านั้น: {"place": "ชื่อสถานที่", "country": "ประเทศ", "confidence": 0.95, "ai_reasoning": ["ลักษณะภาพที่สำคัญ"]}.`,
   },
   {
     id: "P5",
@@ -127,7 +134,7 @@ const PROMPT_VARIANTS: PromptVariant[] = [
     academicRef: "Brown et al., 2020 (GPT-3); Min et al., 2022 (Rethinking ICL / EMNLP)",
     description: "2-shot exemplar demonstrations before the target image — tests in-context learning from landmark examples.",
     promptText: () =>
-      `Here are two landmark identification examples:\nExample 1 — Input: [Image of an iron lattice tower with Paris cityscape behind it] → Output: {"place": "Eiffel Tower", "country": "France", "ai_reasoning": ["iron lattice structure", "Seine river visible", "Paris cityscape background"]}\nExample 2 — Input: [Image of a white marble mausoleum with reflecting pool, Agra India] → Output: {"place": "Taj Mahal", "country": "India", "ai_reasoning": ["white marble dome", "four minarets at corners", "ornate Mughal architecture"]}\n\nNow analyze the provided image using the same approach. Return strictly valid JSON: {"place": "Name", "country": "Country", "ai_reasoning": ["reason 1", "reason 2"]}.`,
+      `Here are two landmark identification examples:\nExample 1 — Input: [Image of an iron lattice tower with Paris cityscape behind it] → Output: {"place": "Eiffel Tower", "country": "France", "confidence": 0.98, "ai_reasoning": ["iron lattice structure", "Seine river visible", "Paris cityscape background"]}\nExample 2 — Input: [Image of a white marble mausoleum with reflecting pool, Agra India] → Output: {"place": "Taj Mahal", "country": "India", "confidence": 0.99, "ai_reasoning": ["white marble dome", "four minarets at corners", "ornate Mughal architecture"]}\n\nNow analyze the provided image using the same approach. Return strictly valid JSON: {"place": "Name", "country": "Country", "confidence": 0.95, "ai_reasoning": ["reason 1", "reason 2"]}.`,
   },
 ];
 
@@ -148,6 +155,8 @@ interface Exp4Result {
   confidence: number;
   time_ms: number;
   is_correct: boolean;
+  match_score?: number;
+  user_verified?: boolean;
   reasoning: string;
   tier?: VPRTier;
   matched_alias?: string | null;
@@ -191,7 +200,9 @@ export default function Exp4PromptSensitivity() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [groundTruth, setGroundTruth] = useState<string>("");
   const [singleTier, setSingleTier] = useState<VPRTier>("tier1_iconic");
-  const [selectedModel, setSelectedModel] = useState<AIModelType>("google-gemini-38-flash");
+  const [selectedModels, setSelectedModels] = useState<AIModelType[]>([
+    "google-gemini-38-flash",
+  ]);
   const [selectedVariants, setSelectedVariants] = useState<string[]>(["P1", "P2", "P3", "P4", "P5"]);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -201,6 +212,22 @@ export default function Exp4PromptSensitivity() {
   const [activeReasoning, setActiveReasoning] = useState<{ name: string; text: string } | null>(null);
   const [copiedLatex, setCopiedLatex] = useState(false);
   const [promptView, setPromptView] = useState<"bar" | "matrix">("bar");
+  const [copiedVariantId, setCopiedVariantId] = useState<string | null>(null);
+  const [expandedPrompts, setExpandedPrompts] = useState<Record<string, boolean>>({
+    P1: true,
+    P2: true,
+    P3: true,
+    P4: true,
+    P5: true,
+  });
+
+  const handleCopyPrompt = (e: React.MouseEvent, id: string, text: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text);
+    setCopiedVariantId(id);
+    toast.success(`Copied ${id} prompt template to clipboard!`);
+    setTimeout(() => setCopiedVariantId(null), 2000);
+  };
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -275,20 +302,23 @@ export default function Exp4PromptSensitivity() {
 
     const base64Image = await fileToBase64(imageFile);
     const base64Data = base64Image.split(",")[1];
-    const modelId = MODEL_ID_MAP[selectedModel];
-    const modelOpt = AI_MODEL_OPTIONS.find((m) => m.value === selectedModel);
-    const modelLabel = modelOpt ? modelOpt.label : selectedModel;
 
-    for (const vId of selectedVariants) {
-      const vObj = PROMPT_VARIANTS.find((v) => v.id === vId)!;
-      setProgressLabel(`Testing [${vObj.name}]...`);
+    for (const mVal of selectedModels) {
+      const modelId = MODEL_ID_MAP[mVal];
+      const modelOpt = AI_MODEL_OPTIONS.find((m) => m.value === mVal);
+      const modelLabel = modelOpt ? modelOpt.label : mVal;
 
-      const promptText = vObj.promptText(groundTruth);
-      const start = performance.now();
+      for (const vId of selectedVariants) {
+        const vObj = PROMPT_VARIANTS.find((v) => v.id === vId)!;
+        setProgressLabel(`Testing [${modelLabel}] with [${vObj.name}]...`);
+
+        const promptText = vObj.promptText(groundTruth);
+        const start = performance.now();
 
       let pred = "Unknown";
       let reasoningText = "";
       let callMetrics: any = null;
+      let parsedConfidence = 0.85;
 
       try {
         const data = await safeFetch<any>(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/ai`, {
@@ -330,6 +360,15 @@ export default function Exp4PromptSensitivity() {
         } else {
           reasoningText = raw;
         }
+        // Parse confidence score if returned by model, fallback to 0.85
+        if (typeof parsed.confidence === "number") {
+          parsedConfidence = Math.min(1.0, Math.max(0.0, parsed.confidence));
+        } else if (parsed.confidence) {
+          const num = parseFloat(String(parsed.confidence));
+          if (!isNaN(num)) {
+            parsedConfidence = Math.min(1.0, Math.max(0.0, num > 1.0 && num <= 100.0 ? num / 100.0 : num));
+          }
+        }
       } catch (err) {
         console.error(`Exp4 error for ${vObj.name}:`, err);
       }
@@ -342,7 +381,7 @@ export default function Exp4PromptSensitivity() {
       // Failure Mode Taxonomy (3 Symptoms)
       const failureMode = classifyErrorCategory(pred, groundTruth, {
         isCorrect: match.isCorrect,
-        confidence: 0,
+        confidence: parsedConfidence,
         tier: singleTier,
       });
 
@@ -350,12 +389,14 @@ export default function Exp4PromptSensitivity() {
         variant_id: vObj.id,
         variant_name: vObj.name,
         tier: singleTier,
-        model: selectedModel,
+        model: mVal,
         modelLabel,
         predicted: pred,
-        confidence: 0,
+        confidence: parsedConfidence,
         time_ms: callMetrics?.latency_ms ? Math.round(callMetrics.latency_ms) : duration,
         is_correct: match.isCorrect,
+        match_score: match.matchScore,
+        user_verified: false,
         reasoning: reasoningText,
         matched_alias: match.matchedAlias,
         failure_mode: failureMode,
@@ -369,10 +410,11 @@ export default function Exp4PromptSensitivity() {
 
       setCurrentResults([...temp]);
     }
+  }
 
-    setIsRunning(false);
-    setProgressLabel("");
-    toast.success("Prompt Sensitivity Test Complete! Predictions graded with aliases.");
+  setIsRunning(false);
+  setProgressLabel("");
+  toast.success("Prompt Sensitivity Test Complete! Predictions graded with aliases.");
   };
 
   const updateCorrectness = (index: number, value: boolean) => {
@@ -382,7 +424,19 @@ export default function Exp4PromptSensitivity() {
       updated[index] = {
         ...updated[index],
         is_correct: value,
+        user_verified: true,
         failure_mode: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
+      };
+      return updated;
+    });
+  };
+
+  const updateFailureMode = (index: number, mode: FailureMode) => {
+    setCurrentResults((prev) => {
+      const updated = [...prev];
+      updated[index] = {
+        ...updated[index],
+        failure_mode: mode,
       };
       return updated;
     });
@@ -524,6 +578,84 @@ ${rows}
     setTimeout(() => setCopiedLatex(false), 2000);
   };
 
+  // Export Full CSV for thesis analysis / Python script
+  const exportFullCSV = () => {
+    const records = dbLogs.length > 0 ? dbLogs : currentResults.map((r) => ({
+      timestamp: new Date().toISOString(),
+      image_name: imageFile?.name || "current_trial",
+      ground_truth: groundTruth,
+      tier: r.tier || singleTier,
+      model: r.modelLabel,
+      variant_id: r.variant_id,
+      variant_name: r.variant_name,
+      predicted: r.predicted,
+      confidence: r.confidence,
+      time_ms: r.time_ms,
+      is_correct: r.is_correct,
+      reasoning: r.reasoning,
+      failure_mode: r.failure_mode,
+      temperature: r.temperature ?? 0.1,
+      prompt_tokens: r.prompt_tokens,
+      completion_tokens: r.completion_tokens,
+      total_tokens: r.total_tokens,
+      cost_usd: r.cost_usd,
+      tokens_per_sec: r.tokens_per_sec,
+    }));
+
+    if (records.length === 0) {
+      toast.error("No prompt sensitivity records available to export.");
+      return;
+    }
+
+    const headers = [
+      "Timestamp",
+      "Image Name",
+      "Ground Truth",
+      "Tier",
+      "Model",
+      "Variant ID",
+      "Variant Name",
+      "Predicted Place",
+      "Confidence",
+      "Time MS",
+      "Is Correct",
+      "AI Reasoning",
+      "Failure Mode",
+      "Prompt Tokens",
+      "Completion Tokens",
+      "Total Tokens",
+      "Cost USD",
+      "Tokens Per Sec",
+      "Temperature",
+    ];
+
+    const rows = records.map((log) => [
+      log.timestamp,
+      log.image_name || "",
+      log.ground_truth || "",
+      normalizeTier(log.tier),
+      log.model,
+      log.variant_id || "",
+      log.variant_name || "",
+      log.predicted || "",
+      log.confidence !== undefined ? Number(log.confidence).toFixed(4) : "",
+      log.time_ms,
+      isTruthy(log.is_correct) ? "True" : "False",
+      log.reasoning || "",
+      log.failure_mode || "none",
+      log.prompt_tokens ?? "",
+      log.completion_tokens ?? "",
+      log.total_tokens ?? "",
+      log.cost_usd !== undefined ? Number(log.cost_usd).toFixed(6) : "",
+      log.tokens_per_sec !== undefined ? Number(log.tokens_per_sec).toFixed(2) : "",
+      log.temperature ?? 0.1,
+    ]);
+
+    const filename = `VPR_Thesis_Exp4_PromptSensitivity_${new Date().toISOString().slice(0, 10)}.csv`;
+    downloadCsv(filename, headers, rows);
+    toast.success(`Exported ${rows.length} Exp4 records to CSV!`);
+  };
+
   return (
     <ExperimentLayout>
       <div className="space-y-6">
@@ -544,6 +676,15 @@ ${rows}
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportFullCSV}
+              className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
+            >
+              <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+              Download Full CSV
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -828,16 +969,18 @@ ${rows}
                           type="button"
                           onClick={() => setSingleTier(tierKey)}
                           disabled={isRunning}
-                          className={`flex items-start gap-2 p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                          className={`flex items-start gap-2 p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
                             isSelected
                               ? `${cfg.badgeClass} ring-2 ring-purple-500 font-semibold shadow-xs`
-                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50/80"
                           }`}
                         >
-                          <span className="text-base leading-none mt-0.5">{cfg.icon}</span>
-                          <div className="truncate">
-                            <div className="font-bold text-[11px] leading-tight truncate">{cfg.shortLabel}</div>
-                            <div className="text-[9px] text-slate-400 truncate mt-0.5">{cfg.description}</div>
+                          <span className="text-lg leading-none mt-0.5 shrink-0">{cfg.icon}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-xs leading-tight text-slate-800">{cfg.shortLabel}</div>
+                            <div className="text-[10px] text-slate-500 line-clamp-2 leading-snug mt-0.5" title={cfg.description}>
+                              {cfg.description}
+                            </div>
                           </div>
                         </button>
                       );
@@ -845,33 +988,118 @@ ${rows}
                   </div>
                 </div>
 
-                {/* Model Selector */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Evaluation Model</Label>
-                  <Select
-                    value={selectedModel}
-                    onValueChange={(v) => setSelectedModel(v as AIModelType)}
-                    disabled={isRunning}
-                  >
-                    <SelectTrigger className="bg-white text-xs border-slate-200">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AI_MODEL_OPTIONS.map((m) => (
-                        <SelectItem key={m.value} value={m.value} className="text-xs">
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {/* Multi-Model Selector */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      Models to Benchmark ({selectedModels.length}/{AI_MODEL_OPTIONS.length})
+                    </Label>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedModels(AI_MODEL_OPTIONS.map((m) => m.value))}
+                        className="text-[10px] h-6 px-1.5 text-slate-500 hover:text-slate-900"
+                        disabled={isRunning}
+                      >
+                        All
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedModels([])}
+                        className="text-[10px] h-6 px-1.5 text-slate-500 hover:text-slate-900"
+                        disabled={isRunning}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                    {AI_MODEL_OPTIONS.map((opt) => {
+                      const isChecked = selectedModels.includes(opt.value);
+                      return (
+                        <div
+                          key={opt.value}
+                          onClick={() => {
+                            if (isRunning) return;
+                            setSelectedModels((prev) =>
+                              prev.includes(opt.value)
+                                ? prev.filter((m) => m !== opt.value)
+                                : [...prev, opt.value]
+                            );
+                          }}
+                          className={`flex items-center gap-2.5 p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                            isChecked
+                              ? "bg-purple-50/40 border-purple-200 text-slate-900"
+                              : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={() => {}}
+                            className="border-slate-300 data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
+                            disabled={isRunning}
+                          />
+                          <img src={opt.icon} className="w-4 h-4 rounded-full object-cover shrink-0 bg-slate-100 border border-slate-200" alt="" />
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-semibold text-slate-800 block truncate">{opt.label}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                {/* Prompt Variants Checkboxes */}
+                {/* Prompt Variants Checkboxes & Prompt Viewer */}
                 <div className="space-y-2">
-                  <Label className="text-xs font-semibold text-slate-700">Prompt Variants to Compare ({selectedVariants.length})</Label>
-                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      Prompt Variants to Compare ({selectedVariants.length}/{PROMPT_VARIANTS.length})
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isRunning}
+                        onClick={() => {
+                          const allExpanded = PROMPT_VARIANTS.every((v) => expandedPrompts[v.id]);
+                          const nextState: Record<string, boolean> = {};
+                          PROMPT_VARIANTS.forEach((v) => {
+                            nextState[v.id] = !allExpanded;
+                          });
+                          setExpandedPrompts(nextState);
+                        }}
+                        className="text-[11px] text-purple-600 hover:text-purple-700 font-medium transition-colors"
+                      >
+                        {PROMPT_VARIANTS.every((v) => expandedPrompts[v.id]) ? "Collapse Prompts" : "Expand All"}
+                      </button>
+                      <span className="text-slate-300">|</span>
+                      <button
+                        type="button"
+                        disabled={isRunning}
+                        onClick={() =>
+                          setSelectedVariants(
+                            selectedVariants.length === PROMPT_VARIANTS.length
+                              ? []
+                              : PROMPT_VARIANTS.map((v) => v.id)
+                          )
+                        }
+                        className="text-[11px] text-purple-600 hover:text-purple-700 font-medium transition-colors"
+                      >
+                        {selectedVariants.length === PROMPT_VARIANTS.length ? "Deselect All" : "Select All"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5 max-h-[36rem] overflow-y-auto pr-1.5 custom-scrollbar">
                     {PROMPT_VARIANTS.map((v) => {
                       const isChecked = selectedVariants.includes(v.id);
+                      const isExpanded = expandedPrompts[v.id] ?? true;
+                      const promptString = v.promptText(groundTruth);
+
                       return (
                         <div
                           key={v.id}
@@ -881,26 +1109,86 @@ ${rows}
                               prev.includes(v.id) ? prev.filter((id) => id !== v.id) : [...prev, v.id]
                             );
                           }}
-                          className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                            isChecked ? "bg-purple-50/40 border-purple-200" : "bg-slate-50/40 border-slate-200/60"
+                          className={`p-3 rounded-xl border transition-all cursor-pointer ${
+                            isChecked
+                              ? "bg-purple-50/40 border-purple-200 shadow-xs"
+                              : "bg-slate-50/40 border-slate-200/60 opacity-80"
                           }`}
                         >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
                               <Checkbox
                                 checked={isChecked}
                                 onCheckedChange={() => {}}
                                 className="border-slate-300 data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600 shrink-0"
                                 disabled={isRunning}
                               />
-                              <span className="text-xs font-bold text-slate-800">{v.name}</span>
+                              <span className="text-xs font-bold text-slate-800 truncate">{v.name}</span>
                             </div>
-                            <Badge className="text-[9px] font-mono px-1 py-0" style={{ color: VARIANT_COLORS[v.id], backgroundColor: `${VARIANT_COLORS[v.id]}15` }}>
-                              {v.tag}
-                            </Badge>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <Badge
+                                className="text-[9px] font-mono px-1.5 py-0"
+                                style={{
+                                  color: VARIANT_COLORS[v.id],
+                                  backgroundColor: `${VARIANT_COLORS[v.id]}15`,
+                                }}
+                              >
+                                {v.tag}
+                              </Badge>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedPrompts((prev) => ({ ...prev, [v.id]: !isExpanded }));
+                                }}
+                                className="text-slate-400 hover:text-slate-600 p-0.5 rounded transition-colors"
+                                title={isExpanded ? "Collapse prompt" : "Expand prompt"}
+                              >
+                                {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
                           </div>
-                          <p className="text-[10px] text-slate-400 mt-1 pl-6">{v.description}</p>
-                          <p className="text-[9px] text-slate-300 mt-0.5 pl-6 font-mono italic">📚 {v.academicRef}</p>
+
+                          <p className="text-[10.5px] text-slate-500 mt-1 pl-6 leading-normal">{v.description}</p>
+                          <p className="text-[9px] text-slate-400 mt-0.5 pl-6 font-mono italic">📚 {v.academicRef}</p>
+
+                          {/* Prompt Display Box */}
+                          {isExpanded && (
+                            <div
+                              className="mt-2.5 pl-6"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="bg-slate-900/[0.04] border border-slate-200/90 rounded-lg p-2.5">
+                                <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-200/60">
+                                  <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
+                                    <Terminal className="w-3 h-3 text-purple-600" />
+                                    <span>Prompt Template ({v.id})</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCopyPrompt(e, v.id, promptString)}
+                                    className="flex items-center gap-1 text-[9.5px] text-slate-500 hover:text-purple-600 font-medium px-1.5 py-0.5 rounded hover:bg-white/80 transition-all border border-transparent hover:border-slate-200"
+                                    title="Copy full prompt text"
+                                  >
+                                    {copiedVariantId === v.id ? (
+                                      <>
+                                        <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                        <span className="text-emerald-600 font-bold">Copied</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="w-2.5 h-2.5 text-slate-400" />
+                                        <span>Copy</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                                <pre className="font-mono text-[10px] text-slate-700 leading-relaxed whitespace-pre-wrap select-text break-words max-h-36 overflow-y-auto">
+                                  {promptString}
+                                </pre>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -910,11 +1198,23 @@ ${rows}
                 {/* Run Button */}
                 <Button
                   onClick={runPromptSensitivityTest}
-                  disabled={isRunning || !imageFile || !groundTruth.trim() || selectedVariants.length === 0}
+                  disabled={
+                    isRunning ||
+                    !imageFile ||
+                    !groundTruth.trim() ||
+                    selectedVariants.length === 0 ||
+                    selectedModels.length === 0
+                  }
                   className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold text-xs py-5 rounded-xl shadow-md flex items-center justify-center gap-2"
                 >
                   <Play className="w-4 h-4" />
-                  <span>{isRunning ? progressLabel : `Run Prompt Comparison (${selectedVariants.length} Variants)`}</span>
+                  <span>
+                    {isRunning
+                      ? progressLabel
+                      : `Run Prompt Comparison (${selectedVariants.length} Prompts × ${selectedModels.length} Models = ${
+                          selectedVariants.length * selectedModels.length
+                        } Trials)`}
+                  </span>
                 </Button>
               </CardContent>
             </Card>
@@ -957,22 +1257,37 @@ ${rows}
                     <Table>
                       <TableHeader className="bg-slate-50">
                         <TableRow className="border-b border-slate-200 text-xs">
+                          <TableHead className="py-2.5">Model</TableHead>
                           <TableHead className="py-2.5">Variant</TableHead>
+                          <TableHead className="py-2.5">Tier</TableHead>
                           <TableHead className="py-2.5">Prediction</TableHead>
                           <TableHead className="py-2.5 text-center">Tokens (In / Out)</TableHead>
                           <TableHead className="py-2.5 text-center">Cost ($)</TableHead>
                           <TableHead className="py-2.5 text-center">Latency</TableHead>
                           <TableHead className="py-2.5 text-center">Reasoning</TableHead>
-                          <TableHead className="py-2.5 text-center">Result</TableHead>
+                          <TableHead className="py-2.5 text-center">Verdict (Double-Check)</TableHead>
                           <TableHead className="py-2.5 text-center">Failure Mode</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {currentResults.map((r, idx) => (
                           <TableRow key={idx} className="border-b border-slate-100 text-xs">
+                            <TableCell className="font-semibold text-slate-800 py-2.5 text-xs whitespace-nowrap">
+                              {r.modelLabel}
+                            </TableCell>
                             <TableCell className="font-bold text-slate-800 py-2.5">
                               <span style={{ color: VARIANT_COLORS[r.variant_id] }}>{r.variant_id}</span>
                               <span className="text-[10px] text-slate-400 block font-normal">{r.variant_name.split(": ")[1]}</span>
+                            </TableCell>
+                            <TableCell className="py-2.5">
+                              {(() => {
+                                const cfg = TIER_CONFIGS[normalizeTier(r.tier || singleTier)];
+                                return (
+                                  <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
+                                    {cfg.icon} {cfg.shortLabel}
+                                  </Badge>
+                                );
+                              })()}
                             </TableCell>
                             <TableCell className="py-2.5">
                               <span className="font-semibold text-slate-900 block truncate max-w-[130px]">{r.predicted}</span>
@@ -1007,26 +1322,13 @@ ${rows}
                               )}
                             </TableCell>
                             <TableCell className="text-center py-2.5">
-                              <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
-                                <button
-                                  type="button"
-                                  onClick={() => updateCorrectness(idx, true)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                    r.is_correct ? "bg-emerald-600 text-white" : "text-slate-500"
-                                  }`}
-                                >
-                                  ✓
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => updateCorrectness(idx, false)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                    !r.is_correct ? "bg-rose-600 text-white" : "text-slate-500"
-                                  }`}
-                                >
-                                  ✗
-                                </button>
-                              </div>
+                              <HumanDoubleCheckButton
+                                isCorrect={r.is_correct}
+                                matchScore={r.match_score}
+                                matchedAlias={r.matched_alias}
+                                isVerified={r.user_verified}
+                                onChange={(val) => updateCorrectness(idx, val)}
+                              />
                             </TableCell>
                             <TableCell className="text-center py-2.5">
                               {r.is_correct ? (
@@ -1034,15 +1336,15 @@ ${rows}
                                   ✓ None
                                 </Badge>
                               ) : (
-                                (() => {
-                                  const fm = (r.failure_mode as FailureMode) || "visual_confusion";
-                                  const cfg = FAILURE_MODE_CONFIGS[fm] || FAILURE_MODE_CONFIGS["visual_confusion"];
-                                  return (
-                                    <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
-                                      {cfg.icon} {cfg.shortLabel}
-                                    </Badge>
-                                  );
-                                })()
+                                <select
+                                  value={r.failure_mode || "visual_confusion"}
+                                  onChange={(e) => updateFailureMode(idx, e.target.value as FailureMode)}
+                                  className="text-[10px] bg-rose-50 border border-rose-200 text-rose-800 rounded px-1.5 py-1 font-semibold focus:outline-none focus:ring-1 focus:ring-rose-400"
+                                >
+                                  <option value="visual_confusion">👁️ Visual Confusion</option>
+                                  <option value="hallucination_overconfidence">🌀 Hallucination</option>
+                                  <option value="unidentifiable_scene">❓ Unidentifiable</option>
+                                </select>
                               )}
                             </TableCell>
                           </TableRow>
@@ -1056,10 +1358,23 @@ ${rows}
 
             {/* Historical Log */}
             <Card className="bg-white border-slate-200 shadow-sm text-left">
-              <CardHeader className="pb-3 border-b border-slate-100">
-                <CardTitle className="text-sm font-bold text-slate-900">
-                  Historical Prompt Records ({dbLogs.length} trials)
-                </CardTitle>
+              <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm font-bold text-slate-900">
+                    Historical Prompt Records ({dbLogs.length} trials)
+                  </CardTitle>
+                </div>
+                {(dbLogs.length > 0 || currentResults.length > 0) && (
+                  <Button
+                    onClick={exportFullCSV}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                    Download Full CSV
+                  </Button>
+                )}
               </CardHeader>
               <CardContent className="pt-4 max-h-60 overflow-y-auto">
                 {dbLogs.length === 0 ? (

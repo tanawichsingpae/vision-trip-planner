@@ -660,10 +660,12 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
                     size="sm"
                     disabled={isRunning}
                     onClick={() => setAllItemsTier(opt.value)}
-                    className="h-6 text-[10px] px-2 bg-white hover:bg-slate-100 font-medium"
+                    className="h-6 text-[10px] px-2 bg-white hover:bg-slate-100 font-medium flex items-center gap-1"
                     style={{ borderColor: `${opt.color}40`, color: opt.color }}
+                    title={opt.description}
                   >
-                    {opt.shortName}
+                    <span>{opt.icon}</span>
+                    <span>{opt.shortName}</span>
                   </Button>
                 ))}
               </div>
@@ -716,7 +718,10 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
                           <SelectContent>
                             {TIER_OPTIONS.map((opt) => (
                               <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                                <span className="font-bold" style={{ color: opt.color }}>{opt.shortName}</span>
+                                <span className="font-bold mr-1.5" style={{ color: opt.color }}>
+                                  {opt.icon} {opt.shortName}
+                                </span>
+                                <span className="text-[10px] text-slate-400">({opt.description})</span>
                               </SelectItem>
                             ))}
                           </SelectContent>
