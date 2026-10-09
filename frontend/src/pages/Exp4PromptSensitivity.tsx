@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType, MODEL_ID_MAP } from "@/context/AIProviderContext";
-import { safeFetch } from "@/utils/apiUtils";
+import { safeFetch, fileToBase64Optimized } from "@/utils/apiUtils";
+import { safeParseJson } from "@/utils/jsonRepair";
 import {
   evaluatePredictionWithAliases,
   classifyErrorCategory,
@@ -155,6 +156,7 @@ interface Exp4Result {
   confidence: number;
   time_ms: number;
   is_correct: boolean;
+  recall_rank?: number;
   match_score?: number;
   user_verified?: boolean;
   reasoning: string;
@@ -167,6 +169,10 @@ interface Exp4Result {
   total_tokens?: number;
   cost_usd?: number;
   tokens_per_sec?: number;
+  openrouter_id?: string;
+  generation_time_ms?: number;
+  pure_tokens_per_sec?: number;
+  provider_name?: string;
 }
 
 interface Exp4History {
@@ -181,6 +187,8 @@ interface Exp4History {
   confidence: number | string;
   time_ms: number | string;
   is_correct: string | boolean;
+  recall_rank?: number;
+  matched_alias?: string | null;
   reasoning: string;
   failure_mode?: FailureMode;
   temperature?: number;
@@ -189,6 +197,10 @@ interface Exp4History {
   total_tokens?: number;
   cost_usd?: number;
   tokens_per_sec?: number;
+  openrouter_id?: string;
+  generation_time_ms?: number;
+  pure_tokens_per_sec?: number;
+  provider_name?: string;
 }
 
 function isTruthy(v: string | boolean | undefined): boolean {
@@ -246,6 +258,8 @@ export default function Exp4PromptSensitivity() {
           confidence: row["Confidence"] !== undefined ? row["Confidence"] : row.confidence,
           time_ms: row["Time MS"] !== undefined ? row["Time MS"] : row.time_ms,
           is_correct: row["Is Correct"] !== undefined ? row["Is Correct"] : row.is_correct,
+          recall_rank: row["Recall Rank"] !== undefined ? Number(row["Recall Rank"]) : (isTruthy(row["Is Correct"] || row.is_correct) ? 1 : 0),
+          matched_alias: row["Matched Alias"] || row.matched_alias || null,
           reasoning: row["AI Reasoning"] || row.reasoning || "",
           failure_mode: (row["Failure Mode"] || row.failure_mode || "none") as FailureMode,
           temperature: row["Temperature"] !== undefined ? Number(row["Temperature"]) : 0.0,
@@ -254,6 +268,10 @@ export default function Exp4PromptSensitivity() {
           total_tokens: row["Total Tokens"] !== undefined ? Number(row["Total Tokens"]) : row.total_tokens,
           cost_usd: row["Cost USD"] !== undefined ? Number(row["Cost USD"]) : row.cost_usd,
           tokens_per_sec: row["Tokens Per Sec"] !== undefined ? Number(row["Tokens Per Sec"]) : row.tokens_per_sec,
+          openrouter_id: row["OpenRouter ID"] || row.openrouter_id || "",
+          generation_time_ms: row["Generation Time MS"] ? Number(row["Generation Time MS"]) : undefined,
+          pure_tokens_per_sec: row["Pure Tokens Per Sec"] ? Number(row["Pure Tokens Per Sec"]) : undefined,
+          provider_name: row["Provider Name"] || row.provider_name || "",
         }));
         setDbLogs(mapped);
       }
@@ -278,14 +296,6 @@ export default function Exp4PromptSensitivity() {
     }
   };
 
-  const fileToBase64 = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = (error) => reject(error);
-    });
-
   const runPromptSensitivityTest = async () => {
     if (!imageFile || !groundTruth.trim()) {
       toast.error("Please upload an image and specify Ground Truth.");
@@ -300,8 +310,7 @@ export default function Exp4PromptSensitivity() {
     setCurrentResults([]);
     const temp: Exp4Result[] = [];
 
-    const base64Image = await fileToBase64(imageFile);
-    const base64Data = base64Image.split(",")[1];
+    const base64Image = await fileToBase64Optimized(imageFile);
 
     for (const mVal of selectedModels) {
       const modelId = MODEL_ID_MAP[mVal];
@@ -331,13 +340,14 @@ export default function Exp4PromptSensitivity() {
                 role: "user",
                 content: [
                   { type: "text", text: promptText },
-                  { type: "image_url", image_url: { url: `data:${imageFile.type};base64,${base64Data}` } },
+                  { type: "image_url", image_url: { url: base64Image } },
                 ],
               },
             ],
             expect_json: true,
             allow_fallback: false,
             temperature: 0.1,
+            max_tokens: 1024,
           }),
         });
         callMetrics = data?.metrics;
@@ -345,9 +355,10 @@ export default function Exp4PromptSensitivity() {
         const raw = data.text?.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim() || "";
         let parsed: any = {};
         try {
-          parsed = JSON.parse(raw);
+          parsed = safeParseJson<any>(raw);
         } catch {
-          parsed = { place: raw };
+          const placeRegexMatch = raw.match(/"place"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
+          parsed = { place: placeRegexMatch ? placeRegexMatch[1].replace(/\\(.)/g, "$1").trim() : raw };
         }
 
         // All 5 paradigms now return {"place": ...} — no special-case needed
@@ -369,8 +380,14 @@ export default function Exp4PromptSensitivity() {
             parsedConfidence = Math.min(1.0, Math.max(0.0, num > 1.0 && num <= 100.0 ? num / 100.0 : num));
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error(`Exp4 error for ${vObj.name}:`, err);
+        const errMsg = err?.message || String(err);
+        const isRateLimit = errMsg.includes("429") || errMsg.includes("rate-limit") || errMsg.includes("temporarily");
+        pred = isRateLimit ? "Upstream Rate-Limited (429)" : "API Error";
+        reasoningText = errMsg;
+        parsedConfidence = 0.0;
+        toast.warning(`[${modelLabel}] ${vObj.name}: ${isRateLimit ? "Rate-limited upstream (429)" : "Request error"}`);
       }
 
       const duration = Math.round(performance.now() - start);
@@ -395,6 +412,7 @@ export default function Exp4PromptSensitivity() {
         confidence: parsedConfidence,
         time_ms: callMetrics?.latency_ms ? Math.round(callMetrics.latency_ms) : duration,
         is_correct: match.isCorrect,
+        recall_rank: match.rank,
         match_score: match.matchScore,
         user_verified: false,
         reasoning: reasoningText,
@@ -406,6 +424,7 @@ export default function Exp4PromptSensitivity() {
         total_tokens: callMetrics?.total_tokens ?? 0,
         cost_usd: callMetrics?.cost_usd ?? 0.0,
         tokens_per_sec: callMetrics?.tokens_per_sec ?? 0.0,
+        openrouter_id: callMetrics?.openrouter_id || "",
       });
 
       setCurrentResults([...temp]);
@@ -459,6 +478,8 @@ export default function Exp4PromptSensitivity() {
         confidence: r.confidence,
         time_ms: r.time_ms,
         is_correct: r.is_correct,
+        recall_rank: r.recall_rank,
+        matched_alias: r.matched_alias,
         reasoning: r.reasoning,
         temperature: 0.1,
         failure_mode: r.failure_mode || "none",
@@ -467,6 +488,7 @@ export default function Exp4PromptSensitivity() {
         total_tokens: r.total_tokens ?? 0,
         cost_usd: r.cost_usd ?? 0.0,
         tokens_per_sec: r.tokens_per_sec ?? 0.0,
+        openrouter_id: r.openrouter_id || "",
       })),
     };
 
@@ -613,20 +635,26 @@ ${rows}
       "Ground Truth",
       "Tier",
       "Model",
-      "Variant ID",
-      "Variant Name",
+      "Prompt Variant ID",
+      "Prompt Variant Name",
       "Predicted Place",
       "Confidence",
       "Time MS",
       "Is Correct",
+      "Recall Rank",
+      "Matched Alias",
       "AI Reasoning",
+      "Temperature",
       "Failure Mode",
       "Prompt Tokens",
       "Completion Tokens",
       "Total Tokens",
       "Cost USD",
       "Tokens Per Sec",
-      "Temperature",
+      "Generation Time MS",
+      "Pure Tokens Per Sec",
+      "Provider Name",
+      "OpenRouter ID",
     ];
 
     const rows = records.map((log) => [
@@ -641,14 +669,20 @@ ${rows}
       log.confidence !== undefined ? Number(log.confidence).toFixed(4) : "",
       log.time_ms,
       isTruthy(log.is_correct) ? "True" : "False",
+      log.recall_rank !== undefined ? log.recall_rank : (isTruthy(log.is_correct) ? 1 : 0),
+      log.matched_alias || "",
       log.reasoning || "",
+      log.temperature ?? 0.1,
       log.failure_mode || "none",
       log.prompt_tokens ?? "",
       log.completion_tokens ?? "",
       log.total_tokens ?? "",
       log.cost_usd !== undefined ? Number(log.cost_usd).toFixed(6) : "",
       log.tokens_per_sec !== undefined ? Number(log.tokens_per_sec).toFixed(2) : "",
-      log.temperature ?? 0.1,
+      log.generation_time_ms ?? "",
+      log.pure_tokens_per_sec !== undefined ? Number(log.pure_tokens_per_sec).toFixed(2) : "",
+      log.provider_name || "",
+      log.openrouter_id || "",
     ]);
 
     const filename = `VPR_Thesis_Exp4_PromptSensitivity_${new Date().toISOString().slice(0, 10)}.csv`;
@@ -898,8 +932,8 @@ ${rows}
 
         {/* Main 2-Column Test Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column: SETUP (5 cols) */}
-          <div className="lg:col-span-5 space-y-6">
+          {/* Left Column: SETUP (4-5 cols) */}
+          <div className="lg:col-span-5 xl:col-span-4 space-y-6">
             <Card className="bg-white border-slate-200 shadow-sm text-left">
               <CardHeader className="border-b border-slate-100 pb-4">
                 <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -1220,8 +1254,8 @@ ${rows}
             </Card>
           </div>
 
-          {/* Right Column: RESULTS & AI REASONING INSPECTION (7 cols) */}
-          <div className="lg:col-span-7 space-y-6">
+          {/* Right Column: RESULTS & AI REASONING INSPECTION (7-8 cols) */}
+          <div className="lg:col-span-7 xl:col-span-8 space-y-6">
             <Card className="bg-white border-slate-200 shadow-sm text-left">
               <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-slate-100">
                 <div>
@@ -1260,7 +1294,7 @@ ${rows}
                           <TableHead className="py-2.5">Model</TableHead>
                           <TableHead className="py-2.5">Variant</TableHead>
                           <TableHead className="py-2.5">Tier</TableHead>
-                          <TableHead className="py-2.5">Prediction</TableHead>
+                          <TableHead className="py-2.5 min-w-[220px]">Prediction</TableHead>
                           <TableHead className="py-2.5 text-center">Tokens (In / Out)</TableHead>
                           <TableHead className="py-2.5 text-center">Cost ($)</TableHead>
                           <TableHead className="py-2.5 text-center">Latency</TableHead>
@@ -1289,8 +1323,8 @@ ${rows}
                                 );
                               })()}
                             </TableCell>
-                            <TableCell className="py-2.5">
-                              <span className="font-semibold text-slate-900 block truncate max-w-[130px]">{r.predicted}</span>
+                            <TableCell className="py-2.5 min-w-[220px]">
+                              <span className="font-semibold text-slate-900 block break-words" title={r.predicted}>{r.predicted}</span>
                               {r.matched_alias && (
                                 <span className="text-[10px] text-emerald-600 block">Matched: "{r.matched_alias}"</span>
                               )}
@@ -1386,7 +1420,7 @@ ${rows}
                         <TableHead className="py-2">Variant</TableHead>
                         <TableHead className="py-2">Tier</TableHead>
                         <TableHead className="py-2">Model</TableHead>
-                        <TableHead className="py-2">Prediction</TableHead>
+                        <TableHead className="py-2 min-w-[200px]">Prediction</TableHead>
                         <TableHead className="py-2 text-center">Failure Mode</TableHead>
                         <TableHead className="py-2 text-right">Result</TableHead>
                       </TableRow>
@@ -1408,7 +1442,7 @@ ${rows}
                             })()}
                           </TableCell>
                           <TableCell className="py-2 font-medium text-slate-800">{row.model}</TableCell>
-                          <TableCell className="py-2 text-slate-700 truncate max-w-[130px]">{row.predicted}</TableCell>
+                          <TableCell className="py-2 text-slate-700 min-w-[200px] break-words" title={row.predicted}>{row.predicted}</TableCell>
                           <TableCell className="py-2 text-center">
                             {isTruthy(row.is_correct) ? (
                               <span className="text-slate-400 text-xs font-mono">-</span>

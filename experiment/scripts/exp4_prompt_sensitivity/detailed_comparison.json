@@ -1,0 +1,1179 @@
+[
+  {
+    "image": "images02.1.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "Colosseum, Rome",
+      "P2": "Colosseum",
+      "P3": "Colosseum",
+      "P4": "โคลอสเซียม (Colosseum)",
+      "P5": "Colosseum"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Colosseum",
+      "openai-gpt-54": "Colosseum",
+      "openai-gpt-54-mini": "Colosseum",
+      "qwen-25-vl-72b": "Colosseum",
+      "meta-llama4": "Colosseum"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images04.1.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "Statue of Liberty",
+      "P2": "Statue of Liberty",
+      "P3": "Statue of Liberty",
+      "P4": "อนุสาวรีย์เทพีเสรีภาพ (Statue of Liberty)",
+      "P5": "Statue of Liberty"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Statue of Liberty",
+      "openai-gpt-54": "Statue of Liberty, New York City",
+      "openai-gpt-54-mini": "Statue of Liberty",
+      "qwen-25-vl-72b": "Statue of Liberty",
+      "meta-llama4": "Statue of Liberty"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images07.1.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "Giza pyramid complex",
+      "P2": "Giza Pyramid Complex",
+      "P3": "Giza pyramid complex",
+      "P4": "กลุ่มพีระมิดแห่งกิซา",
+      "P5": "Pyramids of Giza"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Pyramids of Giza",
+      "openai-gpt-54": "Pyramids of Giza",
+      "openai-gpt-54-mini": "Pyramids of Giza",
+      "qwen-25-vl-72b": "Giza Pyramids",
+      "meta-llama4": "Pyramids of Giza"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images08.1.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "Basílica de la Sagrada Família",
+      "P2": "Basílica de la Sagrada Família",
+      "P3": "Basílica de la Sagrada Família",
+      "P4": "ซากราดาฟามิเลีย (Sagrada Família)",
+      "P5": "Sagrada Família"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Sagrada Família",
+      "openai-gpt-54": "Sagrada Família, Barcelona",
+      "openai-gpt-54-mini": "Sagrada Família",
+      "qwen-25-vl-72b": "Sagrada Familia",
+      "meta-llama4": "Sagrada Familia"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images11.1.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "Saint Basil's Cathedral",
+      "P2": "Saint Basil's Cathedral",
+      "P3": "Saint Basil's Cathedral, Moscow",
+      "P4": "มหาวิหารเซนต์บาซิล (Saint Basil's Cathedral)",
+      "P5": "Saint Basil's Cathedral"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Saint Basil's Cathedral",
+      "openai-gpt-54": "Saint Basil's Cathedral, Moscow",
+      "openai-gpt-54-mini": "St. Basil's Cathedral",
+      "qwen-25-vl-72b": "Saint Basil's Cathedral",
+      "meta-llama4": "St. Basil's Cathedral"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images12.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "Wat Phra Kaew (Temple of the Emerald Buddha)",
+      "P2": "Wat Phra Kaew and the Grand Palace",
+      "P3": "Wat Phra Kaew (Grand Palace)",
+      "P4": "วัดพระศรีรัตนศาสดาราม (วัดพระแก้ว) และพระบรมมหาราชวัง",
+      "P5": "Grand Palace and Wat Phra Kaew"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Grand Palace and Wat Phra Kaew",
+      "openai-gpt-54": "The Grand Palace, Bangkok",
+      "openai-gpt-54-mini": "Grand Palace",
+      "qwen-25-vl-72b": "Grand Palace",
+      "meta-llama4": "Grand Palace"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images15.1.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "Forbidden City (Donghuamen Gate)",
+      "P2": "Donghuamen (East Glorious Gate), Forbidden City",
+      "P3": "Gate of Divine Might (Shenwumen), Forbidden City",
+      "P4": "พระราชวังต้องห้าม (Forbidden City)",
+      "P5": "Forbidden City"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Forbidden City (Shenwumen - Gate of Divine Might)",
+      "openai-gpt-54": "Forbidden City",
+      "openai-gpt-54-mini": "Forbidden City",
+      "qwen-25-vl-72b": "Forbidden City",
+      "meta-llama4": "Forbidden City"
+    },
+    "other_failures": [
+      {
+        "model": "meta-llama4",
+        "variant": "P4",
+        "predicted": "พระจำนหนากเฉียง",
+        "failure_mode": "hallucination_overconfidence"
+      }
+    ]
+  },
+  {
+    "image": "images19.1.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "Petronas Twin Towers, Kuala Lumpur",
+      "P2": "Petronas Twin Towers",
+      "P3": "Petronas Twin Towers",
+      "P4": "ตึกแฝดเปโตรนาส (Petronas Twin Towers)",
+      "P5": "Petronas Twin Towers"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Petronas Twin Towers",
+      "openai-gpt-54": "Petronas Twin Towers, Kuala Lumpur",
+      "openai-gpt-54-mini": "Petronas Twin Towers",
+      "qwen-25-vl-72b": "Petronas Twin Towers",
+      "meta-llama4": "Petronas Twin Towers"
+    },
+    "other_failures": [
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P4",
+        "predicted": " Петрอนัสทวินทาวเวอร์",
+        "failure_mode": "hallucination_overconfidence"
+      }
+    ]
+  },
+  {
+    "image": "images20.1.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "ArtScience Museum and Marina Bay Sands",
+      "P2": "Marina Bay Sands and ArtScience Museum",
+      "P3": "Marina Bay Sands and ArtScience Museum",
+      "P4": "มารีนาเบย์แซนส์ และ พิพิธภัณฑ์ศิลปะวิทยาศาสตร์ (Marina Bay Sands & ArtScience Museum)",
+      "P5": "Marina Bay Sands and ArtScience Museum"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Marina Bay Sands",
+      "openai-gpt-54": "Marina Bay Sands",
+      "openai-gpt-54-mini": "Marina Bay Sands and ArtScience Museum",
+      "qwen-25-vl-72b": "Marina Bay Sands",
+      "meta-llama4": "Marina Bay Sands"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images23.1.jpg",
+    "tier": "tier1_iconic",
+    "gemini_preds": {
+      "P1": "Badaling Great Wall",
+      "P2": "Great Wall of China",
+      "P3": "Great Wall of China (Badaling section)",
+      "P4": "กำแพงเมืองจีน (Great Wall of China)",
+      "P5": "Great Wall of China"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Great Wall of China (Juyongguan or similar section)",
+      "openai-gpt-54": "Great Wall of China",
+      "openai-gpt-54-mini": "Great Wall of China",
+      "qwen-25-vl-72b": "Great Wall of China",
+      "meta-llama4": "Great Wall of China"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images03.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Fushimi Inari Shrine",
+      "P2": "Fushimi Inari Taisha",
+      "P3": "Fushimi Inari-taisha",
+      "P4": "ศาลเจ้าฟูชิมิอินาริ (Fushimi Inari Taisha), เกียวโต",
+      "P5": "Fushimi Inari Taisha"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Fushimi Inari Taisha",
+      "openai-gpt-54": "Fushimi Inari Taisha",
+      "openai-gpt-54-mini": "Fushimi Inari Taisha",
+      "qwen-25-vl-72b": "Fushimi Inari Shrine",
+      "meta-llama4": "Fushimi Inari Shrine"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images06.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Bran Castle",
+      "P2": "Bran Castle",
+      "P3": "Bran Castle",
+      "P4": "ปราสาทบราน (Bran Castle)",
+      "P5": "Bran Castle"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Bran Castle",
+      "openai-gpt-54": "Bran Castle",
+      "openai-gpt-54-mini": "Bran Castle",
+      "qwen-25-vl-72b": "Bran Castle",
+      "meta-llama4": "Bran Castle"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images09.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Sanctuary of Truth",
+      "P2": "Sanctuary of Truth",
+      "P3": "Sanctuary of Truth",
+      "P4": "ปราสาทสัจธรรม (Sanctuary of Truth)",
+      "P5": "Sanctuary of Truth"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Sanctuary of Truth",
+      "openai-gpt-54": "The Sanctuary of Truth, Pattaya",
+      "openai-gpt-54-mini": "Sanctuary of Truth",
+      "qwen-25-vl-72b": "Sanctuary of Truth",
+      "meta-llama4": "Sanctuary of Truth"
+    },
+    "other_failures": [
+      {
+        "model": "meta-llama4",
+        "variant": "P4",
+        "predicted": "วัดการความรู้",
+        "failure_mode": "hallucination_overconfidence"
+      }
+    ]
+  },
+  {
+    "image": "images10.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Borobudur Temple",
+      "P2": "Borobudur Temple",
+      "P3": "Borobudur Temple",
+      "P4": "บุโรพุทโธ (Borobudur)",
+      "P5": "Borobudur Temple"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Borobudur Temple",
+      "openai-gpt-54": "Borobudur Temple",
+      "openai-gpt-54-mini": "Borobudur Temple",
+      "qwen-25-vl-72b": "Borobudur",
+      "meta-llama4": "Borobudur"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images14.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Shwedagon Pagoda",
+      "P2": "Shwedagon Pagoda",
+      "P3": "Shwedagon Pagoda",
+      "P4": "มหาเจดีย์ชเวดากอง",
+      "P5": "Shwedagon Pagoda"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Shwedagon Pagoda",
+      "openai-gpt-54": "Shwedagon Pagoda",
+      "openai-gpt-54-mini": "Shwedagon Pagoda",
+      "qwen-25-vl-72b": "Shwedagon Pagoda",
+      "meta-llama4": "Shwedagon Pagoda"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images16.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Old Town Bridge Tower, Charles Bridge, Prague",
+      "P2": "Old Town Bridge Tower, Charles Bridge",
+      "P3": "Old Town Bridge Tower, Charles Bridge, Prague",
+      "P4": "สะพานชาลส์ และหอคอยสะพานเมืองเก่า (Charles Bridge & Old Town Bridge Tower), ปราก",
+      "P5": "Charles Bridge (Old Town Bridge Tower)"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Old Town Bridge Tower, Charles Bridge",
+      "openai-gpt-54": "Old Town Bridge Tower, Charles Bridge, Prague",
+      "openai-gpt-54-mini": "Charles Bridge, Old Town Bridge Tower",
+      "qwen-25-vl-72b": "Charles Bridge",
+      "meta-llama4": "Charles Bridge"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images18.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Amer Fort",
+      "P2": "Amer Fort",
+      "P3": "Amer Fort",
+      "P4": "ป้อมอาเมร์ (Amber Fort)",
+      "P5": "Amber Fort"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Amber Fort",
+      "openai-gpt-54": "Amer Fort",
+      "openai-gpt-54-mini": "Amber Fort",
+      "qwen-25-vl-72b": "Amber Fort",
+      "meta-llama4": "Amer Fort"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images21.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Great Mosque of Djenné",
+      "P2": "Grand Mosque of Djenné",
+      "P3": "Great Mosque of Djenné",
+      "P4": "มัสยิดใหญ่แห่งเจนนี (Great Mosque of Djenné)",
+      "P5": "Great Mosque of Djenné"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Great Mosque of Djenné",
+      "openai-gpt-54": "Great Mosque of Djenné",
+      "openai-gpt-54-mini": "Great Mosque of Djenné",
+      "qwen-25-vl-72b": "Djinguereber Mosque",
+      "meta-llama4": "Djenne Mosque"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images22.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Dubrovnik Old Town",
+      "P2": "Dubrovnik Old Town",
+      "P3": "Dubrovnik Old Town",
+      "P4": "เมืองเก่าดูบรอฟนิก (Dubrovnik Old Town)",
+      "P5": "Dubrovnik Old Town"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Dubrovnik Old Town",
+      "openai-gpt-54": "Old City of Dubrovnik",
+      "openai-gpt-54-mini": "Dubrovnik Old Town",
+      "qwen-25-vl-72b": "Dubrovnik",
+      "meta-llama4": "Dubrovnik Old Town"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images25.1.jpg",
+    "tier": "tier2_longtail",
+    "gemini_preds": {
+      "P1": "Wat Rong Khun (White Temple)",
+      "P2": "Wat Rong Khun (White Temple)",
+      "P3": "Wat Rong Khun (White Temple)",
+      "P4": "วัดร่องขุ่น (Wat Rong Khun / White Temple)",
+      "P5": "Wat Rong Khun (White Temple)"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Wat Rong Khun (White Temple)",
+      "openai-gpt-54": "Wat Rong Khun (White Temple), Chiang Rai",
+      "openai-gpt-54-mini": "Wat Rong Khun (White Temple)",
+      "qwen-25-vl-72b": "Wat Rong Khun",
+      "meta-llama4": "Wat Rong Khun"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images01.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Love Valley, Cappadocia",
+      "P2": "Cappadocia",
+      "P3": "Cappadocia (Love Valley / Göreme)",
+      "P4": "คัปปาโดเกีย (Cappadocia)",
+      "P5": "Cappadocia"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Cappadocia",
+      "openai-gpt-54": "Cappadocia",
+      "openai-gpt-54-mini": "Cappadocia",
+      "qwen-25-vl-72b": "Cappadocia",
+      "meta-llama4": "Cappadocia"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images05.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Plitvice Lakes National Park",
+      "P2": "Plitvice Lakes National Park",
+      "P3": "Plitvice Lakes National Park",
+      "P4": "อุทยานแห่งชาติทะเลสาบพลิทวิเซ (Plitvice Lakes National Park)",
+      "P5": "Plitvice Lakes National Park"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Plitvice Lakes National Park",
+      "openai-gpt-54": "Plitvice Lakes National Park",
+      "openai-gpt-54-mini": "Plitvice Lakes National Park",
+      "qwen-25-vl-72b": "Plitvice Lakes",
+      "meta-llama4": "Plitvice Lakes National Park"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images08.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Torres del Paine National Park",
+      "P2": "Mirador Las Torres, Torres del Paine National Park",
+      "P3": "Torres del Paine (Mirador Las Torres)",
+      "P4": "อุทยานแห่งชาติตอร์เรสเดลไปเน (Torres del Paine)",
+      "P5": "Torres del Paine (Mirador Las Torres)"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Torres del Paine (Base of the Towers)",
+      "openai-gpt-54": "Torres del Paine (Cuernos/Las Torres area)",
+      "openai-gpt-54-mini": "Torres del Paine National Park (Los Cuernos / Paine Grande area)",
+      "qwen-25-vl-72b": "Torres del Paine",
+      "meta-llama4": "Torres del Paine"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images12.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Avatar Hallelujah Mountain (Southern Sky Column), Zhangjiajie National Forest Park",
+      "P2": "Avatar Hallelujah Mountain (Qiankun Column), Zhangjiajie National Forest Park",
+      "P3": "Avatar Hallelujah Mountain (Southern Sky Column), Zhangjiajie National Forest Park",
+      "P4": "เขาอวตารฮัลเลลูยาห์ (เสาหินเฉียนคุน) อุทยานแห่งชาติจางเจียเจี้ย",
+      "P5": "Avatar Hallelujah Mountain (Zhangjiajie National Forest Park)"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Zhangjiajie National Forest Park (Avatar Hallelujah Mountain)",
+      "openai-gpt-54": "Zhangjiajie National Forest Park",
+      "openai-gpt-54-mini": "Wulingyuan Scenic Area (Zhangjiajie National Forest Park)",
+      "qwen-25-vl-72b": "Zhangjiajie National Forest Park",
+      "meta-llama4": "Zhangjiajie National Forest Park"
+    },
+    "other_failures": [
+      {
+        "model": "meta-llama4",
+        "variant": "P4",
+        "predicted": "อุทยแยนเที่ยงเจียน",
+        "failure_mode": "hallucination_overconfidence"
+      }
+    ]
+  },
+  {
+    "image": "images13.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Moraine Lake",
+      "P2": "Moraine Lake, Banff National Park",
+      "P3": "Moraine Lake",
+      "P4": "ทะเลสาบมอเรน (Moraine Lake), อุทยานแห่งชาติแบมฟ์",
+      "P5": "Moraine Lake"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Moraine Lake",
+      "openai-gpt-54": "Moraine Lake, Banff National Park",
+      "openai-gpt-54-mini": "Moraine Lake",
+      "qwen-25-vl-72b": "Moraine Lake",
+      "meta-llama4": "Moraine Lake"
+    },
+    "other_failures": [
+      {
+        "model": "meta-llama4",
+        "variant": "P4",
+        "predicted": "ทะเลสาบมอร์יין",
+        "failure_mode": "hallucination_overconfidence"
+      }
+    ]
+  },
+  {
+    "image": "images17.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Mount Batok",
+      "P2": "Mount Batok, Bromo Tengger Semeru National Park",
+      "P3": "Mount Batok, Bromo Tengger Semeru National Park",
+      "P4": "ภูเขาไฟบาตอก (Gunung Batok) / อุทยานแห่งชาติโบรโมเติงเกอร์เซเมรู",
+      "P5": "Mount Batok (Bromo Tengger Semeru National Park)"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Mount Bromo (Bromo Tengger Semeru National Park)",
+      "openai-gpt-54": "Mount Batok, Bromo Tengger Semeru National Park",
+      "openai-gpt-54-mini": "Mount Bromo",
+      "qwen-25-vl-72b": "Mount Batok",
+      "meta-llama4": "Mount Bromo"
+    },
+    "other_failures": [
+      {
+        "model": "anthropic-claude-sonnet5",
+        "variant": "P1",
+        "predicted": "Mount Bromo (Bromo Tengger Semeru National Park)",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "anthropic-claude-sonnet5",
+        "variant": "P2",
+        "predicted": "Mount Bromo (Bromo Tengger Semeru National Park)",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "anthropic-claude-sonnet5",
+        "variant": "P3",
+        "predicted": "Mount Bromo (Bromo Tengger Semeru National Park)",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "anthropic-claude-sonnet5",
+        "variant": "P4",
+        "predicted": "ภูเขาไฟโบรโม (Mount Bromo) - ทะเลทรายเขาบาตอก",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "anthropic-claude-sonnet5",
+        "variant": "P5",
+        "predicted": "Mount Bromo",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54",
+        "variant": "P3",
+        "predicted": "Mount Bromo viewpoint area / Sea of Sand, Bromo Tengger Semeru National Park",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54",
+        "variant": "P4",
+        "predicted": "Mount Bromo",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54",
+        "variant": "P5",
+        "predicted": "Mount Bromo",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P1",
+        "predicted": "Mount Bromo",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P2",
+        "predicted": "Mount Bromo",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P3",
+        "predicted": "Mount Bromo (view of the Bromo-Tengger-Semeru volcanic area)",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P4",
+        "predicted": "ภูเขาโบรโม (Mount Bromo)",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P5",
+        "predicted": "Mount Bromo",
+        "failure_mode": "visual_confusion"
+      }
+    ]
+  },
+  {
+    "image": "images19.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Cheow Lan Lake (Khao Sok National Park)",
+      "P2": "Cheow Lan Lake (Khao Sok National Park)",
+      "P3": "Cheow Lan Lake, Khao Sok National Park",
+      "P4": "เขื่อนเชี่ยวหลาน (เขื่อนรัชชประภา) อุทยานแห่งชาติเขาสก",
+      "P5": "Cheow Lan Lake (Khao Sok National Park)"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Cheow Lan Lake (Khao Sok National Park)",
+      "openai-gpt-54": "Khao Sok National Park",
+      "openai-gpt-54-mini": "Phi Phi Leh",
+      "qwen-25-vl-72b": "Cheow Lan Lake",
+      "meta-llama4": "Khao Sok National Park (Cheow Lan Lake)"
+    },
+    "other_failures": [
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P1",
+        "predicted": "Phi Phi Leh",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P2",
+        "predicted": "Phi Phi Islands",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P3",
+        "predicted": "Phi Phi Islands (likely Ko Phi Phi Leh / Viking Cave area)",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P4",
+        "predicted": "อ่าวพังงา (Phang Nga Bay)",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P5",
+        "predicted": "Phang Nga Bay",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P2",
+        "predicted": "Phang Nga Bay",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P3",
+        "predicted": "Phang Nga Bay",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P4",
+        "predicted": "อ่าวภูมหลวงพันที่พันธ์",
+        "failure_mode": "hallucination_overconfidence"
+      }
+    ]
+  },
+  {
+    "image": "images20.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Kew Mae Pan Nature Trail, Doi Inthanon National Park",
+      "P2": "Kew Mae Pan Nature Trail, Doi Inthanon National Park",
+      "P3": "Kew Mae Pan Nature Trail, Doi Inthanon National Park",
+      "P4": "กิ่วแม่ปาน (อุทยานแห่งชาติดอยอินทนนท์)",
+      "P5": "Kew Mae Pan Nature Trail, Doi Inthanon"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Doi Mon Jong Viewpoint, near Chiang Mai",
+      "openai-gpt-54": "Doi Inthanon National Park",
+      "openai-gpt-54-mini": "Doi Inthanon",
+      "qwen-25-vl-72b": "Phu Chi Fa",
+      "meta-llama4": "Doi Ang Khang"
+    },
+    "other_failures": [
+      {
+        "model": "anthropic-claude-sonnet5",
+        "variant": "P1",
+        "predicted": "Doi Mon Jong Viewpoint, near Chiang Mai",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "anthropic-claude-sonnet5",
+        "variant": "P2",
+        "predicted": "Doi Mae Salong (viewpoint near Chiang Rai)",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "anthropic-claude-sonnet5",
+        "variant": "P4",
+        "predicted": "ดอยผ้าห่มปก หรือจุดชมวิวภูเขาภาคเหนือ",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P4",
+        "predicted": "ภูกระดึง",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P5",
+        "predicted": "Mount Bromo viewpoint",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P1",
+        "predicted": "Phu Chi Fa",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P2",
+        "predicted": "Phu Chi Fa",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P3",
+        "predicted": "Phu Chi Fa",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P4",
+        "predicted": "ภูเขาฟ้า",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P5",
+        "predicted": "Phu Chi Fa",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P1",
+        "predicted": "Doi Ang Khang",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P2",
+        "predicted": "Doi Ang Khang",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P3",
+        "predicted": "Doi Ang Khang",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P4",
+        "predicted": "กวางเที่ยว เชียงราย",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P5",
+        "predicted": "Doi Ang Khang",
+        "failure_mode": "visual_confusion"
+      }
+    ]
+  },
+  {
+    "image": "images24.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Uluru",
+      "P2": "Uluru (Ayers Rock)",
+      "P3": "Uluru (Ayers Rock)",
+      "P4": "อุลูรู (Uluru / Ayers Rock)",
+      "P5": "Uluru"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Uluru (Ayers Rock)",
+      "openai-gpt-54": "Uluru (Ayers Rock)",
+      "openai-gpt-54-mini": "Uluru (Ayers Rock)",
+      "qwen-25-vl-72b": "Uluru",
+      "meta-llama4": "Uluru"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "images25.1.jpg",
+    "tier": "tier3_nature",
+    "gemini_preds": {
+      "P1": "Ulsanbawi Rock, Seoraksan National Park",
+      "P2": "Ulsanbawi Rock, Seoraksan National Park",
+      "P3": "Ulsanbawi Rock, Seoraksan National Park",
+      "P4": "โขดหินอุลซานบาอวี อุทยานแห่งชาติซอรัคซาน (Ulsanbawi, Seoraksan National Park)",
+      "P5": "Ulsanbawi Rock, Seoraksan National Park"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Ulsanbawi Rock, Seoraksan National Park",
+      "openai-gpt-54": "Bukhansan National Park",
+      "openai-gpt-54-mini": "Seoraksan National Park",
+      "qwen-25-vl-72b": "Seoraksan National Park",
+      "meta-llama4": "Ulsanbawi"
+    },
+    "other_failures": [
+      {
+        "model": "openai-gpt-54",
+        "variant": "P1",
+        "predicted": "Bukhansan National Park",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54",
+        "variant": "P2",
+        "predicted": "Bukhansan National Park",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54",
+        "variant": "P3",
+        "predicted": "Bukhansan National Park granite ridge",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54",
+        "variant": "P4",
+        "predicted": "Bukhansan National Park",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54",
+        "variant": "P5",
+        "predicted": "Bukhansan National Park",
+        "failure_mode": "visual_confusion"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P2",
+        "predicted": "Dodeamsan Mountain (Daedunsan Rock Ridge)",
+        "failure_mode": "visual_confusion"
+      }
+    ]
+  },
+  {
+    "image": "2.PNG",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "Pike Place Fish Market",
+      "P2": "Pike Place Market",
+      "P3": "Pike Place Fish Market, Seattle",
+      "P4": "ตลาดพายก์เพลซ (Pike Place Market)",
+      "P5": "Pike Place Fish Market"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Pike Place Market",
+      "openai-gpt-54": "Pike Place Market, Seattle",
+      "openai-gpt-54-mini": "Pike Place Market",
+      "qwen-25-vl-72b": "Pike Place Market",
+      "meta-llama4": "Pike Place Market"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "3.PNG",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "Calle Varisco, Venice",
+      "P2": "Venice Canals (Calle Varisco view)",
+      "P3": "Calle Varisco, Venice",
+      "P4": "เวนิส (Venice)",
+      "P5": "Venice Canals"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Venice Canal",
+      "openai-gpt-54": "Venice",
+      "openai-gpt-54-mini": "Venice canal",
+      "qwen-25-vl-72b": "Venice",
+      "meta-llama4": "Venice"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "7.PNG",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "Palacio de Bellas Artes",
+      "P2": "Palacio de Bellas Artes",
+      "P3": "Palacio de Bellas Artes (Metro Bellas Artes)",
+      "P4": "Palacio de Bellas Artes (พระราชวังวิจิตรศิลป์)",
+      "P5": "Palacio de Bellas Artes"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Palacio de Bellas Artes",
+      "openai-gpt-54": "Palacio de Bellas Artes / Bellas Artes Metro entrance, Mexico City",
+      "openai-gpt-54-mini": "Palacio de Bellas Artes",
+      "qwen-25-vl-72b": "Palacio de Bellas Artes",
+      "meta-llama4": "Palacio de Bellas Artes"
+    },
+    "other_failures": [
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P4",
+        "predicted": "พิพิธภัณฑ์ศิลปะแห่งชาติเม็กซิโก",
+        "failure_mode": "visual_confusion"
+      }
+    ]
+  },
+  {
+    "image": "10.PNG",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "Yaowarat Road (Bangkok Chinatown)",
+      "P2": "Yaowarat Road (Chinatown, Bangkok)",
+      "P3": "Yaowarat Road (Chinatown, Bangkok)",
+      "P4": "ถนนเยาวราช (Yaowarat Road)",
+      "P5": "Yaowarat Road (Chinatown, Bangkok)"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Yaowarat (Bangkok's Chinatown)",
+      "openai-gpt-54": "Yaowarat Road, Bangkok Chinatown",
+      "openai-gpt-54-mini": "Yaowarat (Bangkok Chinatown)",
+      "qwen-25-vl-72b": "Yaowarat Road",
+      "meta-llama4": "Yaowarat"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "11.jpg",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "57th Street–Seventh Avenue subway station",
+      "P2": "57th Street - Seventh Avenue subway station",
+      "P3": "57th Street–Seventh Avenue subway station, Manhattan, New York City",
+      "P4": "57th Street–Seventh Avenue subway station",
+      "P5": "57th Street–Seventh Avenue Subway Station"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "57th Street & 7th Avenue Subway Station",
+      "openai-gpt-54": "57 Street–7 Avenue Subway Station, New York City",
+      "openai-gpt-54-mini": "145 Street Subway Station",
+      "qwen-25-vl-72b": "55th Street & 7th Avenue Subway Station",
+      "meta-llama4": "55 Street & 7 Avenue Subway Station"
+    },
+    "other_failures": [
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P1",
+        "predicted": "145 Street Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P2",
+        "predicted": "145th Street – Broadway / Seventh Avenue Line Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "openai-gpt-54-mini",
+        "variant": "P4",
+        "predicted": "55 Street & 7 Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P1",
+        "predicted": "55th Street & 7th Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P2",
+        "predicted": "55th Street & 7th Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P3",
+        "predicted": "55th Street & 7th Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P4",
+        "predicted": "55 Street & 7 Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "qwen-25-vl-72b",
+        "variant": "P5",
+        "predicted": "55th Street & 7th Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P1",
+        "predicted": "55 Street & 7 Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P2",
+        "predicted": "7 Subway Line, 55th Street Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P3",
+        "predicted": "7 Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P4",
+        "predicted": "55 Street & 7 Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      },
+      {
+        "model": "meta-llama4",
+        "variant": "P5",
+        "predicted": "55th Street & 7th Avenue Subway Station",
+        "failure_mode": "hallucination_overconfidence"
+      }
+    ]
+  },
+  {
+    "image": "14.PNG",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "Café de Flore",
+      "P2": "Café de Flore",
+      "P3": "Café de Flore",
+      "P4": "Café de Flore",
+      "P5": "Café de Flore"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Café de Flore",
+      "openai-gpt-54": "Café de Flore, Paris",
+      "openai-gpt-54-mini": "Café de Flore",
+      "qwen-25-vl-72b": "Cafe de Flore",
+      "meta-llama4": "Café de Flore"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "18.PNG",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "East Side Gallery",
+      "P2": "East Side Gallery (Berlin Wall)",
+      "P3": "East Side Gallery (Berlin Wall)",
+      "P4": "อีสต์ไซด์แกลเลอรี (กำแพงเบอร์ลิน)",
+      "P5": "East Side Gallery (Berlin Wall)"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "East Side Gallery (Berlin Wall)",
+      "openai-gpt-54": "East Side Gallery, Berlin Wall",
+      "openai-gpt-54-mini": "East Side Gallery",
+      "qwen-25-vl-72b": "East Side Gallery",
+      "meta-llama4": "East Side Gallery"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "21.PNG",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "Alfama, Lisbon",
+      "P2": "Alfama, Lisbon",
+      "P3": "Alfama, Lisbon",
+      "P4": "ย่านอัลฟามา (Alfama), ลิสบอน",
+      "P5": "Alfama, Lisbon"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Alfama",
+      "openai-gpt-54": "Alfama, Lisbon",
+      "openai-gpt-54-mini": "Alfama tram line",
+      "qwen-25-vl-72b": "Alfama",
+      "meta-llama4": "Alfama"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "23.PNG",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "Myeongdong Shopping Street",
+      "P2": "Myeongdong",
+      "P3": "Myeongdong Shopping Street, Seoul",
+      "P4": "ย่านเมียงดง (Myeongdong), โซล",
+      "P5": "Myeong-dong"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Myeongdong",
+      "openai-gpt-54": "Myeongdong, Seoul",
+      "openai-gpt-54-mini": "Myeongdong",
+      "qwen-25-vl-72b": "Myeongdong",
+      "meta-llama4": "Myeongdong"
+    },
+    "other_failures": []
+  },
+  {
+    "image": "24.PNG",
+    "tier": "tier4_ugc",
+    "gemini_preds": {
+      "P1": "Degraves Street, Melbourne",
+      "P2": "Degraves Street",
+      "P3": "Degraves Street, Melbourne",
+      "P4": "Degraves Street (ถนนเดเกรฟส์)",
+      "P5": "Degraves Street"
+    },
+    "gemini_all_correct": true,
+    "other_p1": {
+      "anthropic-claude-sonnet5": "Degraves St Laneway",
+      "openai-gpt-54": "Degraves Street Laneway, Melbourne",
+      "openai-gpt-54-mini": "Degraves Street Laneway",
+      "qwen-25-vl-72b": "Degraves Street",
+      "meta-llama4": "Degraves Street"
+    },
+    "other_failures": []
+  }
+]

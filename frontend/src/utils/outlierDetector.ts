@@ -148,6 +148,22 @@ export function detectVisionOutliers(
       return;
     }
 
+    // Normalize valid travel destinations that were captured as screenshots
+    const hasValidPlace =
+      res.is_identifiable_place !== false &&
+      placeName.length > 0 &&
+      !lowerPlace.includes("ภาพไม่ระบุสถานที่") &&
+      !lowerPlace.includes("ภาพที่ไม่ใช่สถานที่") &&
+      lowerPlace !== "unknown" &&
+      lowerPlace !== "unidentified" &&
+      lowerPlace !== "n/a" &&
+      lowerPlace !== "none" &&
+      !res.non_travel_category;
+
+    if (hasValidPlace && res.type && res.type.toLowerCase() === "screenshot") {
+      res.type = "landmark";
+    }
+
     // Check 2: Non-Travel Image Detection (e.g. unknown, unidentifiable, selfie, documents, objects)
     const isExplicitNonTravel =
       res.is_identifiable_place === false ||
@@ -162,7 +178,6 @@ export function detectVisionOutliers(
         [
           "document",
           "receipt",
-          "screenshot",
           "document_screenshot",
           "meme",
           "object",
@@ -179,7 +194,8 @@ export function detectVisionOutliers(
           "blurry_dark",
           "non_travel",
           "other",
-        ].includes(res.type.toLowerCase()));
+        ].includes(res.type.toLowerCase())) ||
+      (res.type?.toLowerCase() === "screenshot" && !hasValidPlace);
 
     if (isExplicitNonTravel) {
       const detectedLabel =
@@ -187,7 +203,7 @@ export function detectVisionOutliers(
         (res.type === "portrait_selfie" || res.type === "selfie" ? "รูปถ่ายบุคคล / เซลฟี่ (Selfie)" :
          res.type === "food" || res.type === "food_drink" || res.type === "food_dish" ? "รูปถ่ายอาหาร / เครื่องดื่ม" :
          res.type === "document" || res.type === "receipt" || res.type === "document_screenshot" ? "สลิปโอนเงิน / เอกสาร / ใบเสร็จ" :
-         res.type === "screenshot" ? "ภาพแคปหน้าจอสมาร์ตโฟน" :
+         res.type === "screenshot" ? "ภาพแคปหน้าจอสมาร์ตโฟน / แชท" :
          res.type === "pet" || res.type === "pet_animal" ? "สัตว์เลี้ยง / สัตว์" :
          res.type === "vehicle" ? "ยานพาหนะ / รถยนต์" :
          res.type === "object" || res.type === "item_product" ? "สิ่งของเครื่องใช้ / สินค้า" :

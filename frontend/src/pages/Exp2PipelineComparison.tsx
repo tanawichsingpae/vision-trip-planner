@@ -7,17 +7,20 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AI_MODEL_OPTIONS, AIModelType } from "@/context/AIProviderContext";
-import { analyzeImage, analyzeImageDirect, type VisionResult } from "@/services/aiService";
+import { analyzeImage, type VisionResult } from "@/services/aiService";
 import {
   evaluatePredictionWithAliases,
-  classifyErrorCategory,
+  calculateStringSimilarity,
+  normalizeString,
+  parseAliases,
   FailureMode,
   FAILURE_MODE_CONFIGS,
+  FAILURE_MODE_OPTIONS,
 } from "@/utils/evaluationMetrics";
 import { KeyTakeawaysCard } from "@/components/experiment/KeyTakeawaysCard";
-import { HumanDoubleCheckButton } from "@/components/experiment/HumanDoubleCheckButton";
 import {
   VPRTier,
   TIER_CONFIGS,
@@ -33,19 +36,25 @@ import {
   Save,
   Layers,
   TrendingUp,
-  TrendingDown,
-  Minus,
-  Trophy,
   Target,
-  Zap,
   BarChart3,
   Scale,
   FileCode2,
   Check,
+  CheckCheck,
   Copy,
   Info,
   Sparkles,
   Download,
+  ShieldCheck,
+  Activity,
+  ArrowRightLeft,
+  ChevronDown,
+  ChevronUp,
+  Smartphone,
+  RotateCcw,
+  AlertTriangle,
+  HelpCircle,
 } from "lucide-react";
 import { downloadCsv } from "@/utils/csvExport";
 import {
@@ -61,100 +70,162 @@ import {
   CartesianGrid,
 } from "recharts";
 
-interface Exp2Result {
-  model: AIModelType;
-  modelLabel: string;
-  predicted_clip: string;
-  predicted_noclip: string;
-  confidence_clip: number;
-  confidence_noclip: number;
-  correct_clip: boolean;
-  correct_noclip: boolean;
-  match_score_clip?: number;
-  match_score_noclip?: number;
-  matched_alias_clip?: string | null;
-  matched_alias_noclip?: string | null;
-  user_verified_clip?: boolean;
-  user_verified_noclip?: boolean;
-  latency_clip: number;
-  latency_noclip: number;
-  delta_latency: number;
-  tier?: VPRTier;
-  tokens_clip?: number;
-  tokens_noclip?: number;
-  cost_clip?: number;
-  cost_noclip?: number;
-  delta_cost?: number;
-  failure_mode_clip?: FailureMode;
-  failure_mode_noclip?: FailureMode;
-  temperature?: number;
+// ── Graded Relevance Types (0 - 3 scale) ──
+export type CandidateScore = 0 | 1 | 2 | 3;
+
+export interface GradedCandidate {
+  name: string;
+  similarity: number;
+  score: CandidateScore;
+  failure_mode: FailureMode;
 }
 
-interface Exp2History {
+export interface Exp2CandidateResult {
+  model: AIModelType;
+  modelLabel: string;
+  tier: VPRTier;
+  top1_place: string;
+  confidence: number;
+  candidates: [GradedCandidate, GradedCandidate, GradedCandidate];
+  top1_strict: boolean; // candidate 1 score === 3
+  top3_recall: boolean; // any candidate has score >= 2
+  avg_candidate_score: number; // (c1 + c2 + c3) / 3
+  failure_mode: FailureMode;
+  reasoning: string;
+  time_ms: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  tokens_per_sec?: number;
+  openrouter_id?: string;
+  user_verified?: boolean;
+}
+
+export interface Exp2HistoryRow {
   timestamp: string;
   image_name: string;
   ground_truth: string;
   tier: VPRTier;
   model: string;
-  predicted_clip: string;
-  predicted_noclip: string;
-  confidence_clip?: number;
-  confidence_noclip?: number;
-  correct_clip: string | boolean;
-  correct_noclip: string | boolean;
-  latency_clip: number;
-  latency_noclip: number;
-  delta_latency: number;
-  tokens_clip?: number;
-  tokens_noclip?: number;
-  cost_clip?: number;
-  cost_noclip?: number;
-  delta_cost?: number;
-  failure_mode_clip?: FailureMode;
-  failure_mode_noclip?: FailureMode;
-  temperature?: number;
+  prompt_variant?: string;
+  top1_place: string;
+  confidence: number;
+  candidate_1_name: string;
+  candidate_1_score: number;
+  candidate_1_failure_mode: FailureMode;
+  candidate_2_name: string;
+  candidate_2_score: number;
+  candidate_2_failure_mode: FailureMode;
+  candidate_3_name: string;
+  candidate_3_score: number;
+  candidate_3_failure_mode: FailureMode;
+  top1_strict: boolean;
+  top3_recall: boolean;
+  avg_candidate_score: number;
+  failure_mode: FailureMode;
+  time_ms: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  openrouter_id?: string;
 }
 
-type Verdict = "clip_only" | "direct_only" | "both_correct" | "both_wrong";
+const SCORE_LABELS: Record<CandidateScore, { label: string; short: string; color: string; bg: string; border: string }> = {
+  3: { label: "Exact POI Match", short: "Exact (3)", color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-300" },
+  2: { label: "Parent / Regional Area", short: "Parent (2)", color: "text-sky-700", bg: "bg-sky-50", border: "border-sky-300" },
+  1: { label: "Co-located Neighbor", short: "Neighbor (1)", color: "text-amber-700", bg: "bg-amber-50", border: "border-amber-300" },
+  0: { label: "Irrelevant / Generic", short: "Wrong (0)", color: "text-rose-700", bg: "bg-rose-50", border: "border-rose-300" },
+};
 
-function getVerdict(correctClip: boolean, correctNoClip: boolean): Verdict {
-  if (correctClip && correctNoClip) return "both_correct";
-  if (correctClip && !correctNoClip) return "clip_only";
-  if (!correctClip && correctNoClip) return "direct_only";
-  return "both_wrong";
-}
+function autoGradeCandidate(candidateName: string, groundTruth: string, similarity: number = 0): CandidateScore {
+  if (!candidateName || !candidateName.trim()) return 0;
+  const cNorm = normalizeString(candidateName);
+  const gtNorm = normalizeString(groundTruth);
 
-function verdictBadge(verdict: Verdict) {
-  switch (verdict) {
-    case "both_correct":
-      return (
-        <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-semibold text-[11px] shadow-2xs">
-          Both ✓✓
-        </Badge>
-      );
-    case "clip_only":
-      return (
-        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-300 font-semibold text-[11px] shadow-2xs">
-          CLIP Won 🏆
-        </Badge>
-      );
-    case "direct_only":
-      return (
-        <Badge className="bg-amber-50 text-amber-700 border-amber-300 font-semibold text-[11px] shadow-2xs">
-          Direct Won ⚡
-        </Badge>
-      );
-    case "both_wrong":
-      return (
-        <Badge className="bg-rose-50 text-rose-700 border-rose-200 font-semibold text-[11px] shadow-2xs">
-          Both Miss ✗✗
-        </Badge>
-      );
+  // 1. Generic Biome / Scenery Check
+  const genericWords = [
+    "ป่าเมฆ", "cloud forest", "เส้นทางธรรมชาติ", "ทิวทัศน์ธรรมชาติ", "nature trail",
+    "scenery", "landscape", "วิวธรรมชาติ", "ป่า", "forest", "mountain view", "วิวป่า",
+    "thailand", "ประเทศไทย", "ภาคเหนือ", "ภาคใต้", "asia", "เอเชีย"
+  ];
+  const isGeneric = genericWords.some((w) => cNorm === w || cNorm === `a ${w}` || cNorm === `the ${w}`);
+  if (isGeneric && !cNorm.includes("ดอย") && !cNorm.includes("เขา") && !cNorm.includes("อุทยาน") && !cNorm.includes("เกาะ")) {
+    return 0;
   }
+
+  // 2. Exact Match Check (Score 3)
+  const aliases = parseAliases(groundTruth);
+  for (const alias of aliases) {
+    const sim = calculateStringSimilarity(candidateName, alias);
+    if (sim >= 0.70 || cNorm === alias || (cNorm.length > 5 && alias.includes(cNorm)) || (alias.length > 5 && cNorm.includes(alias))) {
+      return 3;
+    }
+  }
+
+  // 3. Parent / Regional Area Check (Score 2)
+  const regionalKeywords = [
+    "อุทยานแห่งชาติ", "national park", "ดอย", "เกาะ", "koh", "ko", "หาด", "beach",
+    "จังหวัด", "province", "อำเภอ", "district", "เมือง", "city", "ภูเขา", "mountain"
+  ];
+  const matchesParentKeyword = regionalKeywords.some((k) => cNorm.includes(k) && gtNorm.includes(k));
+  const tokensC = new Set(cNorm.split(" ").filter((t) => t.length > 2));
+  const tokensGT = new Set(gtNorm.split(" ").filter((t) => t.length > 2));
+  const intersection = [...tokensC].filter((t) => tokensGT.has(t));
+
+  if (matchesParentKeyword || intersection.length >= 1 || (cNorm.length > 4 && gtNorm.includes(cNorm))) {
+    return 2;
+  }
+
+  // 4. Neighbor / Near-Miss (Score 1)
+  if (similarity >= 0.65 || intersection.length > 0) {
+    return 1;
+  }
+
+  return 0;
 }
 
-function isTruthy(v: string | boolean | undefined): boolean {
-  return v === true || v === "true" || v === "True" || v === "1";
+function autoClassifyCandidateFailure(
+  candidateName: string,
+  groundTruth: string,
+  score: CandidateScore
+): FailureMode {
+  if (score === 3) return "none";
+  if (!candidateName || !candidateName.trim()) return "degradation_rejection";
+  const cNorm = normalizeString(candidateName);
+
+  if (
+    cNorm.includes("unknown") ||
+    cNorm.includes("unidentifiable") ||
+    cNorm.includes("ไม่ระบุสถานที่") ||
+    cNorm === "n/a"
+  ) {
+    return "degradation_rejection";
+  }
+
+  const genericWords = [
+    "ป่าเมฆ", "cloud forest", "เส้นทางธรรมชาติ", "ทิวทัศน์ธรรมชาติ", "nature trail",
+    "scenery", "landscape", "วิวธรรมชาติ", "ป่า", "forest", "mountain view", "วิวป่า",
+    "thailand", "ประเทศไทย", "ภาคเหนือ", "ภาคใต้", "asia", "เอเชีย"
+  ];
+  const isGeneric = genericWords.some((w) => cNorm === w || cNorm === `a ${w}` || cNorm === `the ${w}`);
+  if (
+    (isGeneric && !cNorm.includes("ดอย") && !cNorm.includes("เขา") && !cNorm.includes("อุทยาน") && !cNorm.includes("เกาะ")) ||
+    (score === 0 && (cNorm.length < 4 || cNorm.includes("เส้นทางเดินป่า") || cNorm.includes("ธรรมชาติ") || cNorm.includes("forest")))
+  ) {
+    return "hallucination";
+  }
+
+  if (score === 2) {
+    return "none";
+  }
+
+  return "visual_confusion";
+}
+
+function isTruthy(v: any): boolean {
+  return v === true || v === "true" || v === "True" || v === 1 || v === "1";
 }
 
 export default function Exp2PipelineComparison() {
@@ -169,39 +240,59 @@ export default function Exp2PipelineComparison() {
 
   const [isRunning, setIsRunning] = useState(false);
   const [progressLabel, setProgressLabel] = useState("");
-  const [currentResults, setCurrentResults] = useState<Exp2Result[]>([]);
-  const [dbLogs, setDbLogs] = useState<Exp2History[]>([]);
+  const [currentResults, setCurrentResults] = useState<Exp2CandidateResult[]>([]);
+  const [dbLogs, setDbLogs] = useState<Exp2HistoryRow[]>([]);
   const [copiedLatex, setCopiedLatex] = useState(false);
+  const [showPromptDetails, setShowPromptDetails] = useState(false);
 
+  // Fetch persisted history
   const fetchHistory = useCallback(async () => {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/results_exp2`);
       if (res.ok) {
         const data = await res.json();
-        const mapped = (data.results || []).map((row: any) => ({
-          timestamp: row["Timestamp"] || row.timestamp || "",
-          image_name: row["Image Name"] || row.image_name || "",
-          ground_truth: row["Ground Truth"] || row.ground_truth || "",
-          tier: normalizeTier(row["Tier"] || row.tier || "tier1_iconic"),
-          model: row["Model"] || row.model || "",
-          predicted_clip: row["Predicted (CLIP)"] || row.predicted_clip || "",
-          predicted_noclip: row["Predicted (No CLIP)"] || row.predicted_noclip || "",
-          confidence_clip: row["Confidence (CLIP)"] !== undefined ? Number(row["Confidence (CLIP)"]) : row.confidence_clip ?? 0,
-          confidence_noclip: row["Confidence (No CLIP)"] !== undefined ? Number(row["Confidence (No CLIP)"]) : row.confidence_noclip ?? 0,
-          correct_clip: row["Correct (CLIP)"] !== undefined ? row["Correct (CLIP)"] : row.correct_clip,
-          correct_noclip: row["Correct (No CLIP)"] !== undefined ? row["Correct (No CLIP)"] : row.correct_noclip,
-          latency_clip: Number(row["Latency CLIP (ms)"] || row.latency_clip || 0),
-          latency_noclip: Number(row["Latency No CLIP (ms)"] || row.latency_noclip || 0),
-          delta_latency: Number(row["Delta Latency (ms)"] || row.delta_latency || 0),
-          tokens_clip: row["Tokens CLIP"] !== undefined ? Number(row["Tokens CLIP"]) : row.tokens_clip,
-          tokens_noclip: row["Tokens No CLIP"] !== undefined ? Number(row["Tokens No CLIP"]) : row.tokens_noclip,
-          cost_clip: row["Cost CLIP (USD)"] !== undefined ? Number(row["Cost CLIP (USD)"]) : row.cost_clip,
-          cost_noclip: row["Cost No CLIP (USD)"] !== undefined ? Number(row["Cost No CLIP (USD)"]) : row.cost_noclip,
-          delta_cost: row["Delta Cost (USD)"] !== undefined ? Number(row["Delta Cost (USD)"]) : row.delta_cost,
-          failure_mode_clip: (row["Failure Mode (CLIP)"] || row.failure_mode_clip || "none") as FailureMode,
-          failure_mode_noclip: (row["Failure Mode (No CLIP)"] || row.failure_mode_noclip || "none") as FailureMode,
-          temperature: row["Temperature"] !== undefined ? Number(row["Temperature"]) : 0.0,
-        }));
+        const mapped = (data.results || []).map((row: any) => {
+          const c1Score = Number(row["Candidate 1 Score"] ?? (isTruthy(row["Top 1 Strict"] || row["Correct (CLIP)"]) ? 3 : 0));
+          const c2Score = Number(row["Candidate 2 Score"] ?? 0);
+          const c3Score = Number(row["Candidate 3 Score"] ?? 0);
+          const top1Strict = row["Top 1 Strict"] !== undefined ? isTruthy(row["Top 1 Strict"]) : (c1Score === 3);
+          const top3Recall = row["Top 3 Recall"] !== undefined ? isTruthy(row["Top 3 Recall"]) : (c1Score >= 2 || c2Score >= 2 || c3Score >= 2);
+          const avgScore = row["Avg Candidate Score"] !== undefined ? Number(row["Avg Candidate Score"]) : Number(((c1Score + c2Score + c3Score) / 3).toFixed(2));
+
+          const c1Fail = (row["Candidate 1 Failure Mode"] || (c1Score === 3 ? "none" : (row["Failure Mode"] || "visual_confusion"))) as FailureMode;
+          const c2Fail = (row["Candidate 2 Failure Mode"] || (c2Score === 3 ? "none" : "visual_confusion")) as FailureMode;
+          const c3Fail = (row["Candidate 3 Failure Mode"] || (c3Score === 3 ? "none" : "visual_confusion")) as FailureMode;
+
+          return {
+            timestamp: row["Timestamp"] || row.timestamp || "",
+            image_name: row["Image Name"] || row.image_name || "",
+            ground_truth: row["Ground Truth"] || row.ground_truth || "",
+            tier: normalizeTier(row["Tier"] || row.tier || "tier1_iconic"),
+            model: row["Model"] || row.model || "",
+            prompt_variant: row["Prompt Variant"] || "P1: Zero-Shot Direct (EN)",
+            top1_place: row["Top 1 Place"] || row["Predicted (CLIP)"] || row.top1_place || "",
+            confidence: Number(row["Confidence"] || row["Confidence (CLIP)"] || 0),
+            candidate_1_name: row["Candidate 1 Name"] || row["Top 1 Place"] || row["Predicted (CLIP)"] || "",
+            candidate_1_score: c1Score,
+            candidate_1_failure_mode: c1Fail,
+            candidate_2_name: row["Candidate 2 Name"] || "",
+            candidate_2_score: c2Score,
+            candidate_2_failure_mode: c2Fail,
+            candidate_3_name: row["Candidate 3 Name"] || "",
+            candidate_3_score: c3Score,
+            candidate_3_failure_mode: c3Fail,
+            top1_strict: top1Strict,
+            top3_recall: top3Recall,
+            avg_candidate_score: avgScore,
+            failure_mode: (row["Failure Mode"] || row["Failure Mode (CLIP)"] || "none") as FailureMode,
+            time_ms: Number(row["Time MS"] || row["Latency CLIP (ms)"] || 0),
+            prompt_tokens: Number(row["Prompt Tokens"] || 0),
+            completion_tokens: Number(row["Completion Tokens"] || 0),
+            total_tokens: Number(row["Total Tokens"] || row["Tokens CLIP"] || 0),
+            cost_usd: Number(row["Cost USD"] || row["Cost CLIP (USD)"] || 0),
+            openrouter_id: row["OpenRouter ID"] || row["OpenRouter ID CLIP"] || "",
+          };
+        });
         setDbLogs(mapped);
       }
     } catch (e) {
@@ -225,9 +316,10 @@ export default function Exp2PipelineComparison() {
     }
   };
 
+  // Run benchmark across models
   const runComparison = async () => {
     if (!imageFile || !groundTruth.trim()) {
-      toast.error("Please upload an image and enter Ground Truth.");
+      toast.error("Please upload an image and specify Ground Truth.");
       return;
     }
     if (selectedModels.length === 0) {
@@ -237,98 +329,82 @@ export default function Exp2PipelineComparison() {
 
     setIsRunning(true);
     setCurrentResults([]);
-    const temp: Exp2Result[] = [];
+    const temp: Exp2CandidateResult[] = [];
 
     for (const modelId of selectedModels) {
       const modelOpt = AI_MODEL_OPTIONS.find((m) => m.value === modelId);
       const label = modelOpt ? modelOpt.label : modelId;
 
-      // 1. Run WITH CLIP (2-Turn Visual Retrieval Pipeline) - Strictly Deterministic Benchmark (No Fallback)
-      setProgressLabel(`[${label}] Running WITH CLIP (2-Turn Pipeline)...`);
-      const startClip = performance.now();
-      let resClip: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
+      setProgressLabel(`[${label}] Executing Multi-Candidate Retrieval...`);
+      const start = performance.now();
+      let res: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
       try {
-        resClip = await analyzeImage(
+        res = await analyzeImage(
           imageFile,
           modelId,
           true,
-          (step) => setProgressLabel(`[${label}] CLIP: ${step}`),
-          { allowFallback: false, temperature: 0.0 }
+          (step) => setProgressLabel(`[${label}] ${step}`),
+          { allowFallback: false, temperature: 0.1, tier: singleTier }
         );
       } catch (err) {
-        console.error("Exp2 CLIP error:", err);
+        console.error("Exp2 Vision Error:", err);
       }
-      const timeClip = Math.round(performance.now() - startClip);
+      const duration = Math.round(performance.now() - start);
 
-      // 2. Run WITHOUT CLIP (Direct 1-Turn Multimodal Vision) - Strictly Deterministic Benchmark (No Fallback)
-      setProgressLabel(`[${label}] Running WITHOUT CLIP (Direct 1-Turn)...`);
-      const startNoClip = performance.now();
-      let resNoClip: VisionResult = { place: "Unknown", confidence: 0, country: "", type: "", similar_locations: [] };
-      try {
-        resNoClip = await analyzeImageDirect(
-          imageFile,
-          modelId,
-          (step) => setProgressLabel(`[${label}] Direct: ${step}`),
-          { allowFallback: false, temperature: 0.0 }
-        );
-      } catch (err) {
-        console.error("Exp2 Direct error:", err);
-      }
-      const timeNoClip = Math.round(performance.now() - startNoClip);
+      const top1Name = res.place || "Unknown";
+      const conf = res.confidence || res.top_candidates?.[0]?.similarity || 0.0;
 
-      const predClip = resClip.place || "Unknown";
-      const predNoClip = resNoClip.place || "Unknown";
+      // Extract Candidates 1, 2, 3
+      const c1Name = res.top_candidates?.[0]?.name || top1Name;
+      const c1Sim = res.top_candidates?.[0]?.similarity || conf;
 
-      // Robust Multi-Alias Evaluation
-      const matchClip = evaluatePredictionWithAliases(predClip, groundTruth, resClip.similar_locations || [], 0.70);
-      const matchNoClip = evaluatePredictionWithAliases(predNoClip, groundTruth, resNoClip.similar_locations || [], 0.70);
+      const c2Name = res.top_candidates?.[1]?.name || res.similar_locations?.[0]?.name || "";
+      const c2Sim = res.top_candidates?.[1]?.similarity || res.similar_locations?.[0]?.similarity || 0;
 
-      // Failure Mode Taxonomy (3 Symptoms)
-      const failureModeClip = classifyErrorCategory(predClip, groundTruth, {
-        isCorrect: matchClip.isCorrect,
-        confidence: resClip.confidence ?? 0.0,
-        tier: singleTier,
-      });
+      const c3Name = res.top_candidates?.[2]?.name || res.similar_locations?.[1]?.name || "";
+      const c3Sim = res.top_candidates?.[2]?.similarity || res.similar_locations?.[1]?.similarity || 0;
 
-      const failureModeNoClip = classifyErrorCategory(predNoClip, groundTruth, {
-        isCorrect: matchNoClip.isCorrect,
-        confidence: resNoClip.confidence ?? 0.0,
-        tier: singleTier,
-      });
+      // Auto-Grade
+      const s1 = autoGradeCandidate(c1Name, groundTruth, c1Sim);
+      const s2 = autoGradeCandidate(c2Name, groundTruth, c2Sim);
+      const s3 = autoGradeCandidate(c3Name, groundTruth, c3Sim);
 
-      const tokensClip = resClip.metrics?.total_tokens ?? 0;
-      const tokensNoClip = resNoClip.metrics?.total_tokens ?? 0;
-      const costClip = resClip.metrics?.cost_usd ?? 0.0;
-      const costNoClip = resNoClip.metrics?.cost_usd ?? 0.0;
-      const deltaCost = costNoClip - costClip;
+      const top1Strict = s1 === 3;
+      const top3Recall = s1 >= 2 || s2 >= 2 || s3 >= 2;
+      const avgScore = Number(((s1 + s2 + s3) / 3).toFixed(2));
+
+      // Candidate-level failure modes
+      const f1 = autoClassifyCandidateFailure(c1Name, groundTruth, s1);
+      const f2 = autoClassifyCandidateFailure(c2Name, groundTruth, s2);
+      const f3 = autoClassifyCandidateFailure(c3Name, groundTruth, s3);
+
+      // Model-level overall failure mode
+      const overallFailureMode: FailureMode = top1Strict ? "none" : f1;
 
       temp.push({
         model: modelId,
         modelLabel: label,
         tier: singleTier,
-        predicted_clip: predClip,
-        predicted_noclip: predNoClip,
-        confidence_clip: resClip.confidence ?? 0.0,
-        confidence_noclip: resNoClip.confidence ?? 0.0,
-        correct_clip: matchClip.isCorrect,
-        correct_noclip: matchNoClip.isCorrect,
-        match_score_clip: matchClip.matchScore,
-        match_score_noclip: matchNoClip.matchScore,
-        matched_alias_clip: matchClip.matchedAlias,
-        matched_alias_noclip: matchNoClip.matchedAlias,
-        user_verified_clip: false,
-        user_verified_noclip: false,
-        latency_clip: timeClip,
-        latency_noclip: timeNoClip,
-        delta_latency: timeNoClip - timeClip,
-        tokens_clip: tokensClip,
-        tokens_noclip: tokensNoClip,
-        cost_clip: costClip,
-        cost_noclip: costNoClip,
-        delta_cost: deltaCost,
-        failure_mode_clip: failureModeClip,
-        failure_mode_noclip: failureModeNoClip,
-        temperature: 0.1,
+        top1_place: top1Name,
+        confidence: conf,
+        candidates: [
+          { name: c1Name, similarity: c1Sim, score: s1, failure_mode: f1 },
+          { name: c2Name, similarity: c2Sim, score: s2, failure_mode: f2 },
+          { name: c3Name, similarity: c3Sim, score: s3, failure_mode: f3 },
+        ],
+        top1_strict: top1Strict,
+        top3_recall: top3Recall,
+        avg_candidate_score: avgScore,
+        failure_mode: overallFailureMode,
+        reasoning: Array.isArray(res.ai_reasoning) ? res.ai_reasoning.join("; ") : (res.ai_reasoning || ""),
+        time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
+        prompt_tokens: res.metrics?.prompt_tokens ?? 0,
+        completion_tokens: res.metrics?.completion_tokens ?? 0,
+        total_tokens: res.metrics?.total_tokens ?? 0,
+        cost_usd: res.metrics?.cost_usd ?? 0.0,
+        tokens_per_sec: res.metrics?.tokens_per_sec ?? 0.0,
+        openrouter_id: res.metrics?.openrouter_id || "",
+        user_verified: false,
       });
 
       setCurrentResults([...temp]);
@@ -336,53 +412,75 @@ export default function Exp2PipelineComparison() {
 
     setIsRunning(false);
     setProgressLabel("");
-    toast.success("Pipeline Comparison Complete!");
+    toast.success(`Candidate benchmark completed for ${selectedModels.length} models!`);
   };
 
-  const updateCorrectnessClip = (index: number, value: boolean) => {
+  // Update candidate score interactively
+  const updateCandidateScore = (rowIdx: number, candIdx: 0 | 1 | 2, score: CandidateScore) => {
     setCurrentResults((prev) => {
       const updated = [...prev];
-      const prevMode = updated[index].failure_mode_clip;
-      updated[index] = {
-        ...updated[index],
-        correct_clip: value,
-        user_verified_clip: true,
-        failure_mode_clip: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
-      };
-      return updated;
-    });
-  };
+      const target = { ...updated[rowIdx] };
+      const newCands = [...target.candidates] as [GradedCandidate, GradedCandidate, GradedCandidate];
 
-  const updateCorrectnessNoClip = (index: number, value: boolean) => {
-    setCurrentResults((prev) => {
-      const updated = [...prev];
-      const prevMode = updated[index].failure_mode_noclip;
-      updated[index] = {
-        ...updated[index],
-        correct_noclip: value,
-        user_verified_noclip: true,
-        failure_mode_noclip: value ? "none" : (prevMode && prevMode !== "none" ? prevMode : "visual_confusion"),
-      };
-      return updated;
-    });
-  };
-
-  const updateVerdict = (index: number, value: string) => {
-    setCurrentResults((prev) => {
-      const updated = [...prev];
-      if (value === "both_correct") {
-        updated[index] = { ...updated[index], correct_clip: true, correct_noclip: true };
-      } else if (value === "clip_only") {
-        updated[index] = { ...updated[index], correct_clip: true, correct_noclip: false };
-      } else if (value === "direct_only") {
-        updated[index] = { ...updated[index], correct_clip: false, correct_noclip: true };
-      } else {
-        updated[index] = { ...updated[index], correct_clip: false, correct_noclip: false };
+      // Auto-update candidate failure mode when score changes
+      let candFail = newCands[candIdx].failure_mode;
+      if (score === 3) {
+        candFail = "none";
+      } else if (candFail === "none") {
+        candFail = autoClassifyCandidateFailure(newCands[candIdx].name, groundTruth, score);
       }
+
+      newCands[candIdx] = { ...newCands[candIdx], score, failure_mode: candFail };
+
+      const top1Strict = newCands[0].score === 3;
+      const top3Recall = newCands[0].score >= 2 || newCands[1].score >= 2 || newCands[2].score >= 2;
+      const avgScore = Number(((newCands[0].score + newCands[1].score + newCands[2].score) / 3).toFixed(2));
+
+      target.candidates = newCands;
+      target.top1_strict = top1Strict;
+      target.top3_recall = top3Recall;
+      target.avg_candidate_score = avgScore;
+      target.user_verified = true;
+      if (top1Strict) {
+        target.failure_mode = "none";
+      } else if (candIdx === 0) {
+        target.failure_mode = candFail;
+      }
+
+      updated[rowIdx] = target;
       return updated;
     });
   };
 
+  // Update candidate failure mode interactively
+  const updateCandidateFailureMode = (rowIdx: number, candIdx: 0 | 1 | 2, mode: FailureMode) => {
+    setCurrentResults((prev) => {
+      const updated = [...prev];
+      const target = { ...updated[rowIdx] };
+      const newCands = [...target.candidates] as [GradedCandidate, GradedCandidate, GradedCandidate];
+      newCands[candIdx] = { ...newCands[candIdx], failure_mode: mode };
+      target.candidates = newCands;
+      target.user_verified = true;
+
+      // Sync overall failure mode if candidate 1 was changed
+      if (candIdx === 0 && !target.top1_strict) {
+        target.failure_mode = mode;
+      }
+
+      updated[rowIdx] = target;
+      return updated;
+    });
+  };
+
+  const updateFailureMode = (rowIdx: number, mode: FailureMode) => {
+    setCurrentResults((prev) => {
+      const updated = [...prev];
+      updated[rowIdx] = { ...updated[rowIdx], failure_mode: mode };
+      return updated;
+    });
+  };
+
+  // Commit results to CSV
   const commitResults = async () => {
     if (currentResults.length === 0) return;
 
@@ -390,27 +488,35 @@ export default function Exp2PipelineComparison() {
       image_name: imageFile?.name || "image.jpg",
       ground_truth: groundTruth,
       tier: singleTier,
+      prompt_variant: "2-Turn Retrieval (UGC & Screenshot-Aware)",
       temperature: 0.1,
       results: currentResults.map((r) => ({
         model: r.model,
-        predicted_clip: r.predicted_clip,
-        predicted_noclip: r.predicted_noclip,
-        confidence_clip: r.confidence_clip ?? 0.0,
-        confidence_noclip: r.confidence_noclip ?? 0.0,
-        correct_clip: r.correct_clip,
-        correct_noclip: r.correct_noclip,
-        latency_clip: r.latency_clip,
-        latency_noclip: r.latency_noclip,
-        delta_latency: r.delta_latency,
-        tier: r.tier || singleTier,
-        tokens_clip: r.tokens_clip ?? 0,
-        tokens_noclip: r.tokens_noclip ?? 0,
-        cost_clip: r.cost_clip ?? 0.0,
-        cost_noclip: r.cost_noclip ?? 0.0,
-        delta_cost: r.delta_cost ?? 0.0,
-        temperature: 0.1,
-        failure_mode_clip: r.failure_mode_clip || "none",
-        failure_mode_noclip: r.failure_mode_noclip || "none",
+        tier: r.tier,
+        prompt_variant: "2-Turn Retrieval (UGC & Screenshot-Aware)",
+        top1_place: r.top1_place,
+        confidence: r.confidence,
+        candidate_1_name: r.candidates[0].name,
+        candidate_1_score: r.candidates[0].score,
+        candidate_1_failure_mode: r.candidates[0].failure_mode,
+        candidate_2_name: r.candidates[1].name,
+        candidate_2_score: r.candidates[1].score,
+        candidate_2_failure_mode: r.candidates[1].failure_mode,
+        candidate_3_name: r.candidates[2].name,
+        candidate_3_score: r.candidates[2].score,
+        candidate_3_failure_mode: r.candidates[2].failure_mode,
+        top1_strict: r.top1_strict,
+        top3_recall: r.top3_recall,
+        avg_candidate_score: r.avg_candidate_score,
+        failure_mode: r.failure_mode,
+        reasoning: r.reasoning,
+        time_ms: r.time_ms,
+        prompt_tokens: r.prompt_tokens,
+        completion_tokens: r.completion_tokens,
+        total_tokens: r.total_tokens,
+        cost_usd: r.cost_usd,
+        tokens_per_sec: r.tokens_per_sec,
+        openrouter_id: r.openrouter_id,
       })),
     };
 
@@ -422,36 +528,47 @@ export default function Exp2PipelineComparison() {
       });
 
       if (res.ok) {
-        toast.success("Exp2 results saved to CSV!");
+        toast.success("Exp 2 results with candidate failure modes saved to CSV!");
         fetchHistory();
         setCurrentResults([]);
+      } else {
+        toast.error("Failed to save Exp 2 results.");
       }
     } catch (e) {
-      toast.error("Failed to save Exp2 results.");
+      toast.error("Network error while saving Exp 2.");
     }
   };
 
-  // ── Combined logs (Historical CSV + Current Trial) ──
-  const combinedLogs = useMemo(() => {
-    const currentMapped = currentResults.map((r) => ({
-      timestamp: new Date().toISOString(),
-      image_name: imageFile?.name || "current_image.jpg",
+  // Combine DB logs with live current results
+  const combinedLogs: Exp2HistoryRow[] = useMemo(() => {
+    const live = currentResults.map((r) => ({
+      timestamp: new Date().toISOString().replace("T", " ").slice(0, 19),
+      image_name: imageFile?.name || "live_image.jpg",
       ground_truth: groundTruth,
-      tier: r.tier || singleTier,
+      tier: r.tier,
       model: r.model,
-      predicted_clip: r.predicted_clip,
-      predicted_noclip: r.predicted_noclip,
-      correct_clip: r.correct_clip,
-      correct_noclip: r.correct_noclip,
-      latency_clip: r.latency_clip,
-      latency_noclip: r.latency_noclip,
-      delta_latency: r.delta_latency,
-      failure_mode_clip: r.failure_mode_clip,
-      failure_mode_noclip: r.failure_mode_noclip,
-      temperature: 0.1,
+      top1_place: r.top1_place,
+      confidence: r.confidence,
+      candidate_1_name: r.candidates[0].name,
+      candidate_1_score: r.candidates[0].score,
+      candidate_1_failure_mode: r.candidates[0].failure_mode,
+      candidate_2_name: r.candidates[1].name,
+      candidate_2_score: r.candidates[1].score,
+      candidate_2_failure_mode: r.candidates[1].failure_mode,
+      candidate_3_name: r.candidates[2].name,
+      candidate_3_score: r.candidates[2].score,
+      candidate_3_failure_mode: r.candidates[2].failure_mode,
+      top1_strict: r.top1_strict,
+      top3_recall: r.top3_recall,
+      avg_candidate_score: r.avg_candidate_score,
+      failure_mode: r.failure_mode,
+      time_ms: r.time_ms,
+      total_tokens: r.total_tokens,
+      cost_usd: r.cost_usd,
+      openrouter_id: r.openrouter_id,
     }));
-    return [...dbLogs, ...currentMapped];
-  }, [dbLogs, currentResults, imageFile, groundTruth, singleTier]);
+    return [...dbLogs, ...live];
+  }, [dbLogs, currentResults, imageFile, groundTruth]);
 
   // Sliced logs by selectedTierFilter
   const effectiveLogs = useMemo(() => {
@@ -459,257 +576,219 @@ export default function Exp2PipelineComparison() {
     return combinedLogs.filter((r) => normalizeTier(r.tier) === selectedTierFilter);
   }, [combinedLogs, selectedTierFilter]);
 
-  // Stratified CLIP Ablation per Tier
-  const tierAblation = useMemo(() => {
-    return TIER_ORDER.map((tierKey) => {
-      const logsInTier = combinedLogs.filter((l) => normalizeTier(l.tier) === tierKey);
-      const total = logsInTier.length;
-      const clipCorr = logsInTier.filter((l) => isTruthy(l.correct_clip)).length;
-      const noClipCorr = logsInTier.filter((l) => isTruthy(l.correct_noclip)).length;
-      const clipAcc = total > 0 ? parseFloat(((clipCorr / total) * 100).toFixed(1)) : 0;
-      const noClipAcc = total > 0 ? parseFloat(((noClipCorr / total) * 100).toFixed(1)) : 0;
-      const delta = parseFloat((clipAcc - noClipAcc).toFixed(1));
-      return {
-        tier: tierKey,
-        cfg: TIER_CONFIGS[tierKey],
-        total,
-        clipAcc,
-        noClipAcc,
-        delta,
-      };
-    });
-  }, [combinedLogs]);
-
-  // ── Metrics from effective logs ──
-  const metrics = useMemo(() => {
+  // Overall & Model Analytics with Candidate Failure Mode Breakdown
+  const analytics = useMemo(() => {
     if (effectiveLogs.length === 0) return null;
-    const total = effectiveLogs.length;
-    const clipCorrect = effectiveLogs.filter((r) => isTruthy(r.correct_clip)).length;
-    const noclipCorrect = effectiveLogs.filter((r) => isTruthy(r.correct_noclip)).length;
+    const N = effectiveLogs.length;
 
-    const clipOnlyWins = effectiveLogs.filter((r) => isTruthy(r.correct_clip) && !isTruthy(r.correct_noclip)).length;
-    const directOnlyWins = effectiveLogs.filter((r) => !isTruthy(r.correct_clip) && isTruthy(r.correct_noclip)).length;
-    const bothCorrect = effectiveLogs.filter((r) => isTruthy(r.correct_clip) && isTruthy(r.correct_noclip)).length;
-    const bothWrong = effectiveLogs.filter((r) => !isTruthy(r.correct_clip) && !isTruthy(r.correct_noclip)).length;
+    const top1StrictCount = effectiveLogs.filter((r) => r.top1_strict).length;
+    const top3RecallCount = effectiveLogs.filter((r) => r.top3_recall).length;
 
-    const clipAcc = (clipCorrect / total) * 100;
-    const noclipAcc = (noclipCorrect / total) * 100;
-    const clipGain = clipAcc - noclipAcc;
+    const top1StrictAcc = Number(((top1StrictCount / N) * 100).toFixed(1));
+    const top3RecallAcc = Number(((top3RecallCount / N) * 100).toFixed(1));
+    const recoveryGain = Number((top3RecallAcc - top1StrictAcc).toFixed(1));
 
-    const avgClipTime = Math.round(effectiveLogs.reduce((s, r) => s + Number(r.latency_clip || 0), 0) / total);
-    const avgNoClipTime = Math.round(effectiveLogs.reduce((s, r) => s + Number(r.latency_noclip || 0), 0) / total);
+    const avgQuality = Number((effectiveLogs.reduce((s, r) => s + r.avg_candidate_score, 0) / N).toFixed(2));
+
+    // Confidence Calibration: High quality (>=2) vs Low quality (0-1)
+    const highQualityRows = effectiveLogs.filter((r) => r.top3_recall);
+    const lowQualityRows = effectiveLogs.filter((r) => !r.top3_recall);
+
+    const meanConfHigh = highQualityRows.length > 0
+      ? Number(((highQualityRows.reduce((s, r) => s + r.confidence, 0) / highQualityRows.length) * 100).toFixed(1))
+      : 0;
+
+    const meanConfLow = lowQualityRows.length > 0
+      ? Number(((lowQualityRows.reduce((s, r) => s + r.confidence, 0) / lowQualityRows.length) * 100).toFixed(1))
+      : 0;
+
+    // Candidate-Level Failure Mode Distribution
+    let totalCands = N * 3;
+    let visualConfusionCount = 0;
+    let hallucinationCount = 0;
+    let degradationCount = 0;
+    let noneCount = 0;
+
+    const candPosStats = {
+      c1: { none: 0, visual_confusion: 0, hallucination: 0, degradation_rejection: 0 },
+      c2: { none: 0, visual_confusion: 0, hallucination: 0, degradation_rejection: 0 },
+      c3: { none: 0, visual_confusion: 0, hallucination: 0, degradation_rejection: 0 },
+    };
+
+    effectiveLogs.forEach((r) => {
+      const f1 = r.candidate_1_failure_mode || "visual_confusion";
+      const f2 = r.candidate_2_failure_mode || "visual_confusion";
+      const f3 = r.candidate_3_failure_mode || "visual_confusion";
+
+      candPosStats.c1[f1] = (candPosStats.c1[f1] || 0) + 1;
+      candPosStats.c2[f2] = (candPosStats.c2[f2] || 0) + 1;
+      candPosStats.c3[f3] = (candPosStats.c3[f3] || 0) + 1;
+
+      [f1, f2, f3].forEach((f) => {
+        if (f === "none") noneCount++;
+        else if (f === "visual_confusion") visualConfusionCount++;
+        else if (f === "hallucination") hallucinationCount++;
+        else if (f === "degradation_rejection") degradationCount++;
+      });
+    });
+
+    const candErrorTotal = visualConfusionCount + hallucinationCount + degradationCount;
+    const visualConfusionPct = candErrorTotal > 0 ? Number(((visualConfusionCount / candErrorTotal) * 100).toFixed(1)) : 0;
+    const hallucinationPct = candErrorTotal > 0 ? Number(((hallucinationCount / candErrorTotal) * 100).toFixed(1)) : 0;
+    const degradationPct = candErrorTotal > 0 ? Number(((degradationCount / candErrorTotal) * 100).toFixed(1)) : 0;
 
     // Per-model breakdown
-    const modelMap: Record<string, { clip_correct: number; noclip_correct: number; total: number; clipTime: number; directTime: number }> = {};
+    const modelStats: Record<string, { total: number; top1: number; top3: number; scores: number[]; confidences: number[]; times: number[]; errors: Record<FailureMode, number> }> = {};
     effectiveLogs.forEach((r) => {
-      if (!modelMap[r.model]) modelMap[r.model] = { clip_correct: 0, noclip_correct: 0, total: 0, clipTime: 0, directTime: 0 };
-      modelMap[r.model].total += 1;
-      if (isTruthy(r.correct_clip)) modelMap[r.model].clip_correct += 1;
-      if (isTruthy(r.correct_noclip)) modelMap[r.model].noclip_correct += 1;
-      modelMap[r.model].clipTime += Number(r.latency_clip || 0);
-      modelMap[r.model].directTime += Number(r.latency_noclip || 0);
+      if (!modelStats[r.model]) {
+        modelStats[r.model] = { total: 0, top1: 0, top3: 0, scores: [], confidences: [], times: [], errors: { none: 0, visual_confusion: 0, hallucination: 0, degradation_rejection: 0 } };
+      }
+      modelStats[r.model].total += 1;
+      if (r.top1_strict) modelStats[r.model].top1 += 1;
+      if (r.top3_recall) modelStats[r.model].top3 += 1;
+      modelStats[r.model].scores.push(r.avg_candidate_score);
+      modelStats[r.model].confidences.push(r.confidence);
+      modelStats[r.model].times.push(r.time_ms);
+
+      [r.candidate_1_failure_mode, r.candidate_2_failure_mode, r.candidate_3_failure_mode].forEach((fm) => {
+        if (fm) modelStats[r.model].errors[fm] = (modelStats[r.model].errors[fm] || 0) + 1;
+      });
     });
 
-    const modelBreakdown = Object.entries(modelMap).map(([model, d]) => {
+    const modelBreakdown = Object.entries(modelStats).map(([model, d]) => {
       const opt = AI_MODEL_OPTIONS.find((o) => o.value === model);
+      const top1Acc = Number(((d.top1 / d.total) * 100).toFixed(1));
+      const top3Acc = Number(((d.top3 / d.total) * 100).toFixed(1));
+      const gain = Number((top3Acc - top1Acc).toFixed(1));
+      const meanScore = Number((d.scores.reduce((a, b) => a + b, 0) / d.total).toFixed(2));
+      const meanConf = Number(((d.confidences.reduce((a, b) => a + b, 0) / d.total) * 100).toFixed(1));
+      const meanLatency = Math.round(d.times.reduce((a, b) => a + b, 0) / d.total);
+
       return {
         model,
         modelLabel: opt ? opt.label : model,
         shortModel: opt ? opt.label.split(" ")[0] : model.split("-").slice(-2).join("-"),
-        clipAcc: Math.round((d.clip_correct / d.total) * 100),
-        directAcc: Math.round((d.noclip_correct / d.total) * 100),
-        gain: Math.round(((d.clip_correct - d.noclip_correct) / d.total) * 100),
-        avgClipLatency: Math.round(d.clipTime / d.total),
-        avgDirectLatency: Math.round(d.directTime / d.total),
         total: d.total,
+        top1Acc,
+        top3Acc,
+        gain,
+        meanScore,
+        meanConf,
+        meanLatency,
+        errors: d.errors,
       };
-    }).sort((a, b) => b.gain - a.gain);
+    }).sort((a, b) => b.top3Acc - a.top3Acc);
 
     return {
-      total,
-      clipAcc: clipAcc.toFixed(1),
-      noclipAcc: noclipAcc.toFixed(1),
-      clipGain,
-      clipOnlyWins,
-      directOnlyWins,
-      bothCorrect,
-      bothWrong,
-      avgClipTime,
-      avgNoClipTime,
+      total: N,
+      top1StrictAcc,
+      top3RecallAcc,
+      recoveryGain,
+      avgQuality,
+      meanConfHigh,
+      meanConfLow,
       modelBreakdown,
+      candFailureDist: {
+        totalEvaluated: totalCands,
+        totalErrors: candErrorTotal,
+        visualConfusionCount,
+        visualConfusionPct,
+        hallucinationCount,
+        hallucinationPct,
+        degradationCount,
+        degradationPct,
+        noneCount,
+        candPosStats,
+      },
     };
   }, [effectiveLogs]);
 
-  // Export LaTeX table for Ablation Study
-  const copyAblationLatex = () => {
-    if (!metrics) return;
-    const rows = metrics.modelBreakdown.map((m) => {
-      return `    ${m.modelLabel} & ${m.total} & ${m.clipAcc}\\% & ${m.directAcc}\\% & ${m.gain > 0 ? "+" : ""}${m.gain}\\% & ${m.avgClipLatency} & ${m.avgDirectLatency} \\\\`;
+  // Copy LaTeX Table for Thesis Chapter 4.2
+  const copyLatexTable = () => {
+    if (!analytics) return;
+    const rows = analytics.modelBreakdown.map((m) => {
+      return `    ${m.modelLabel} & ${m.total} & ${m.top1Acc}\% & ${m.top3Acc}\% & +${m.gain}\% & ${m.meanScore} / 3.0 & ${m.meanConf}\% \\`;
     }).join("\n");
 
     const latex = `\\begin{table}[htbp]
   \\centering
-  \\caption{Ablation Study: 2-Turn CLIP Retrieval Pipeline vs. Direct 1-Turn Vision}
-  \\label{tab:pipeline_ablation}
-  \\begin{tabular}{l r r r r r r}
+  \\caption{Visual Grounding Confidence Calibration and Top-K Multi-Candidate Retrieval Evaluation}
+  \\label{tab:candidate_retrieval_benchmark}
+  \\begin{tabular}{l c c c c c c}
     \\toprule
-    \\textbf{Model} & \\textbf{N} & \\textbf{CLIP Acc (\\%)} & \\textbf{Direct Acc (\\%)} & \\textbf{Gain (\\%)} & \\textbf{CLIP Lat. (ms)} & \\textbf{Direct Lat. (ms)} \\\\
+    \\textbf{Model} & \\textbf{N} & \\textbf{Top-1 Strict (\\%)} & \\textbf{Top-3 Recall (\\%)} & \\textbf{Recovery Gain} & \\textbf{Avg Quality (0-3)} & \\textbf{Mean Conf (\\%)} \\
     \\midrule
 ${rows}
-    \\midrule
-    \\textbf{Overall Average} & \\textbf{${metrics.total}} & \\textbf{${metrics.clipAcc}\\%} & \\textbf{${metrics.noclipAcc}\\%} & \\textbf{${metrics.clipGain > 0 ? "+" : ""}${metrics.clipGain.toFixed(1)}\\%} & \\textbf{${metrics.avgClipTime}} & \\textbf{${metrics.avgNoClipTime}} \\\\
     \\bottomrule
   \\end{tabular}
 \\end{table}`;
 
     navigator.clipboard.writeText(latex);
     setCopiedLatex(true);
-    toast.success("Ablation Study LaTeX Table copied to clipboard!");
+    toast.success("Thesis LaTeX table copied to clipboard!");
     setTimeout(() => setCopiedLatex(false), 2000);
   };
 
-  // Export Full CSV for thesis analysis / Python script
-  const exportFullCSV = () => {
-    const records = dbLogs.length > 0 ? dbLogs : currentResults.map((r) => ({
-      timestamp: new Date().toISOString(),
-      image_name: imageFile?.name || "current_trial",
-      ground_truth: groundTruth,
-      tier: r.tier || singleTier,
-      model: r.modelLabel,
-      predicted_clip: r.predicted_clip,
-      predicted_noclip: r.predicted_noclip,
-      confidence_clip: r.confidence_clip,
-      confidence_noclip: r.confidence_noclip,
-      correct_clip: r.correct_clip,
-      correct_noclip: r.correct_noclip,
-      latency_clip: r.latency_clip,
-      latency_noclip: r.latency_noclip,
-      delta_latency: r.delta_latency,
-      tokens_clip: r.tokens_clip,
-      tokens_noclip: r.tokens_noclip,
-      cost_clip: r.cost_clip,
-      cost_noclip: r.cost_noclip,
-      delta_cost: r.delta_cost,
-      failure_mode_clip: r.failure_mode_clip,
-      failure_mode_noclip: r.failure_mode_noclip,
-      temperature: r.temperature ?? 0.0,
-    }));
-
-    if (records.length === 0) {
-      toast.error("No comparison records available to export.");
-      return;
-    }
-
-    const headers = [
-      "Timestamp",
-      "Image Name",
-      "Ground Truth",
-      "Tier",
-      "Model",
-      "Predicted (CLIP)",
-      "Predicted (No CLIP)",
-      "Confidence (CLIP)",
-      "Confidence (No CLIP)",
-      "Correct (CLIP)",
-      "Correct (No CLIP)",
-      "Verdict",
-      "Latency CLIP (ms)",
-      "Latency No CLIP (ms)",
-      "Delta Latency (ms)",
-      "Tokens CLIP",
-      "Tokens No CLIP",
-      "Cost CLIP (USD)",
-      "Cost No CLIP (USD)",
-      "Delta Cost (USD)",
-      "Failure Mode (CLIP)",
-      "Failure Mode (No CLIP)",
-      "Temperature",
-    ];
-
-    const rows = records.map((log) => {
-      const v = getVerdict(isTruthy(log.correct_clip), isTruthy(log.correct_noclip));
-      return [
-        log.timestamp,
-        log.image_name || "",
-        log.ground_truth || "",
-        normalizeTier(log.tier),
-        log.model,
-        log.predicted_clip || "",
-        log.predicted_noclip || "",
-        log.confidence_clip !== undefined ? Number(log.confidence_clip).toFixed(4) : "",
-        log.confidence_noclip !== undefined ? Number(log.confidence_noclip).toFixed(4) : "",
-        isTruthy(log.correct_clip) ? "True" : "False",
-        isTruthy(log.correct_noclip) ? "True" : "False",
-        v,
-        log.latency_clip,
-        log.latency_noclip,
-        log.delta_latency,
-        log.tokens_clip ?? "",
-        log.tokens_noclip ?? "",
-        log.cost_clip !== undefined ? Number(log.cost_clip).toFixed(6) : "",
-        log.cost_noclip !== undefined ? Number(log.cost_noclip).toFixed(6) : "",
-        log.delta_cost !== undefined ? Number(log.delta_cost).toFixed(6) : "",
-        log.failure_mode_clip || "none",
-        log.failure_mode_noclip || "none",
-        log.temperature ?? 0.0,
-      ];
-    });
-
-    const filename = `VPR_Thesis_Exp2_Pipeline_Ablation_${new Date().toISOString().slice(0, 10)}.csv`;
-    downloadCsv(filename, headers, rows);
-    toast.success(`Exported ${rows.length} Exp2 records to CSV!`);
+  const exportCSV = () => {
+    const filename = `VPR_Thesis_Exp2_MultiCandidate_${new Date().toISOString().slice(0, 10)}.csv`;
+    downloadCsv(combinedLogs, filename);
+    toast.success(`Exported ${combinedLogs.length} Exp2 records!`);
   };
 
   return (
-    <ExperimentLayout>
+    <ExperimentLayout activeTab="exp2">
       <div className="space-y-6">
-        {/* Header Title & Academic Actions */}
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="text-left">
+        {/* Header Banner */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-gradient-to-r from-sky-900 via-indigo-900 to-slate-900 text-white rounded-2xl shadow-xl relative overflow-hidden">
+          <div className="space-y-1.5 z-10">
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Experiment 2: Pipeline Architecture & Ablation Study
-              </h2>
-              <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 text-xs font-semibold">
-                Thesis Chap. 4.2
+              <Badge className="bg-sky-500/20 text-sky-200 border-sky-400/30 text-xs px-2.5 py-0.5">
+                Experiment 2 • Chapter 4.2
+              </Badge>
+              <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-400/30 text-xs px-2.5 py-0.5">
+                Multi-Candidate Retrieval & Calibration
               </Badge>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Quantify the empirical benefit of 2-Turn Visual Retrieval (CLIP) against 1-Turn Direct Multimodal Vision.
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+              Visual Grounding Confidence Calibration & Top-K Multi-Candidate Retrieval
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed">
+              การประเมินความเที่ยงตรงของค่าความเชื่อมั่นเชิงสายตา (Visual Confidence) และประสิทธิภาพการแนะนำตัวเลือกสถานที่ (Top-3 Candidate Switch Name)
+              พร้อมการจำแนกข้อผิดพลาดอย่างละเอียดรายตัวเลือก (Candidate-level Error Classification)
             </p>
           </div>
-
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0 z-10">
             <Button
               variant="outline"
               size="sm"
-              onClick={exportFullCSV}
-              className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
+              onClick={exportCSV}
+              disabled={combinedLogs.length === 0}
+              className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs shadow-xs"
             >
-              <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-              Download Full CSV
+              <Download className="w-3.5 h-3.5 mr-1.5" />
+              Export CSV
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={copyAblationLatex}
-              disabled={!metrics}
-              className="text-xs bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50 shadow-2xs h-8"
+              onClick={copyLatexTable}
+              disabled={!analytics}
+              className="bg-white/10 hover:bg-white/20 text-white border-white/20 text-xs shadow-xs"
             >
-              {copiedLatex ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <FileCode2 className="w-3.5 h-3.5 mr-1 text-indigo-600" />}
-              {copiedLatex ? "Copied LaTeX" : "Export Ablation LaTeX"}
+              <FileCode2 className="w-3.5 h-3.5 mr-1.5" />
+              {copiedLatex ? "Copied!" : "LaTeX Table"}
             </Button>
           </div>
         </div>
 
-        {/* Executive Summary Takeaways Card */}
+        {/* Executive Takeaways Card */}
         <KeyTakeawaysCard expId="exp2" />
 
-        {/* Interactive Benchmark Tier Slicer Bar */}
+        {/* Stratified Tier Slicer Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-xs">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <span>Stratified Tier Slicer:</span>
+              <span>Stratified Tier Filter:</span>
             </span>
             <div className="flex flex-wrap items-center gap-1.5">
               <Button
@@ -736,7 +815,7 @@ ${rows}
                     onClick={() => setSelectedTierFilter(tierKey)}
                     className={`text-xs h-7 px-2.5 rounded-lg border flex items-center gap-1.5 transition-all ${
                       isSel
-                        ? `${cfg.badgeClass} ring-2 ring-indigo-500 font-bold shadow-xs`
+                        ? `${cfg.badgeClass} ring-2 ring-sky-500 font-bold shadow-xs`
                         : "bg-white text-slate-600 hover:bg-slate-50 border-slate-200"
                     }`}
                   >
@@ -748,399 +827,340 @@ ${rows}
               })}
             </div>
           </div>
-          {selectedTierFilter !== "all" && (
-            <div className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-md font-medium">
-              Filtered by: <strong>{TIER_CONFIGS[selectedTierFilter].label}</strong>
-            </div>
-          )}
         </div>
 
-        {/* Top Hero KPI Summary Cards */}
-        {metrics && (
+        {/* KPI Dashboard Cards */}
+        {analytics && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-              {/* Card 1: CLIP Accuracy */}
-              <Card className="bg-gradient-to-br from-emerald-50/80 to-white border-emerald-200/90 shadow-xs text-left">
+              {/* Card 1: Top-1 Strict */}
+              <Card className="bg-white border-slate-200 shadow-xs text-left">
+                <CardContent className="p-4">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    Top-1 Strict Accuracy (Score 3)
+                  </span>
+                  <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">
+                    {analytics.top1StrictAcc}%
+                  </p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    Exact landmark match on #1 candidate
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Card 2: Top-3 Regional Recall & Recovery Gain */}
+              <Card className="bg-gradient-to-br from-emerald-50/80 to-white border-emerald-200 shadow-xs text-left">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
-                      2-Turn CLIP Pipeline
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                      Top-3 Regional Recall (Score ≥ 2)
                     </span>
-                    <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-mono">
-                      Proposed
+                    <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[9px] font-mono">
+                      +{analytics.recoveryGain}% Gain
                     </Badge>
                   </div>
                   <p className="text-2xl sm:text-3xl font-extrabold text-emerald-900 mt-2">
-                    {metrics.clipAcc}%
+                    {analytics.top3RecallAcc}%
                   </p>
-                  <p className="text-[11px] text-emerald-600/90 mt-0.5 flex items-center gap-1 font-mono">
-                    Avg Latency: <strong>{metrics.avgClipTime} ms</strong>
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Card 2: Direct 1-Turn Accuracy */}
-              <Card className="bg-gradient-to-br from-blue-50/80 to-white border-blue-200/90 shadow-xs text-left">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-blue-800 uppercase tracking-wider">
-                      1-Turn Direct Vision
-                    </span>
-                    <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] font-mono">
-                      Baseline
-                    </Badge>
-                  </div>
-                  <p className="text-2xl sm:text-3xl font-extrabold text-blue-900 mt-2">
-                    {metrics.noclipAcc}%
-                  </p>
-                  <p className="text-[11px] text-blue-600/90 mt-0.5 flex items-center gap-1 font-mono">
-                    Avg Latency: <strong>{metrics.avgNoClipTime} ms</strong>
+                  <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                    User recovers correct site via Switch Name
                   </p>
                 </CardContent>
               </Card>
 
-              {/* Card 3: Net Gain Score */}
-              <Card
-                className={`shadow-xs text-left ${
-                  metrics.clipGain >= 0
-                    ? "bg-gradient-to-br from-indigo-50/80 to-white border-indigo-200/90"
-                    : "bg-gradient-to-br from-rose-50/80 to-white border-rose-200/90"
-                }`}
-              >
+              {/* Card 3: Candidate Quality Score */}
+              <Card className="bg-gradient-to-br from-sky-50/80 to-white border-sky-200 shadow-xs text-left">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
-                      Empirical CLIP Gain (Δ)
-                    </span>
-                    {metrics.clipGain > 0 ? (
-                      <TrendingUp className="w-4 h-4 text-emerald-600" />
-                    ) : (
-                      <TrendingDown className="w-4 h-4 text-rose-600" />
-                    )}
-                  </div>
-                  <p
-                    className={`text-2xl sm:text-3xl font-extrabold mt-2 ${
-                      metrics.clipGain >= 0 ? "text-indigo-900" : "text-rose-900"
-                    }`}
-                  >
-                    {metrics.clipGain > 0 ? "+" : ""}
-                    {metrics.clipGain.toFixed(1)}%
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-sky-800">
+                    Mean Candidate Quality
+                  </span>
+                  <p className="text-2xl sm:text-3xl font-extrabold text-sky-900 mt-2">
+                    {analytics.avgQuality} <span className="text-sm font-normal text-slate-400">/ 3.0</span>
                   </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    {metrics.clipGain >= 0
-                      ? "Statistically superior accuracy"
-                      : "Zero-shot direct faster"}
+                  <p className="text-[10px] text-sky-700 font-medium mt-0.5">
+                    Graded relevance across all 3 candidates
                   </p>
                 </CardContent>
               </Card>
 
-              {/* Card 4: Total Evaluations & Speed Tradeoff */}
-              <Card className="bg-white border-slate-200/90 shadow-xs text-left">
+              {/* Card 4: Confidence Calibration Contrast */}
+              <Card className="bg-white border-slate-200 shadow-xs text-left">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      Evaluated Samples
-                    </span>
-                    <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px]">
-                      {metrics.total} Paired Tests
-                    </Badge>
-                  </div>
-                  <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">
-                    {metrics.total}
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    Confidence Calibration Contrast
+                  </span>
+                  <p className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-2">
+                    {analytics.meanConfHigh}% <span className="text-xs font-normal text-slate-400">vs</span> {analytics.meanConfLow}%
                   </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Δ Latency: <strong>+{Math.abs(metrics.avgClipTime - metrics.avgNoClipTime)} ms</strong> overhead
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    Mean Conf on Recovered (≥2) vs Wrong (0)
                   </p>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Row 2: 2x2 Contingency Matrix Heatmap & Model Breakdown Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Left 7 cols: Comparison Chart with Switcher */}
-              <Card className="lg:col-span-7 bg-white border-slate-200 shadow-sm text-left">
-                <CardHeader className="pb-2 border-b border-slate-100">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                        <BarChart3 className="w-4 h-4 text-indigo-600" />
-                        Ablation Benchmark: CLIP Pipeline vs. Direct Vision
-                      </CardTitle>
-                      <CardDescription className="text-xs text-slate-500">
-                        Evaluates accuracy improvement and trade-off per model architecture.
-                      </CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-4 space-y-4">
-                  <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={metrics.modelBreakdown} margin={{ top: 15, right: 10, left: -20, bottom: 20 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <ReferenceLine
-                          y={80}
-                          stroke="#059669"
-                          strokeDasharray="3 3"
-                          label={{ value: "80% Baseline", position: "right", fill: "#059669", fontSize: 9 }}
-                        />
-                        <XAxis dataKey="shortModel" tick={{ fontSize: 10 }} angle={-15} textAnchor="end" interval={0} />
-                        <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} domain={[0, 100]} />
-                        <RechartsTooltip
-                          content={({ active, payload, label }) => {
-                            if (active && payload && payload.length >= 2) {
-                              const clipVal = payload[0].value as number;
-                              const directVal = payload[1].value as number;
-                              const delta = clipVal - directVal;
-                              return (
-                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-lg text-xs space-y-1.5 text-left">
-                                  <p className="font-bold text-slate-900 border-b border-slate-100 pb-1">{label}</p>
-                                  <div className="flex items-center justify-between gap-4 text-emerald-700 font-semibold">
-                                    <span>2-Turn CLIP:</span>
-                                    <span className="font-mono font-bold">{clipVal}%</span>
-                                  </div>
-                                  <div className="flex items-center justify-between gap-4 text-blue-700 font-semibold">
-                                    <span>1-Turn Direct:</span>
-                                    <span className="font-mono font-bold">{directVal}%</span>
-                                  </div>
-                                  <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-4 text-[11px] font-bold">
-                                    <span className="text-slate-600">Net Delta:</span>
-                                    <span className={delta >= 0 ? "text-emerald-600" : "text-rose-600"}>
-                                      {delta >= 0 ? `+${delta.toFixed(1)}% 🏆` : `${delta.toFixed(1)}%`}
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "5px" }} />
-                        <Bar dataKey="clipAcc" name="2-Turn CLIP Pipeline (%)" fill="#10b981" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="directAcc" name="1-Turn Direct Vision (%)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Right 5 cols: 2x2 Contingency Heatmap Card */}
-              <Card className="lg:col-span-5 bg-white border-slate-200 shadow-sm text-left flex flex-col justify-between">
-                <CardHeader className="pb-2 border-b border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                      <Scale className="w-4 h-4 text-indigo-600" />
-                      $2 \times 2$ Contingency Heatmap
-                    </CardTitle>
-                    <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] font-mono">
-                      McNemar Matrix
-                    </Badge>
-                  </div>
-                  <CardDescription className="text-xs text-slate-500">
-                    Distribution of paired sample outcomes between both pipelines.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-4 pb-4 space-y-3">
-                  {/* Contingency Table Grid */}
-                  <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
-                    <div className="grid grid-cols-3 bg-slate-100/80 font-semibold text-slate-700 text-center py-1.5 border-b border-slate-200 text-[11px]">
-                      <div className="text-left pl-3 text-slate-500 font-mono">CLIP \ Direct</div>
-                      <div className="text-emerald-700">Direct ✓</div>
-                      <div className="text-rose-700">Direct ✗</div>
-                    </div>
-
-                    {/* Row 1: CLIP Correct */}
-                    <div className="grid grid-cols-3 border-b border-slate-200 items-center">
-                      <div className="py-2.5 pl-3 font-semibold text-emerald-800 bg-emerald-50/40 border-r border-slate-200 text-[11px]">
-                        CLIP ✓
-                      </div>
-                      <div className="py-2.5 px-2 text-center bg-blue-50/60 border-r border-slate-200">
-                        <span className="font-extrabold text-blue-900 text-sm block">{metrics.bothCorrect}</span>
-                        <span className="text-[10px] text-blue-600">
-                          {metrics.total > 0 ? ((metrics.bothCorrect / metrics.total) * 100).toFixed(1) : 0}% (Both ✓)
-                        </span>
-                      </div>
-                      <div className="py-2.5 px-2 text-center bg-emerald-100/60">
-                        <span className="font-extrabold text-emerald-900 text-sm block">{metrics.clipOnlyWins}</span>
-                        <span className="text-[10px] text-emerald-700 font-semibold">
-                          {metrics.total > 0 ? ((metrics.clipOnlyWins / metrics.total) * 100).toFixed(1) : 0}% (CLIP Rescued 🏆)
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Row 2: CLIP Failed */}
-                    <div className="grid grid-cols-3 items-center">
-                      <div className="py-2.5 pl-3 font-semibold text-rose-800 bg-rose-50/40 border-r border-slate-200 text-[11px]">
-                        CLIP ✗
-                      </div>
-                      <div className="py-2.5 px-2 text-center bg-amber-50/60 border-r border-slate-200">
-                        <span className="font-extrabold text-amber-900 text-sm block">{metrics.directOnlyWins}</span>
-                        <span className="text-[10px] text-amber-700">
-                          {metrics.total > 0 ? ((metrics.directOnlyWins / metrics.total) * 100).toFixed(1) : 0}% (Direct Only ⚡)
-                        </span>
-                      </div>
-                      <div className="py-2.5 px-2 text-center bg-rose-50/70">
-                        <span className="font-extrabold text-rose-900 text-sm block">{metrics.bothWrong}</span>
-                        <span className="text-[10px] text-rose-600">
-                          {metrics.total > 0 ? ((metrics.bothWrong / metrics.total) * 100).toFixed(1) : 0}% (Both Failed)
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Summary Discussion text */}
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80 text-[11px] text-slate-600 leading-relaxed">
-                    💡 <strong>Thesis Takeaway:</strong> CLIP pipeline rescued <strong>{metrics.clipOnlyWins}</strong> queries ({metrics.total > 0 ? ((metrics.clipOnlyWins / metrics.total) * 100).toFixed(1) : 0}%) where direct vision hallucinated, with only <strong>{Math.abs(metrics.avgClipTime - metrics.avgNoClipTime)} ms</strong> average overhead.
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Stratified Multi-Tier CLIP Gain Matrix */}
-            <Card className="bg-white border-slate-200 shadow-sm text-left">
-              <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
+            {/* Candidate-Level Failure Mode Distribution Card */}
+            <Card className="bg-white border-slate-200 shadow-xs text-left">
+              <CardHeader className="py-3 px-4 border-b border-slate-100 flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-purple-600" />
-                    Stratified Multi-Tier CLIP Ablation Analysis (T1–T4)
+                  <CardTitle className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                    Candidate Error Taxonomy & Diagnostic Breakdown (การจำแนกข้อผิดพลาด 3 ระดับรายตัวเลือก)
                   </CardTitle>
-                  <CardDescription className="text-xs text-slate-500">
-                    Comparing CLIP 2-Turn Retrieval vs. 1-Turn Direct Multimodal accuracy gain across difficulty tiers.
+                  <CardDescription className="text-[11px] text-slate-500">
+                    วิเคราะห์การกระจายตัวของข้อผิดพลาด (Visual Confusion vs Hallucination vs Degradation) จากตัวเลือกทั้งหมด {analytics.candFailureDist.totalEvaluated} รายการ
                   </CardDescription>
                 </div>
+                <Badge variant="outline" className="text-[10px] font-mono text-slate-500">
+                  {analytics.candFailureDist.totalErrors} Error Instances
+                </Badge>
               </CardHeader>
-              <CardContent className="pt-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  {tierAblation.map((tab) => (
-                    <div
-                      key={tab.tier}
-                      className={`p-3.5 rounded-xl border text-left space-y-1.5 ${tab.cfg.badgeClass}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-base">{tab.cfg.icon}</span>
-                        <Badge variant="outline" className="text-[10px] bg-white/70">
-                          {tab.total} trials
-                        </Badge>
-                      </div>
-                      <div className="font-bold text-xs truncate">{tab.cfg.shortLabel}</div>
-                      <div className="text-[10px] opacity-80 truncate">{tab.cfg.label}</div>
-                      <div className="pt-2 border-t border-black/5 text-xs space-y-1">
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-slate-600">2-Turn CLIP:</span>
-                          <span className="font-mono font-bold text-emerald-800">{tab.clipAcc}%</span>
-                        </div>
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-slate-600">1-Turn Direct:</span>
-                          <span className="font-mono font-bold text-blue-800">{tab.noClipAcc}%</span>
-                        </div>
-                        <div className="flex justify-between items-center font-bold pt-1 border-t border-black/5 text-[11px]">
-                          <span>Net Benefit (Δ):</span>
-                          <span className={tab.delta >= 0 ? "text-emerald-700 font-extrabold" : "text-rose-700 font-extrabold"}>
-                            {tab.delta >= 0 ? `+${tab.delta}% 🏆` : `${tab.delta}%`}
-                          </span>
-                        </div>
-                      </div>
+              <CardContent className="p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Category 1: Visual Confusion */}
+                  <div className="p-3 rounded-xl border border-purple-200 bg-purple-50/40 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-purple-900 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-purple-600 inline-block"></span>
+                        Visual Confusion
+                      </span>
+                      <span className="text-xs font-mono font-bold text-purple-800">
+                        {analytics.candFailureDist.visualConfusionPct}%
+                      </span>
                     </div>
-                  ))}
+                    <p className="text-[11px] text-purple-700">
+                      สับสนกับสถานที่ข้างเคียง หรือแลนด์มาร์กที่มีสถาปัตยกรรม/ป่าไม้คล้ายคลึงกัน ({analytics.candFailureDist.visualConfusionCount} รายการ)
+                    </p>
+                  </div>
+
+                  {/* Category 2: Hallucination */}
+                  <div className="p-3 rounded-xl border border-amber-200 bg-amber-50/40 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-900 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-amber-600 inline-block"></span>
+                        Hallucination / Generic
+                      </span>
+                      <span className="text-xs font-mono font-bold text-amber-800">
+                        {analytics.candFailureDist.hallucinationPct}%
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-amber-700">
+                      เพ้อเจ้อ/กุชื่อที่ไม่มีจริง หรือคำนามสภาพแวดล้อมกว้างๆ ระบุพิกัดไม่ได้ เช่น ป่าเมฆ, วิวธรรมชาติ ({analytics.candFailureDist.hallucinationCount} รายการ)
+                    </p>
+                  </div>
+
+                  {/* Category 3: Degradation / Rejection */}
+                  <div className="p-3 rounded-xl border border-rose-200 bg-rose-50/40 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-rose-900 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-rose-600 inline-block"></span>
+                        Degradation / Rejection
+                      </span>
+                      <span className="text-xs font-mono font-bold text-rose-800">
+                        {analytics.candFailureDist.degradationPct}%
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-rose-700">
+                      ภาพมีปัจจัยรบกวนรุนแรง (มัว/มืด/เบลอ) หรือโมเดลปฏิเสธระบุสถานที่ ({analytics.candFailureDist.degradationCount} รายการ)
+                    </p>
+                  </div>
+                </div>
+
+                {/* Candidate Position Breakdown Sub-table */}
+                <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between text-[11px] text-slate-600 gap-2">
+                  <span className="font-semibold text-slate-700">Position Distribution:</span>
+                  <div className="flex items-center gap-4">
+                    <span>
+                      <strong>Candidate #1 (Top-1):</strong> Confusion: {analytics.candFailureDist.candPosStats.c1.visual_confusion} | Hallucination: {analytics.candFailureDist.candPosStats.c1.hallucination}
+                    </span>
+                    <span>
+                      <strong>Candidate #2:</strong> Confusion: {analytics.candFailureDist.candPosStats.c2.visual_confusion} | Hallucination: {analytics.candFailureDist.candPosStats.c2.hallucination}
+                    </span>
+                    <span>
+                      <strong>Candidate #3:</strong> Confusion: {analytics.candFailureDist.candPosStats.c3.visual_confusion} | Hallucination: {analytics.candFailureDist.candPosStats.c3.hallucination}
+                    </span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           </div>
         )}
 
-        {/* Main 2-Column Setup and Side-by-Side Testbed */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column: SETUP (5 cols) */}
-          <div className="lg:col-span-5 space-y-6">
+        {/* Comparative Chart */}
+        {analytics && analytics.modelBreakdown.length > 0 && (
+          <Card className="bg-white border-slate-200 shadow-sm text-left">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-sky-600" />
+                Comparative Model Benchmarking: Top-1 vs Top-3 Recovery & Quality
+              </CardTitle>
+              <CardDescription className="text-xs text-slate-500">
+                Visualizing Top-1 Strict Accuracy vs Top-3 Regional Recall recovery gain per model.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={analytics.modelBreakdown}
+                    margin={{ top: 10, right: 20, left: -10, bottom: 20 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="shortModel" tick={{ fontSize: 11 }} />
+                    <YAxis unit="%" domain={[0, 100]} tick={{ fontSize: 11 }} />
+                    <RechartsTooltip
+                      formatter={(val: any, name: any) => [`${val}%`, name]}
+                      contentStyle={{ borderRadius: "8px", fontSize: "12px" }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }} />
+                    <Bar dataKey="top1Acc" name="Top-1 Strict (%)" fill="#64748b" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="top3Acc" name="Top-3 Recall (%)" fill="#059669" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Main Workspace Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Column: Benchmarking Controls (4-5 cols) */}
+          <div className="lg:col-span-5 xl:col-span-4 space-y-4">
             <Card className="bg-white border-slate-200 shadow-sm text-left">
-              <CardHeader className="border-b border-slate-100 pb-4">
+              <CardHeader className="pb-3 border-b border-slate-100">
                 <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-indigo-600" />
-                  1. Query Image & Ground Truth
+                  <Target className="w-4 h-4 text-sky-600" />
+                  Candidate Benchmark Setup
                 </CardTitle>
                 <CardDescription className="text-xs text-slate-500">
-                  Select a test image to evaluate both pipelines simultaneously.
+                  Select image, ground truth POI, and target VLM models to run 2-Turn CLIP retrieval.
                 </CardDescription>
               </CardHeader>
 
-              <CardContent className="pt-6 space-y-5">
-                {/* Upload Box */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Query Image</Label>
-                  <div className="border-2 border-dashed border-slate-200 hover:border-indigo-400 rounded-2xl p-4 text-center cursor-pointer transition-all bg-slate-50/50">
-                    <Input type="file" accept="image/*" onChange={handleFileChange} className="hidden" id="exp2-file" disabled={isRunning} />
-                    <label htmlFor="exp2-file" className="cursor-pointer block">
-                      {imagePreview ? (
-                        <div className="relative group">
-                          <img src={imagePreview} alt="Preview" className="max-h-44 mx-auto rounded-lg object-cover shadow-xs" />
-                          <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                            <span className="text-[11px] bg-white text-slate-700 px-2.5 py-1 rounded-full shadow-md font-medium">
-                              Change Image
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="py-6 space-y-2">
-                          <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
-                            <Upload className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <p className="text-xs font-bold text-slate-800">Click or Drag & Drop Photo</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">JPEG, PNG, WebP</p>
-                          </div>
-                        </div>
-                      )}
-                    </label>
-                  </div>
-                </div>
-
-                {/* Ground Truth */}
-                <div className="space-y-1.5">
+              <CardContent className="space-y-4 pt-4">
+                {/* Prompt Paradigm & Tier 4 Screenshot Support Banner */}
+                <div className="rounded-xl border border-sky-200/80 bg-gradient-to-r from-sky-50/70 via-indigo-50/40 to-white p-3 text-xs space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold text-slate-700">Ground Truth (Multi-Alias)</Label>
-                    <span className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-medium">
-                      Multi-Alias Supported
-                    </span>
+                    <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                      <Smartphone className="w-4 h-4 text-sky-600 shrink-0" />
+                      <span>Prompt: 2-Turn Retrieval (UGC & Screenshot-Aware)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowPromptDetails(!showPromptDetails)}
+                      className="text-[11px] text-sky-700 hover:text-sky-900 flex items-center gap-0.5 font-medium cursor-pointer"
+                    >
+                      <span>{showPromptDetails ? "ซ่อนพรอมต์" : "ดูรายละเอียดพรอมต์"}</span>
+                      {showPromptDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
                   </div>
-                  <Input
-                    value={groundTruth}
-                    onChange={(e) => setGroundTruth(e.target.value)}
-                    placeholder="e.g. Wat Arun | Temple of Dawn | Wat Pho"
-                    className="bg-white text-xs border-slate-200 text-slate-900"
-                    disabled={isRunning}
-                  />
-                </div>
-
-                {/* Benchmark Tier Category Selector */}
-                <div className="space-y-1.5 text-left">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold text-slate-700">Benchmark Tier Stratification</Label>
-                    <Badge className={`${TIER_CONFIGS[singleTier].badgeClass} text-[10px]`}>
-                      {TIER_CONFIGS[singleTier].icon} {TIER_CONFIGS[singleTier].shortLabel}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] py-0.5 px-2 font-medium">
+                      ✓ รองรับภาพแคปหน้าจอ (Tier 4 UGC)
+                    </Badge>
+                    <Badge className="bg-sky-100 text-sky-800 border-sky-200 text-[10px] py-0.5 px-2 font-medium">
+                      Multimodal OCR + Vision
+                    </Badge>
+                    <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0.5 px-2 font-medium">
+                      TikTok / IG / Reels / Maps
                     </Badge>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  {showPromptDetails && (
+                    <div className="pt-2 border-t border-sky-200/60 text-[11px] text-slate-600 space-y-1.5">
+                      <p>
+                        <strong>การปรับปรุงพรอมต์สำหรับ Tier 4 UGC:</strong> โมเดลจะไม่ปฏิเสธภาพสกรีนช็อตที่มีสถานที่ท่องเที่ยวจริง โดยจะประมวลผลข้อความบนหน้าจอ (เช่น แคปชันคลิป, แฮชแท็ก, ป้ายชื่อ, คำค้นหา) ร่วมกับลักษณะทางกายภาพ/สถาปัตยกรรม และจะคัดกรองปฏิเสธเฉพาะสกรีนช็อตที่ไม่มีวิวท่องเที่ยวจริงเท่านั้น (เช่น แชทข้อความส่วนบุคคล, สลิปโอนเงิน)
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Image Upload Area */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">Test Image</Label>
+                  <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center hover:border-sky-400 transition-colors bg-slate-50/50">
+                    {imagePreview ? (
+                      <div className="space-y-2">
+                        <img
+                          src={imagePreview}
+                          alt="Preview"
+                          className="h-40 mx-auto object-cover rounded-lg shadow-xs"
+                        />
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-xs font-medium text-slate-600 truncate max-w-[200px]">
+                            {imageFile?.name}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setImageFile(null);
+                              setImagePreview(null);
+                              setCurrentResults([]);
+                            }}
+                            className="text-rose-500 h-6 px-1.5 text-[10px]"
+                            disabled={isRunning}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <label className="cursor-pointer block space-y-1 py-2">
+                        <Upload className="w-7 h-7 mx-auto text-slate-400" />
+                        <span className="text-xs font-semibold text-sky-600 block">Upload VPR Image</span>
+                        <span className="text-[10px] text-slate-400 block">JPG, PNG, WebP up to 10MB</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileChange}
+                          className="hidden"
+                          disabled={isRunning}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ground Truth Input */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    Ground Truth Landmark / Location
+                  </Label>
+                  <Input
+                    type="text"
+                    value={groundTruth}
+                    onChange={(e) => setGroundTruth(e.target.value)}
+                    placeholder="e.g. Ang Ka Nature Trail (เส้นทางศึกษาธรรมชาติอ่างกา)"
+                    className="text-xs h-9 bg-slate-50/50"
+                    disabled={isRunning}
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Separate aliases with vertical bar (|) e.g. "Emerald Cave | ถ้ำมรกต | Ko Muk"
+                  </p>
+                </div>
+
+                {/* Tier Selection */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">Landmark Tier</Label>
+                  <div className="grid grid-cols-2 gap-1.5">
                     {TIER_ORDER.map((tierKey) => {
                       const cfg = TIER_CONFIGS[tierKey];
-                      const isSelected = singleTier === tierKey;
+                      const isSel = singleTier === tierKey;
                       return (
                         <button
                           key={tierKey}
                           type="button"
                           onClick={() => setSingleTier(tierKey)}
                           disabled={isRunning}
-                          className={`flex items-start gap-2 p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
-                            isSelected
-                              ? `${cfg.badgeClass} ring-2 ring-indigo-500 font-semibold shadow-xs`
-                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50/80"
+                          className={`p-2 rounded-lg border text-left text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                            isSel
+                              ? `${cfg.badgeClass} ring-2 ring-sky-500 font-semibold shadow-xs`
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                           }`}
                         >
-                          <span className="text-lg leading-none mt-0.5 shrink-0">{cfg.icon}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="font-bold text-xs leading-tight text-slate-800">{cfg.shortLabel}</div>
-                            <div className="text-[10px] text-slate-500 line-clamp-2 leading-snug mt-0.5" title={cfg.description}>
-                              {cfg.description}
-                            </div>
-                          </div>
+                          <span className="text-base">{cfg.icon}</span>
+                          <span className="truncate text-[11px]">{cfg.shortLabel}</span>
                         </button>
                       );
                     })}
@@ -1148,16 +1168,16 @@ ${rows}
                 </div>
 
                 {/* Model Selector */}
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold text-slate-700">Models to Benchmark</Label>
+                    <Label className="text-xs font-semibold text-slate-700">Models</Label>
                     <div className="flex gap-1">
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
                         onClick={() => setSelectedModels(AI_MODEL_OPTIONS.map((m) => m.value))}
-                        className="text-[10px] h-6 px-1.5 text-slate-500 hover:text-slate-900"
+                        className="text-[10px] h-5 px-1.5 text-slate-500"
                         disabled={isRunning}
                       >
                         All
@@ -1167,15 +1187,14 @@ ${rows}
                         variant="ghost"
                         size="sm"
                         onClick={() => setSelectedModels([])}
-                        className="text-[10px] h-6 px-1.5 text-slate-500 hover:text-slate-900"
+                        className="text-[10px] h-5 px-1.5 text-slate-500"
                         disabled={isRunning}
                       >
                         Clear
                       </Button>
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto pr-1">
+                  <div className="grid grid-cols-1 gap-1.5 max-h-52 overflow-y-auto pr-1">
                     {AI_MODEL_OPTIONS.map((opt) => {
                       const isChecked = selectedModels.includes(opt.value);
                       return (
@@ -1187,28 +1206,14 @@ ${rows}
                               prev.includes(opt.value) ? prev.filter((m) => m !== opt.value) : [...prev, opt.value]
                             );
                           }}
-                          className={`flex items-center gap-2.5 p-2 rounded-xl border transition-all cursor-pointer ${
+                          className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${
                             isChecked
-                              ? "bg-indigo-50/40 border-indigo-200"
-                              : "bg-slate-50/40 border-slate-200/60 hover:bg-slate-50 hover:border-slate-300"
+                              ? "bg-sky-50/50 border-sky-300"
+                              : "bg-slate-50/40 border-slate-200 hover:bg-slate-50"
                           }`}
                         >
-                          <Checkbox
-                            checked={isChecked}
-                            onCheckedChange={() => {}}
-                            className="border-slate-300 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600 shrink-0"
-                            disabled={isRunning}
-                          />
-                          <img
-                            src={opt.icon}
-                            className="w-4 h-4 rounded-full object-cover shrink-0 bg-slate-100 border border-slate-200"
-                            alt=""
-                          />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-xs font-semibold text-slate-800 block truncate">
-                              {opt.label}
-                            </span>
-                          </div>
+                          <Checkbox checked={isChecked} onCheckedChange={() => {}} className="shrink-0" />
+                          <span className="text-xs font-medium text-slate-800 truncate">{opt.label}</span>
                         </div>
                       );
                     })}
@@ -1219,26 +1224,61 @@ ${rows}
                 <Button
                   onClick={runComparison}
                   disabled={isRunning || !imageFile || !groundTruth.trim() || selectedModels.length === 0}
-                  className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold text-xs py-5 rounded-xl shadow-md flex items-center justify-center gap-2"
+                  className="w-full bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white font-semibold text-xs py-4 rounded-xl shadow-md flex items-center justify-center gap-2"
                 >
                   <Play className="w-4 h-4" />
-                  <span>{isRunning ? progressLabel : `Run Pipeline Comparison (${selectedModels.length} Models × 2 Modes)`}</span>
+                  <span>{isRunning ? progressLabel : `Execute Candidate Benchmark (${selectedModels.length} Models)`}</span>
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Rubric Guide Reference */}
+            <Card className="bg-slate-50/80 border-slate-200 text-left text-xs p-3.5 space-y-2.5 rounded-xl">
+              <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 text-sky-600" />
+                Graded Relevance Scoring Rubric:
+              </span>
+              <div className="space-y-1 text-[11px] text-slate-600">
+                <div className="flex items-center gap-1.5">
+                  <span className="px-1.5 py-0.2 rounded font-mono font-bold text-emerald-800 bg-emerald-100 border border-emerald-300">[3] Exact POI</span>
+                  <span>ตรงจุดแลนด์มาร์กเป้าหมายเฉพาะเจาะจง</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="px-1.5 py-0.2 rounded font-mono font-bold text-sky-800 bg-sky-100 border border-sky-300">[2] Parent Area</span>
+                  <span>ตรงระดับอุทยาน/เกาะ/ภูเขาแม่ข่าย</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="px-1.5 py-0.2 rounded font-mono font-bold text-amber-800 bg-amber-100 border border-amber-300">[1] Neighbor</span>
+                  <span>สถานที่ข้างเคียง/คล้ายกันทางสายตา</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="px-1.5 py-0.2 rounded font-mono font-bold text-rose-800 bg-rose-100 border border-rose-300">[0] Generic/Wrong</span>
+                  <span>ผิดสถานที่ หรือคำนามกว้าง (เช่น ป่าเมฆ)</span>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200/80 space-y-1 text-[11px] text-slate-600">
+                <span className="font-bold text-slate-700 block">Candidate Error Modes:</span>
+                <div className="grid grid-cols-1 gap-1 text-[10px]">
+                  <span><strong className="text-purple-700">Visual Confusion:</strong> สับสนภาพกับสถานที่จริงอื่น</span>
+                  <span><strong className="text-amber-700">Hallucination:</strong> เพ้อเจ้อ/คำนามกว้างไร้พิกัด</span>
+                  <span><strong className="text-rose-700">Degradation:</strong> ภาพตกมาตรฐาน/ปฏิเสธ</span>
+                </div>
+              </div>
+            </Card>
           </div>
 
-          {/* Right Column: LIVE HEAD-TO-HEAD BATTLE VIEW (7 cols) */}
-          <div className="lg:col-span-7 space-y-6">
+          {/* Right Column: LIVE CANDIDATES BENCHMARK VIEW (7-8 cols) */}
+          <div className="lg:col-span-7 xl:col-span-8 space-y-6">
             <Card className="bg-white border-slate-200 shadow-sm text-left">
-              <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-slate-100">
+              <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100">
                 <div>
                   <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <Scale className="w-4 h-4 text-indigo-600" />
-                    Live Side-by-Side Comparison Feed
+                    <Layers className="w-4 h-4 text-sky-600" />
+                    Top-3 Multi-Candidate Evaluation Table
                   </CardTitle>
                   <CardDescription className="text-xs text-slate-500">
-                    Direct visual comparison between 2-Turn CLIP and 1-Turn Direct VLM.
+                    Review and grade each candidate's spatial relevance score (0–3) and individual error classification.
                   </CardDescription>
                 </div>
                 {currentResults.length > 0 && (
@@ -1246,213 +1286,410 @@ ${rows}
                     onClick={commitResults}
                     size="sm"
                     className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-xs"
+                    disabled={isRunning}
                   >
                     <Save className="w-3.5 h-3.5 mr-1" />
-                    Commit to CSV
+                    Commit Session
                   </Button>
                 )}
               </CardHeader>
 
-              <CardContent className="pt-6">
+              <CardContent className="pt-4">
                 {currentResults.length === 0 ? (
                   <div className="text-center py-16 text-slate-400 border border-dashed border-slate-200 rounded-2xl">
                     <Layers className="w-8 h-8 mx-auto mb-2 text-slate-350" />
-                    <p className="text-xs font-semibold text-slate-600">No comparison results generated yet.</p>
-                    <p className="text-[10px] text-slate-400 mt-1">Upload a photo and click Run to start the ablation study.</p>
+                    <p className="text-xs font-semibold text-slate-600">No candidate trials generated yet.</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Upload a photo and click Execute Candidate Benchmark.</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-                      <Table>
-                        <TableHeader className="bg-slate-50">
-                          <TableRow className="border-b border-slate-200">
-                            <TableHead className="text-xs font-semibold">Model</TableHead>
-                            <TableHead className="text-xs font-semibold">Tier</TableHead>
-                            <TableHead className="text-xs font-semibold text-emerald-800 bg-emerald-50/50">2-Turn CLIP (Pred & Cost)</TableHead>
-                            <TableHead className="text-xs font-semibold text-blue-800 bg-blue-50/50">1-Turn Direct (Pred & Cost)</TableHead>
-                            <TableHead className="text-xs font-semibold text-center">Verdict</TableHead>
-                            <TableHead className="text-xs font-semibold text-center">Tokens (CLIP / Direct)</TableHead>
-                            <TableHead className="text-xs font-semibold text-center">Cost Comparison</TableHead>
-                            <TableHead className="text-xs font-semibold text-center">Latency</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {currentResults.map((r, idx) => {
-                            const verdict = getVerdict(r.correct_clip, r.correct_noclip);
-                            return (
-                              <TableRow key={idx} className="border-b border-slate-100">
-                                <TableCell className="font-semibold text-xs text-slate-900">{r.modelLabel}</TableCell>
-                                <TableCell className="text-xs">
-                                  {(() => {
-                                    const cfg = TIER_CONFIGS[normalizeTier(r.tier || singleTier)];
-                                    return (
-                                      <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
-                                        {cfg.icon} {cfg.shortLabel}
-                                      </Badge>
-                                    );
-                                  })()}
-                                </TableCell>
-                                <TableCell className="text-xs bg-emerald-50/20">
-                                  <div className="flex flex-col gap-1.5">
-                                    <div className="flex items-center justify-between gap-1">
-                                      <div>
-                                        <span className="font-semibold text-slate-800 truncate max-w-[120px] block">{r.predicted_clip}</span>
-                                        <span className="text-[10px] text-emerald-700 font-mono">${(r.cost_clip ?? 0).toFixed(6)}</span>
-                                      </div>
-                                      <HumanDoubleCheckButton
-                                        compact
-                                        isCorrect={r.correct_clip}
-                                        matchScore={r.match_score_clip}
-                                        matchedAlias={r.matched_alias_clip}
-                                        isVerified={r.user_verified_clip}
-                                        onChange={(val) => updateCorrectnessClip(idx, val)}
-                                      />
-                                    </div>
-                                    {!r.correct_clip && r.failure_mode_clip && (
-                                      <span className="text-[9px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded block font-medium">
-                                        {FAILURE_MODE_CONFIGS[r.failure_mode_clip]?.shortLabel}
+                    {currentResults.map((r, rowIdx) => (
+                      <div
+                        key={rowIdx}
+                        className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-all space-y-3 shadow-2xs"
+                      >
+                        {/* Row Header: Model, Tier, Top-1, Confidence */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-slate-900">{r.modelLabel}</span>
+                            {(() => {
+                              const cfg = TIER_CONFIGS[normalizeTier(r.tier || singleTier)];
+                              return (
+                                <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5`}>
+                                  {cfg.icon} {cfg.shortLabel}
+                                </Badge>
+                              );
+                            })()}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-sky-50 text-sky-700 border-sky-200 text-[11px] font-semibold">
+                              {Math.round(r.confidence * 100)}% Confidence
+                            </Badge>
+                            <span className="text-[11px] text-slate-400 font-mono">{r.time_ms} ms</span>
+                          </div>
+                        </div>
+
+                        {/* Top-3 Candidates Grader Box */}
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                            <span>Top-3 Recommended Candidates (Switch Name Pool):</span>
+                            <span className="text-[10px] font-normal text-slate-400">Score: [3, 2, 1, 0] • Error: Select Mode</span>
+                          </span>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                            {r.candidates.map((cand, cIdx) => {
+                              const scoreCfg = SCORE_LABELS[cand.score];
+                              return (
+                                <div
+                                  key={cIdx}
+                                  className={`p-2.5 rounded-lg border flex flex-col justify-between gap-2.5 ${scoreCfg.bg} ${scoreCfg.border}`}
+                                >
+                                  <div>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase">
+                                        #{cIdx + 1} {cIdx === 0 ? "(Top-1)" : "Option"}
                                       </span>
-                                    )}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-xs bg-blue-50/20">
-                                  <div className="flex flex-col gap-1.5">
-                                    <div className="flex items-center justify-between gap-1">
-                                      <div>
-                                        <span className="font-semibold text-slate-800 truncate max-w-[120px] block">{r.predicted_noclip}</span>
-                                        <span className="text-[10px] text-blue-700 font-mono">${(r.cost_noclip ?? 0).toFixed(6)}</span>
-                                      </div>
-                                      <HumanDoubleCheckButton
-                                        compact
-                                        isCorrect={r.correct_noclip}
-                                        matchScore={r.match_score_noclip}
-                                        matchedAlias={r.matched_alias_noclip}
-                                        isVerified={r.user_verified_noclip}
-                                        onChange={(val) => updateCorrectnessNoClip(idx, val)}
-                                      />
+                                      {cand.similarity > 0 && (
+                                        <span className="text-[9px] font-mono font-semibold text-slate-500">
+                                          {(cand.similarity * 100).toFixed(0)}%
+                                        </span>
+                                      )}
                                     </div>
-                                    {!r.correct_noclip && r.failure_mode_noclip && (
-                                      <span className="text-[9px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded block font-medium">
-                                        {FAILURE_MODE_CONFIGS[r.failure_mode_noclip]?.shortLabel}
-                                      </span>
-                                    )}
+                                    <span className="text-xs font-semibold text-slate-900 block break-words" title={cand.name}>
+                                      {cand.name || "(No candidate)"}
+                                    </span>
                                   </div>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  {verdictBadge(verdict)}
-                                </TableCell>
-                                <TableCell className="text-center font-mono text-[11px] text-slate-700">
-                                  <span className="text-emerald-700 font-bold">{r.tokens_clip ?? 0}</span>
-                                  <span className="text-slate-400"> / </span>
-                                  <span className="text-blue-700 font-bold">{r.tokens_noclip ?? 0}</span>
-                                </TableCell>
-                                <TableCell className="text-center font-mono text-[11px]">
-                                  <span className={`font-bold block ${(r.delta_cost ?? 0) >= 0 ? "text-emerald-700" : "text-amber-700"}`}>
-                                    {(r.delta_cost ?? 0) >= 0
-                                      ? `CLIP saves $${Math.abs(r.delta_cost ?? 0).toFixed(6)}`
-                                      : `+${Math.abs(r.delta_cost ?? 0).toFixed(6)} overhead`}
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-center font-mono text-[11px] text-slate-600">
-                                  {r.latency_clip}ms / {r.latency_noclip}ms
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
+
+                                  <div className="space-y-1.5 pt-1.5 border-t border-slate-200/50">
+                                    {/* Interactive Score Selector Pills */}
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className="text-[9px] text-slate-400 font-semibold uppercase">Score:</span>
+                                      <div className="grid grid-cols-4 gap-1 flex-1">
+                                        {([3, 2, 1, 0] as CandidateScore[]).map((sc) => {
+                                          const isSel = cand.score === sc;
+                                          return (
+                                            <button
+                                              key={sc}
+                                              type="button"
+                                              onClick={() => updateCandidateScore(rowIdx, cIdx as 0 | 1 | 2, sc)}
+                                              className={`py-0.5 rounded text-[10px] font-bold transition-all ${
+                                                isSel
+                                                  ? `${SCORE_LABELS[sc].color} bg-white shadow-2xs ring-1 ring-slate-300 scale-105`
+                                                  : "text-slate-400 hover:text-slate-700 bg-white/40 hover:bg-white"
+                                              }`}
+                                              title={SCORE_LABELS[sc].label}
+                                            >
+                                              {sc}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    {/* Candidate-specific Failure Mode Selector */}
+                                    <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-200/40">
+                                      <span className="text-[9px] text-slate-400 font-semibold uppercase">Error:</span>
+                                      {cand.score === 3 ? (
+                                        <span className="text-[10px] text-emerald-600 font-bold px-1.5 py-0.5 bg-emerald-100/60 rounded">
+                                          ✓ None
+                                        </span>
+                                      ) : (
+                                        <Select
+                                          value={cand.failure_mode || "visual_confusion"}
+                                          onValueChange={(val: FailureMode) => updateCandidateFailureMode(rowIdx, cIdx as 0 | 1 | 2, val)}
+                                        >
+                                          <SelectTrigger className="h-5 text-[9px] px-1.5 py-0 w-[125px] border-slate-200 bg-white font-medium">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="none" className="text-xs text-emerald-700 font-semibold">✓ None</SelectItem>
+                                            {FAILURE_MODE_OPTIONS.filter((o) => o !== "none").map((opt) => {
+                                              const cfg = FAILURE_MODE_CONFIGS[opt];
+                                              return (
+                                                <SelectItem key={opt} value={opt} className="text-xs">
+                                                  {cfg?.shortName || opt}
+                                                </SelectItem>
+                                              );
+                                            })}
+                                          </SelectContent>
+                                        </Select>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Row Footer: Verdicts & Overall Failure Mode */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                          <div className="flex items-center gap-2">
+                            {r.top1_strict ? (
+                              <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-bold">
+                                ✓ Top-1 Exact
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">
+                                Top-1 Miss
+                              </Badge>
+                            )}
+
+                            {r.top3_recall ? (
+                              <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] font-bold">
+                                ✓ Recovered in Top-3
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-rose-100 text-rose-800 border-rose-200 text-[10px]">
+                                ✗ Top-3 Miss
+                              </Badge>
+                            )}
+
+                            <span className="text-[11px] font-bold text-slate-700">
+                              Quality: <strong className="text-sky-700">{r.avg_candidate_score}</strong> / 3.0
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-slate-400">Model Diagnosis:</span>
+                            {r.top1_strict ? (
+                              <span className="text-[10px] text-emerald-600 font-semibold">None (Correct)</span>
+                            ) : (
+                              <Select
+                                value={r.failure_mode}
+                                onValueChange={(val: FailureMode) => updateFailureMode(rowIdx, val)}
+                              >
+                                <SelectTrigger className="h-6 text-[10px] px-2 py-0 w-[130px] border-slate-200 bg-slate-50">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {FAILURE_MODE_OPTIONS.filter((o) => o !== "none").map((opt) => (
+                                    <SelectItem key={opt} value={opt} className="text-xs">
+                                      {FAILURE_MODE_CONFIGS[opt]?.shortName || opt}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            {/* Historical Table */}
-            <Card className="bg-white border-slate-200 shadow-sm text-left">
-              <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="text-sm font-bold text-slate-900">
-                    Historical Ablation Records ({dbLogs.length} trials)
-                  </CardTitle>
-                  <CardDescription className="text-xs text-slate-500">
-                    Persistent records of pipeline comparison trials saved in database.
-                  </CardDescription>
-                </div>
-                {(dbLogs.length > 0 || currentResults.length > 0) && (
-                  <Button
-                    onClick={exportFullCSV}
-                    variant="outline"
-                    size="sm"
-                    className="text-xs bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50 shadow-2xs h-8"
-                  >
-                    <Download className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                    Download Full CSV
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent className="pt-4 max-h-72 overflow-y-auto">
-                {dbLogs.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-6">No historical records saved yet.</p>
-                ) : (
-                  <Table>
-                    <TableHeader className="bg-slate-50 sticky top-0 z-10">
-                      <TableRow className="border-b border-slate-200">
-                        <TableHead className="text-[11px] font-semibold">Image</TableHead>
-                        <TableHead className="text-[11px] font-semibold">Tier</TableHead>
-                        <TableHead className="text-[11px] font-semibold">Model</TableHead>
-                        <TableHead className="text-[11px] font-semibold">Ground Truth</TableHead>
-                        <TableHead className="text-[11px] font-semibold">CLIP Pred</TableHead>
-                        <TableHead className="text-[11px] font-semibold">Direct Pred</TableHead>
-                        <TableHead className="text-[11px] font-semibold text-center">Verdict</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {dbLogs.map((row, i) => {
-                        const v = getVerdict(isTruthy(row.correct_clip), isTruthy(row.correct_noclip));
-                        return (
-                          <TableRow key={i} className="border-b border-slate-100 text-xs">
-                            <TableCell className="font-mono text-[10px] text-slate-500 truncate max-w-[100px]">{row.image_name}</TableCell>
-                            <TableCell>
-                              {(() => {
-                                const cfg = TIER_CONFIGS[normalizeTier(row.tier)];
-                                return (
-                                  <Badge className={`${cfg.badgeClass} text-[9px] px-1.5 py-0.5 font-medium`}>
-                                    {cfg.icon} {cfg.shortLabel}
-                                  </Badge>
-                                );
-                              })()}
+            {/* Model Comparison Table (Combined DB History) */}
+            {analytics && analytics.modelBreakdown.length > 0 && (
+              <Card className="bg-white border-slate-200 shadow-sm text-left">
+                <CardHeader className="pb-3 border-b border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-sky-600" />
+                        Model Performance Benchmark (Chapter 4.2 Table)
+                      </CardTitle>
+                      <CardDescription className="text-xs text-slate-500">
+                        Aggregated statistics comparing Top-1 Strict Accuracy vs Top-3 Regional Recall recovery.
+                      </CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={copyLatexTable}
+                      className="text-xs h-7 border-slate-200"
+                    >
+                      <FileCode2 className="w-3.5 h-3.5 mr-1" />
+                      Copy LaTeX
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                    <Table>
+                      <TableHeader className="bg-slate-50">
+                        <TableRow className="border-b border-slate-200 text-xs">
+                          <TableHead className="py-2.5">Model</TableHead>
+                          <TableHead className="py-2.5 text-center">N (Trials)</TableHead>
+                          <TableHead className="py-2.5 text-center font-bold text-slate-800">Top-1 Strict (%)</TableHead>
+                          <TableHead className="py-2.5 text-center font-bold text-emerald-800 bg-emerald-50/50">Top-3 Recall (%)</TableHead>
+                          <TableHead className="py-2.5 text-center text-emerald-700">Recovery Gain</TableHead>
+                          <TableHead className="py-2.5 text-center font-bold text-sky-800">Avg Quality (0-3)</TableHead>
+                          <TableHead className="py-2.5 text-center">Mean Conf (%)</TableHead>
+                          <TableHead className="py-2.5 text-center">Mean Latency</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {analytics.modelBreakdown.map((m, idx) => (
+                          <TableRow key={idx} className="border-b border-slate-100 text-xs">
+                            <TableCell className="font-semibold text-slate-900 py-2.5 whitespace-nowrap">
+                              {m.modelLabel}
                             </TableCell>
-                            <TableCell className="font-medium text-slate-800">{row.model}</TableCell>
-                            <TableCell className="text-slate-700 truncate max-w-[110px]">{row.ground_truth}</TableCell>
-                            <TableCell>
-                              <span className={isTruthy(row.correct_clip) ? "text-emerald-700 font-semibold" : "text-rose-600 block"}>
-                                {row.predicted_clip}
-                              </span>
-                              {!isTruthy(row.correct_clip) && row.failure_mode_clip && row.failure_mode_clip !== "none" && (
-                                <span className="text-[9px] text-amber-700 bg-amber-50 px-1 rounded inline-block mt-0.5">
-                                  {FAILURE_MODE_CONFIGS[row.failure_mode_clip]?.shortLabel}
-                                </span>
-                              )}
+                            <TableCell className="text-center font-mono py-2.5">{m.total}</TableCell>
+                            <TableCell className="text-center font-mono font-bold text-slate-800 py-2.5">
+                              {m.top1Acc}%
                             </TableCell>
-                            <TableCell>
-                              <span className={isTruthy(row.correct_noclip) ? "text-emerald-700 font-semibold" : "text-rose-600 block"}>
-                                {row.predicted_noclip}
-                              </span>
-                              {!isTruthy(row.correct_noclip) && row.failure_mode_noclip && row.failure_mode_noclip !== "none" && (
-                                <span className="text-[9px] text-amber-700 bg-amber-50 px-1 rounded inline-block mt-0.5">
-                                  {FAILURE_MODE_CONFIGS[row.failure_mode_noclip]?.shortLabel}
-                                </span>
-                              )}
+                            <TableCell className="text-center font-mono font-bold text-emerald-800 bg-emerald-50/30 py-2.5">
+                              {m.top3Acc}%
                             </TableCell>
-                            <TableCell className="text-center">{verdictBadge(v)}</TableCell>
+                            <TableCell className="text-center font-mono font-bold text-emerald-600 py-2.5">
+                              +{m.gain}%
+                            </TableCell>
+                            <TableCell className="text-center font-mono font-bold text-sky-700 py-2.5">
+                              {m.meanScore}
+                            </TableCell>
+                            <TableCell className="text-center font-mono text-slate-600 py-2.5">
+                              {m.meanConf}%
+                            </TableCell>
+                            <TableCell className="text-center font-mono text-slate-600 py-2.5">
+                              {m.meanLatency} ms
+                            </TableCell>
                           </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Itemized Candidate Evaluation Records Table */}
+            {effectiveLogs.length > 0 && (
+              <Card className="bg-white border-slate-200 shadow-sm text-left">
+                <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-sky-600" />
+                      Itemized Candidate Records (ประวัติการประเมินแยกตามตัวเลือก)
+                    </CardTitle>
+                    <CardDescription className="text-xs text-slate-500">
+                      แสดงรายการทดลองจริงพร้อมผลการให้คะแนนและข้อผิดพลาดของแต่ละ Candidate อย่างละเอียด
+                    </CardDescription>
+                  </div>
+                  <Badge variant="outline" className="text-xs font-mono">
+                    {effectiveLogs.length} Records
+                  </Badge>
+                </CardHeader>
+
+                <CardContent className="pt-4">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white max-h-96 overflow-y-auto">
+                    <Table>
+                      <TableHeader className="bg-slate-50 sticky top-0 z-10">
+                        <TableRow className="border-b border-slate-200 text-xs">
+                          <TableHead className="py-2.5 whitespace-nowrap">Model</TableHead>
+                          <TableHead className="py-2.5 whitespace-nowrap">Image / GT</TableHead>
+                          <TableHead className="py-2.5">Candidate 1 (Score / Error)</TableHead>
+                          <TableHead className="py-2.5">Candidate 2 (Score / Error)</TableHead>
+                          <TableHead className="py-2.5">Candidate 3 (Score / Error)</TableHead>
+                          <TableHead className="py-2.5 text-center">Top-1</TableHead>
+                          <TableHead className="py-2.5 text-center">Top-3</TableHead>
+                          <TableHead className="py-2.5 text-center">Quality</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {effectiveLogs.map((r, idx) => (
+                          <TableRow key={idx} className="border-b border-slate-100 text-xs hover:bg-slate-50/50">
+                            <TableCell className="font-semibold text-slate-800 py-2 whitespace-nowrap">
+                              {r.model}
+                            </TableCell>
+                            <TableCell className="py-2">
+                              <span className="font-medium text-slate-900 block truncate max-w-[120px]" title={r.ground_truth}>
+                                {r.ground_truth}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block truncate max-w-[120px]" title={r.image_name}>
+                                {r.image_name}
+                              </span>
+                            </TableCell>
+
+                            {/* Candidate 1 */}
+                            <TableCell className="py-2 min-w-[150px]">
+                              <span className="font-semibold text-slate-900 block truncate max-w-[160px]" title={r.candidate_1_name}>
+                                {r.candidate_1_name || "-"}
+                              </span>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <Badge className={`${SCORE_LABELS[r.candidate_1_score as CandidateScore]?.bg || "bg-slate-100"} ${SCORE_LABELS[r.candidate_1_score as CandidateScore]?.color || "text-slate-700"} text-[9px] px-1 py-0`}>
+                                  Score {r.candidate_1_score}
+                                </Badge>
+                                <span className={`text-[9px] font-semibold ${
+                                  r.candidate_1_failure_mode === "none" ? "text-emerald-600" :
+                                  r.candidate_1_failure_mode === "hallucination" ? "text-amber-600" :
+                                  r.candidate_1_failure_mode === "visual_confusion" ? "text-purple-600" : "text-rose-600"
+                                }`}>
+                                  ({FAILURE_MODE_CONFIGS[r.candidate_1_failure_mode]?.shortName || r.candidate_1_failure_mode || "None"})
+                                </span>
+                              </div>
+                            </TableCell>
+
+                            {/* Candidate 2 */}
+                            <TableCell className="py-2 min-w-[150px]">
+                              <span className="font-semibold text-slate-900 block truncate max-w-[160px]" title={r.candidate_2_name}>
+                                {r.candidate_2_name || "-"}
+                              </span>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <Badge className={`${SCORE_LABELS[r.candidate_2_score as CandidateScore]?.bg || "bg-slate-100"} ${SCORE_LABELS[r.candidate_2_score as CandidateScore]?.color || "text-slate-700"} text-[9px] px-1 py-0`}>
+                                  Score {r.candidate_2_score}
+                                </Badge>
+                                <span className={`text-[9px] font-semibold ${
+                                  r.candidate_2_failure_mode === "none" ? "text-emerald-600" :
+                                  r.candidate_2_failure_mode === "hallucination" ? "text-amber-600" :
+                                  r.candidate_2_failure_mode === "visual_confusion" ? "text-purple-600" : "text-rose-600"
+                                }`}>
+                                  ({FAILURE_MODE_CONFIGS[r.candidate_2_failure_mode]?.shortName || r.candidate_2_failure_mode || "None"})
+                                </span>
+                              </div>
+                            </TableCell>
+
+                            {/* Candidate 3 */}
+                            <TableCell className="py-2 min-w-[150px]">
+                              <span className="font-semibold text-slate-900 block truncate max-w-[160px]" title={r.candidate_3_name}>
+                                {r.candidate_3_name || "-"}
+                              </span>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <Badge className={`${SCORE_LABELS[r.candidate_3_score as CandidateScore]?.bg || "bg-slate-100"} ${SCORE_LABELS[r.candidate_3_score as CandidateScore]?.color || "text-slate-700"} text-[9px] px-1 py-0`}>
+                                  Score {r.candidate_3_score}
+                                </Badge>
+                                <span className={`text-[9px] font-semibold ${
+                                  r.candidate_3_failure_mode === "none" ? "text-emerald-600" :
+                                  r.candidate_3_failure_mode === "hallucination" ? "text-amber-600" :
+                                  r.candidate_3_failure_mode === "visual_confusion" ? "text-purple-600" : "text-rose-600"
+                                }`}>
+                                  ({FAILURE_MODE_CONFIGS[r.candidate_3_failure_mode]?.shortName || r.candidate_3_failure_mode || "None"})
+                                </span>
+                              </div>
+                            </TableCell>
+
+                            {/* Top-1 Verdict */}
+                            <TableCell className="text-center py-2">
+                              {r.top1_strict ? (
+                                <span className="text-emerald-600 font-bold text-[11px]">✓</span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">✗</span>
+                              )}
+                            </TableCell>
+
+                            {/* Top-3 Verdict */}
+                            <TableCell className="text-center py-2">
+                              {r.top3_recall ? (
+                                <span className="text-emerald-600 font-bold text-[11px]">✓</span>
+                              ) : (
+                                <span className="text-rose-500 font-bold text-[11px]">✗</span>
+                              )}
+                            </TableCell>
+
+                            {/* Quality Score */}
+                            <TableCell className="text-center font-mono font-bold text-sky-700 py-2">
+                              {r.avg_candidate_score}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>

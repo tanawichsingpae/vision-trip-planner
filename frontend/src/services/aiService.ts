@@ -1,7 +1,7 @@
 import { type DayPlan } from "@/components/TravelItinerary";
 import { type SuggestedPlace } from "@/components/AISuggestedPlaces";
 import { type AIModelType, type AIProviderType, MODEL_ID_MAP, getAIModelInfo } from "@/context/AIProviderContext";
-import { safeFetch, validateApiKey } from "@/utils/apiUtils";
+import { safeFetch, validateApiKey, fileToBase64Optimized } from "@/utils/apiUtils";
 import { safeParseJson } from "@/utils/jsonRepair";
 import { fetchPlaceDetails } from "@/api/places";
 import { fetchWikimediaPhoto, sanitizePlaceTitle } from "@/api/geocode";
@@ -409,11 +409,31 @@ export interface VisionAnalysisOptions {
   temperature?: number;
   top_p?: number;
   allowFallback?: boolean;
+  customPrompt?: string;
+  promptVariant?: "P1" | "P2" | "P3" | "P4" | "P5";
+  tier?: string;
 }
+
+/**
+ * Canonical Academic Prompt Paradigms for VPR Evaluation (from Experiment 4)
+ * - P1: Zero-Shot Direct (EN) - Academic baseline (Brown et al., 2020)
+ * - P2: Expert Persona (Role) - Role-prompting (Reynolds & McDonell, 2021)
+ * - P3: Chain-of-Thought (CoT) - Step-by-step reasoning (Wei et al., 2022)
+ * - P4: Cross-Lingual Thai (TH) - Isomorphic Thai translation (Shi et al., 2022)
+ * - P5: Few-Shot ICL - In-context exemplars (Brown et al., 2020)
+ */
+export const CANONICAL_VPR_PROMPTS: Record<string, string> = {
+  P1: `What specific landmark, city, or place is shown in this image? Return strictly valid JSON: {"place": "Name", "country": "Country", "confidence": 0.95, "ai_reasoning": ["key visual feature"]}.`,
+  P2: `You are an expert geographer and visual landmark recognition specialist with encyclopedic knowledge of world landmarks, architecture, and travel destinations. Analyze this image and identify the specific landmark or place shown. Return strictly valid JSON: {"place": "Name", "country": "Country", "confidence": 0.95, "ai_reasoning": ["key visual feature"]}.`,
+  P3: `Analyze this image step-by-step:\n1. Identify the dominant architectural style, landscape type, or visible signage.\n2. List distinctive visual features (materials, shape, color, scale).\n3. Compare with known world landmarks matching those features.\n4. Conclude with the most likely specific place.\nReturn strictly valid JSON: {"place": "Name", "country": "Country", "confidence": 0.95, "ai_reasoning": ["step 1 observation", "step 2 distinctive feature", "step 3 comparison", "step 4 conclusion"]}.`,
+  P4: `สถานที่ท่องเที่ยว เมือง หรือแลนด์มาร์กใดปรากฏในภาพนี้? คืนค่าเป็น JSON ที่ถูกต้องเท่านั้น: {"place": "ชื่อสถานที่", "country": "ประเทศ", "confidence": 0.95, "ai_reasoning": ["ลักษณะภาพที่สำคัญ"]}.`,
+  P5: `Here are two landmark identification examples:\nExample 1 — Input: [Image of an iron lattice tower with Paris cityscape behind it] → Output: {"place": "Eiffel Tower", "country": "France", "confidence": 0.98, "ai_reasoning": ["iron lattice structure", "Seine river visible", "Paris cityscape background"]}\nExample 2 — Input: [Image of a white marble mausoleum with reflecting pool, Agra India] → Output: {"place": "Taj Mahal", "country": "India", "confidence": 0.99, "ai_reasoning": ["white marble dome", "four minarets at corners", "ornate Mughal architecture"]}\n\nNow analyze the provided image using the same approach. Return strictly valid JSON: {"place": "Name", "country": "Country", "confidence": 0.95, "ai_reasoning": ["reason 1", "reason 2"]}.`,
+};
 
 /**
  * Direct 1-Turn Zero-Shot VLM Inference (Pure Model Capability)
  * Designed for Academic Benchmarks (Exp 1, Exp 2 Baseline, Exp 3, Exp 5).
+ * - Standardized to P1: Zero-Shot Direct (EN) - Verified Pareto Champion from Exp 4
  * - 1 single multimodal request directly to the model
  * - NO candidate generation loop
  * - NO Google Places API lookups (eliminates external latency and API cost)
@@ -426,79 +446,82 @@ export async function analyzeImageDirect(
   options?: VisionAnalysisOptions
 ): Promise<VisionResult> {
   const modelId = MODEL_ID_MAP[model];
-  onProgress?.(`[Direct 1-Turn] Sending image to ${modelId}...`);
+  const variant = options?.promptVariant || "P1";
+  onProgress?.(`[Direct 1-Turn ${variant}] Sending image to ${modelId}...`);
 
   const base64Image = await fileToBase64(file);
   const base64Data = base64Image.split(",")[1];
 
-  const directPrompt = `Analyze this image carefully. You are an expert Visual Place Recognition (VPR) AI for travel landmarks and geographical locations.
-Determine the specific physical travel destination, landmark, temple, museum, natural site, park, beach, tourist attraction, or venue shown in this image.
+  // Default to P1: Zero-Shot Direct (EN) - The Pareto Champion determined in Exp 4
+  const directPrompt =
+    options?.customPrompt ||
+    CANONICAL_VPR_PROMPTS[variant] ||
+    CANONICAL_VPR_PROMPTS.P1;
 
-If this image is a recognizable place or landmark:
-Return strictly valid JSON with this exact schema:
-{
-  "is_identifiable_place": true,
-  "place": "Exact Specific Landmark or Place Name (e.g. Wat Arun)",
-  "city": "City or Province (e.g. Bangkok)",
-  "country": "Country (e.g. Thailand)",
-  "type": "temple | nature | museum | landmark | attraction | other",
-  "confidence": 0.95,
-  "similar_locations": [
-    {"name": "Alternative Candidate 2", "similarity": 0.85},
-    {"name": "Alternative Candidate 3", "similarity": 0.75}
-  ],
-  "ai_reasoning": ["Key visual feature 1", "Key visual feature 2"]
-}
+  let data: any = null;
+  try {
+    data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: directPrompt },
+              { type: "image_url", image_url: { url: base64Image } }
+            ],
+          }
+        ],
+        expect_json: true,
+        allow_fallback: options?.allowFallback !== undefined ? options.allowFallback : false,
+        // NOTE: temperature=0.0 causes "model output error" on Anthropic Claude via OpenRouter.
+        // Minimum safe value is 0.1 — functionally near-deterministic and accepted by all providers.
+        temperature: options?.temperature !== undefined ? options.temperature : 0.1,
+        top_p: options?.top_p !== undefined ? options.top_p : undefined,
+        max_tokens: 1024,
+      }),
+    });
+  } catch (err: any) {
+    console.error(`[analyzeImageDirect] Error calling ${modelId}:`, err);
+    const errMsg = err?.message || String(err);
+    const isRateLimit = errMsg.includes("429") || errMsg.includes("rate-limit") || errMsg.includes("temporarily");
+    return {
+      place: isRateLimit ? "Upstream Rate-Limited (429)" : "API Error",
+      city: "-",
+      country: "-",
+      type: "non_travel",
+      confidence: 0.0,
+      similar_locations: [],
+      ai_reasoning: [errMsg],
+      is_identifiable_place: false,
+      metrics: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        latency_ms: 0,
+        cost_usd: 0.0,
+        tokens_per_sec: 0,
+        model_used: modelId,
+      },
+    };
+  }
 
-If this image is NOT a recognizable place, or is an unidentifiable object, selfie, food close-up, receipt, or screenshot:
-Return strictly valid JSON:
-{
-  "is_identifiable_place": false,
-  "place": "ภาพไม่ระบุสถานที่",
-  "city": "-",
-  "country": "-",
-  "type": "non_travel",
-  "confidence": 0.0,
-  "similar_locations": [],
-  "ai_reasoning": ["Reason why this image cannot be identified as a place"]
-}
-Do not output any conversational prose, markdown code blocks, or text outside JSON.`;
-
-  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: directPrompt },
-            { type: "image_url", image_url: { url: `data:${file.type};base64,${base64Data}` } }
-          ],
-        }
-      ],
-      expect_json: true,
-      allow_fallback: options?.allowFallback !== undefined ? options.allowFallback : false,
-      // NOTE: temperature=0.0 causes "model output error" on Anthropic Claude via OpenRouter.
-      // Minimum safe value is 0.1 — functionally near-deterministic and accepted by all providers.
-      temperature: options?.temperature !== undefined ? options.temperature : 0.1,
-      top_p: options?.top_p !== undefined ? options.top_p : undefined,
-    }),
-  });
-
-  const raw = data.text?.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim() || "";
+  const raw = data?.text?.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim() || "";
   let parsed: any;
   try {
     parsed = safeParseJson<any>(raw);
   } catch (e) {
     console.error("Failed to parse JSON from Direct Vision API:", raw, e);
+    const placeRegexMatch = raw.match(/"place"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
+    const extractedPlace = placeRegexMatch ? placeRegexMatch[1].replace(/\\(.)/g, "$1").trim() : "";
     parsed = {
-      is_identifiable_place: false,
-      place: raw || "Unknown",
+      is_identifiable_place: !!extractedPlace,
+      place: extractedPlace || "Unknown",
       city: "-",
       country: "-",
-      confidence: 0.0,
+      confidence: extractedPlace ? 0.85 : 0.0,
       similar_locations: [],
       ai_reasoning: [raw]
     };
@@ -525,6 +548,25 @@ Do not output any conversational prose, markdown code blocks, or text outside JS
   };
 }
 
+/**
+ * Generic Landscape / Biome Blacklist Guard
+ * Prevents models from passing broad scenery or country names to retrieval & CLIP
+ */
+const GENERIC_NON_POI_BLACKLIST = new Set([
+  "ป่าเมฆ", "เส้นทางธรรมชาติ", "ทิวทัศน์ธรรมชาติ", "ป่าดิบชื้น", "ป่าไม้", "ภูเขา", "ธรรมชาติ", "ป่า", "ทะเล", "น้ำตก",
+  "ทิวทัศน์", "ทัศนียภาพ", "วิวธรรมชาติ", "ป่าเขา", "เกาะ", "ชายหาด", "จุดชมวิว",
+  "cloud forest", "nature trail", "forest", "mountain", "tropical forest", "rainforest", "scenery", "landscape", "thailand",
+  "outdoor", "nature", "viewpoint", "trail", "beach", "ocean", "woods", "jungle", "scenic view", "natural landscape"
+]);
+
+export function isGenericNonPoi(name: string): boolean {
+  if (!name || !name.trim()) return true;
+  const clean = name.trim().toLowerCase().replace(/^(the|a|an)\s+/i, "");
+  if (GENERIC_NON_POI_BLACKLIST.has(clean)) return true;
+  if (clean === "thailand" || clean === "ประเทศไทย") return true;
+  return false;
+}
+
 export async function analyzeImage(
   file: File,
   model: AIModelType,
@@ -537,21 +579,55 @@ export async function analyzeImage(
 
   // 2. Get initial candidates from LLM (to narrow down search & guard against non-travel images)
   const base64Image = await fileToBase64(file);
+  const detectedMime = base64Image.match(/^data:([^;]+);/)?.[1] || file.type || "image/jpeg";
   const base64Data = base64Image.split(",")[1];
 
-  const candidatePrompt = `Analyze this image carefully.
-First, determine if this image depicts a real physical travel destination, outdoor scenery, landmark, temple, museum, cityscape, tourist attraction, or nature view that can be geolocated.
+  const isTier4Ugc = Boolean(options?.tier && (options.tier === "tier4_ugc" || options.tier.includes("tier4")));
+  const tier4ContextGuidance = isTier4Ugc
+    ? `\nSPECIAL BENCHMARK DIRECTIVE (DATASET TIER 4 CASUAL UGC & SOCIAL MEDIA):
+This evaluation image belongs to Benchmark Tier 4 (Casual UGC / Social). You MUST examine both the physical scene and on-screen textual clues to identify the authentic real-world attraction.\n`
+    : "";
 
-Reject images that are: close-up selfies/portraits of people, receipts/documents/bank slips, screenshots, food close-ups without recognizable venue architecture, household objects/products, memes/cartoons, pets/animals, or blurry/dark non-view photos.
+  const candidatePrompt = options?.customPrompt || `Analyze this image carefully for travel landmark recognition and outlier filtering.${tier4ContextGuidance}
 
-Return STRICT JSON in this format if it IS a recognizable travel destination/scenery:
+🚨 CORE MANDATE: FULL SUPPORT FOR SMARTPHONE SCREENSHOTS & SOCIAL MEDIA UGC (EXP2 PIPELINE):
+Users frequently upload authentic smartphone photos or screenshots captured from social media apps:
+- TikTok, Instagram (Reels, Posts, Stories), Lemon8, YouTube Shorts, Facebook, X/Twitter, Pinterest, Xiaohongshu (RED)
+- Google Maps, Apple Maps, travel review sites, travel blog captures
+These images often have on-screen UI overlays, search bars, captions, hashtags, creator watermarks, or smartphone status bars (battery, clock, wifi).
+
+CRITICAL SCREENSHOT & UGC RULES:
+1. NEVER reject an image as "non-travel" or "screenshot" simply because it contains phone UI elements, buttons, borders, app chrome, or was captured as a screenshot!
+2. If the screenshot features, showcases, introduces, reviews, or captures ANY real-world travel destination, outdoor landmark, temple, museum, viewpoint, nature park, mountain, beach, island, waterfall, cultural alley, night market, street, cafe, restaurant, or hotel:
+   * You MUST classify it as a VALID travel destination: "is_identifiable_place": true, "image_category": "landmark".
+   * MULTIMODAL TEXT & OCR REASONING: Read and actively utilize ANY visible on-screen text, search queries (e.g. "hidden garden berlin", "ที่เที่ยวธรรมชาติเกาะสีชัง"), location tags (e.g. "ถ้ำลับเกาะสีชัง · เกาะสีชัง", "Grand Central Oyster Bar · นครนิวยอร์ก"), video titles/captions (e.g. "Showa era alleyway in Shinjuku"), hashtags (e.g. "#เกาะสีชัง", "#hongkong"), subtitles, shop signs, or watermarks COMBINED with visual scenery and architecture to pinpoint the authentic real-world place.
+3. ONLY reject pure non-travel screenshots that completely lack any travel destination, venue, or scenery (e.g. private 1-on-1 messaging text chats, banking payment slips, phone system settings menus, spreadsheets, code editors).
+
+CRITICAL RULES FOR "places" (WHEN is_identifiable_place IS TRUE):
+1. Every candidate in "places" MUST be a specific, authentic proper noun of a real-world tourist attraction, named nature trail, national park, temple, viewpoint, street/alley, market, or landmark (e.g. "Ang Ka Nature Trail", "Doi Inthanon National Park", "Pike Place Fish Market", "Shibuya Scramble Crossing", "Kyoto Garden Holland Park", "Chatuchak Weekend Market", "Emerald Cave (Koh Mook)").
+2. STRICT PROHIBITION: DO NOT return generic landscape descriptions, broad biomes, or generic category words (e.g. NEVER return "cloud forest", "nature trail", "forest", "mountain", "beach", "scenery", "ป่าเมฆ", "เส้นทางธรรมชาติ", "ทิวทัศน์ธรรมชาติ", "ป่าดิบชื้น", "ภูเขา", "ทะเล", "Thailand"). Every candidate must be a named, geocodable POI or attraction.
+3. If the image is located in Thailand or an identifiable region, provide the specific attraction name in Thai and/or English.
+4. Provide up to 5 best candidate landmark/park names in descending order of likelihood.
+
+REJECTION CRITERIA (ONLY REJECT STRICT NON-TRAVEL CONTENT):
+Reject images ONLY if they are:
+- Close-up selfies/portraits of people without travel scenery or landmark background
+- Bank transfer slips, receipts, invoices, or paper documents
+- Pure non-travel screenshots (messaging app chats, phone settings, banking apps) THAT COMPLETELY LACK ANY TRAVEL DESTINATION, VENUE, OR SCENERY
+- Food close-ups without recognizable cafe/restaurant venue architecture
+- Household objects, appliances, consumer products, vehicles without travel scenery
+- Memes, comics, cartoons, anime drawings
+- Pets or animals in close-up
+- Pitch-black, completely blurred, or unintelligible photos
+
+Return STRICT JSON in this format if it IS a recognizable travel destination/landmark (including travel screenshots from TikTok, IG, Maps):
 {
   "is_identifiable_place": true,
   "image_category": "landmark",
-  "places": ["Specific Landmark Name 1", "Place 2", "Place 3", "Place 4", "Place 5"],
+  "places": ["Specific POI / Landmark Name 1", "Specific POI Name 2", "Specific POI Name 3", "Specific POI Name 4", "Specific POI Name 5"],
   "rejection_reason": "",
   "detected_content": "สถานที่ท่องเที่ยว/แลนด์มาร์ก",
-  "detailed_description": "ตรวจพบสถานที่ท่องเที่ยวหรือวิวทัศน์ที่สามารถระบุพิกัดได้",
+  "detailed_description": "ตรวจพบสถานที่ท่องเที่ยวหรือจุดหมายการเดินทางที่สามารถระบุพิกัดได้ (รวมถึงภาพถ่าย UGC / ภาพแคปหน้าจอโซเชียลมีเดีย TikTok, IG, Maps ที่มีสถานที่จริง)",
   "suggested_action": ""
 }
 
@@ -564,14 +640,14 @@ If the image is NOT a recognizable travel landmark, scenery, or place, DETECT SP
   "detected_content": "รูปถ่ายบุคคล / เซลฟี่ (Selfie)",
   "rejection_reason": "ภาพนี้เป็นภาพถ่ายบุคคลระยะใกล้ ไม่เห็นองค์ประกอบของสถานที่ท่องเที่ยวหรือแลนด์มาร์ก",
   "detailed_description": "ภาพนี้แสดงใบหน้าหรือตัวบุคคลเป็นหลัก ไม่มีจุดสังเกตทางสถาปัตยกรรมหรือทิวทัศน์ที่สามารถนำไปวางแผนการเดินทางได้",
-  "suggested_action": "กรุณาอัปโหลดภาพถ่ายวิวทิวทัศน์ ภูเขา ทะเล สถาปัตยกรรม ป้ายสถานที่ หรือหน้าร้านคาเฟ่/สถานที่ท่องเที่ยวแทน"
+  "suggested_action": "กรุณาอัปโหลดภาพถ่ายวิวทิวทัศน์ ภูเขา ทะเล สถาปัตยกรรม ป้ายสถานที่ หรือภาพแคปหน้าจอโซเชียลมีเดียที่มีสถานที่ท่องเที่ยวจริงแทน"
 }
 
 Allowed non_travel_category values when is_identifiable_place is false:
 - "food_dish": Food, drinks, beverages, meals close-up (detected_content: e.g. "รูปถ่ายอาหารจานเดียว / เครื่องดื่ม")
 - "selfie_portrait": Portrait, selfie, people faces, group selfie (detected_content: e.g. "รูปเซลฟี่บุคคล / พอร์ตเทรต")
 - "document_receipt": Receipts, bills, bank slips, tickets, text documents (detected_content: e.g. "สลิปโอนเงิน / ใบเสร็จ / เอกสาร")
-- "screenshot": Phone screens, chat screenshots, app UI (detected_content: e.g. "ภาพสกรีนช็อตหน้าจอโทรศัพท์ / แชท")
+- "screenshot": Pure non-travel screenshots ONLY (e.g. messaging chats, banking slips, settings menus with NO travel scenery or venue) (detected_content: e.g. "ภาพแคปหน้าจอแชท / ระบบที่ไม่มีสถานที่ท่องเที่ยว")
 - "pet_animal": Pets, cats, dogs, domestic animals (detected_content: e.g. "สัตว์เลี้ยง / แมว / สุนัข")
 - "vehicle": Cars, motorcycles, bikes without travel scenery (detected_content: e.g. "ยานพาหนะ / รถยนต์")
 - "item_product": Clothing, accessories, consumer products, household goods (detected_content: e.g. "สิ่งของเครื่องใช้ / สินค้า")
@@ -582,7 +658,7 @@ Allowed non_travel_category values when is_identifiable_place is false:
 Ensure "detected_content", "detailed_description", and "suggested_action" are written in clear, polite, natural Thai.
 Do not return markdown or explanations outside JSON.`;
 
-  const initialGuessResult = await getInitialGuessesOpenRouter(base64Data, file.type, candidatePrompt, modelId, options);
+  const initialGuessResult = await getInitialGuessesOpenRouter(base64Data, detectedMime, candidatePrompt, modelId, options);
   console.log("Initial evaluation from LLM:", initialGuessResult);
 
   // Short-circuit: If the image is not a recognizable travel place, skip Google Places API and CLIP
@@ -613,14 +689,18 @@ Do not return markdown or explanations outside JSON.`;
   }
 
   const initialGuesses = initialGuessResult.places;
+  // Guard against generic biomes/categories (e.g. "ป่าเมฆ", "เส้นทางธรรมชาติ")
+  const specificGuesses = initialGuesses.filter((g) => !isGenericNonPoi(g));
+  const effectiveGuesses = specificGuesses.length > 0 ? specificGuesses : initialGuesses;
+
   onProgress?.("Fetching place candidates and reference photos...");
 
   // 1. Get uploaded image embedding — only when CLIP is enabled
   const userImageEmbedding = useClip ? await getEmbedding(file) : null;
 
-  // 3. Retrieve real candidates and photos from Google Places
+  // 3. Retrieve real candidates and photos from Google Places / Smart Photos
   const candidates: ImageCandidate[] = [];
-  for (const guess of initialGuesses.slice(0, 5)) {
+  for (const guess of effectiveGuesses.slice(0, 5)) {
     const placeData = await fetchCandidateFromGoogle(guess);
 
     let similarity = 0; // Default zero; computed only when CLIP is enabled
@@ -670,33 +750,35 @@ Do not return markdown or explanations outside JSON.`;
 
   // 5. Final LLM reasoning — prompt differs based on whether CLIP scores are available
   const reasoningPrompt = useClip
-    ? `The user uploaded an image. Our visual retrieval system found a strong match:
-  Identified Place: ${bestMatch.name} (Similarity Score: ${bestMatch.similarity.toFixed(2)})
-  Other similar places found: ${topCandidates.slice(1, 3).map(c => `${c.name} (${c.similarity.toFixed(2)})`).join(", ")}
+    ? `The user uploaded an image. Our visual retrieval system analyzed candidate travel destinations:
+  Ranked Candidates by Visual Similarity:
+  1. ${bestMatch.name} (Similarity Score: ${bestMatch.similarity.toFixed(2)})
+  ${topCandidates.slice(1, 3).map((c, idx) => `${idx + 2}. ${c.name} (Similarity Score: ${c.similarity.toFixed(2)})`).join("\n")}
 
-  Provide a detailed reasoning for why this match is likely correct based on visual features typical of ${bestMatch.name}.
+  Based on visual landmark recognition, architectural/topographical features, and any on-screen textual clues (if this is a social media / TikTok / IG travel screenshot with captions, hashtags, subtitles, or location tags), verify which candidate location best matches the image (or confirm if "${bestMatch.name}" is the correct place).
+  Return strictly valid JSON:
   {
     "place": "${bestMatch.name}",
     "city": "...",
     "country": "...",
-    "type": "...",
-    "ai_reasoning": ["...", "..."]
+    "type": "landmark",
+    "ai_reasoning": ["key visual or textual feature matching this landmark", "additional distinctive visual proof from scenery or on-screen clues"]
   }
-  (Note: "city" must be the city, province, or metropolitan area where this landmark is situated, e.g. "Bangkok", "Chiang Rai", "Chiang Mai", "Tokyo", "Paris")`
+  (Note: You may refine "place" if one of the other candidate destinations or a specific sub-trail/attraction within the candidate is undeniably the true location. "city" must be the city, province, or metropolitan area where this landmark is situated, e.g. "Bangkok", "Chiang Mai", "Krabi", "Tokyo", "Paris". "type" MUST be a travel category such as "landmark", "culture", "nature", "attraction", "food", or "spiritual" — NEVER return "screenshot" or "non_travel" for a valid tourist destination, even if the image is a smartphone screenshot.)`
     : `The user uploaded an image. Our retrieval system found these candidate locations based on your initial analysis:
   Best candidate: ${bestMatch.name}
   Other candidates found: ${topCandidates.slice(1, 3).map(c => c.name).join(", ")}
 
-  Based on the visual content of the image, reason about which of these locations is the best match and why.
-  Return the result in strictly valid JSON format:
+  Based on the visual content of the image and any visible on-screen text (if this is a social media / TikTok / travel screenshot with captions or tags), reason about which of these locations is the best match and why.
+  Return strictly valid JSON:
   {
     "place": "${bestMatch.name}",
     "city": "...",
     "country": "...",
-    "type": "...",
-    "ai_reasoning": ["...", "..."]
+    "type": "landmark",
+    "ai_reasoning": ["key visual or textual feature matching this landmark", "additional distinctive visual proof from scenery or on-screen clues"]
   }
-  (Note: "city" must be the city, province, or metropolitan area where this landmark is situated, e.g. "Bangkok", "Chiang Rai", "Chiang Mai", "Tokyo", "Paris")`;
+  (Note: "city" must be the city, province, or metropolitan area where this landmark is situated, e.g. "Bangkok", "Chiang Mai", "Krabi", "Tokyo", "Paris". "type" MUST be a travel category such as "landmark", "culture", "nature", "attraction", "food", or "spiritual" — NEVER return "screenshot" or "non_travel" for a valid tourist destination, even if the image is a smartphone screenshot.)`;
 
   const finalResult = await analyzeImageOpenRouter(base64Data, file.type, reasoningPrompt, modelId, options);
 
@@ -714,9 +796,16 @@ Do not return markdown or explanations outside JSON.`;
     openrouter_id: m2?.openrouter_id || m1?.openrouter_id,
   } : undefined;
 
+  // Associate the confidence of the best match or the LLM-confirmed place
+  const finalPlaceName = (finalResult.place || "").trim().toLowerCase();
+  const matchedCandidate = topCandidates.find(
+    (c) => c.name.toLowerCase() === finalPlaceName || finalPlaceName.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(finalPlaceName)
+  );
+  const finalConfidence = matchedCandidate ? matchedCandidate.similarity : bestMatch.similarity;
+
   return {
     ...finalResult,
-    confidence: bestMatch.similarity,
+    confidence: finalConfidence,
     similar_locations: topCandidates.slice(1, 3).map(c => ({ name: c.name, similarity: c.similarity })),
     initial_candidates: candidates.slice(0, 5),
     top_candidates: topCandidates,
@@ -1250,39 +1339,72 @@ async function analyzeImageOpenRouter(
   modelId: string,
   options?: VisionAnalysisOptions
 ): Promise<VisionResult> {
-  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
-          ],
-        }
-      ],
-      expect_json: true,
-      allow_fallback: options?.allowFallback !== undefined ? options.allowFallback : true,
-      temperature: options?.temperature !== undefined ? options.temperature : undefined,
-      top_p: options?.top_p !== undefined ? options.top_p : undefined,
-    }),
-  });
+  let data: any;
+  try {
+    data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
+            ],
+          }
+        ],
+        expect_json: true,
+        allow_fallback: options?.allowFallback !== undefined ? options.allowFallback : true,
+        temperature: options?.temperature !== undefined ? options.temperature : undefined,
+        top_p: options?.top_p !== undefined ? options.top_p : undefined,
+        max_tokens: 1024,
+      }),
+    });
+  } catch (err: any) {
+    console.error(`[analyzeImageOpenRouter] Error calling ${modelId}:`, err);
+    return {
+      place: "Unknown",
+      city: "-",
+      country: "-",
+      type: "landmark",
+      confidence: 0.0,
+      similar_locations: [],
+      ai_reasoning: [String(err?.message || err)],
+    };
+  }
 
-  const raw = data.text?.trim() ?? "";
+  const raw = data?.text?.trim() ?? "";
 
   if (!raw.startsWith("{") && !raw.startsWith("[")) {
     console.warn("OpenRouter model returned non-JSON (possible refusal):", raw.substring(0, 120));
-    throw new Error(`AI declined to analyze this image. Try a different image or switch model.`);
+    return {
+      place: "Unknown",
+      city: "-",
+      country: "-",
+      type: "landmark",
+      confidence: 0.0,
+      similar_locations: [],
+      ai_reasoning: [raw || "AI returned non-JSON"],
+      metrics: data?.metrics,
+    };
   }
 
   const parsed = safeParseJson<VisionResult>(raw);
-  if (parsed && data.metrics) {
+  if (parsed && data?.metrics) {
     parsed.metrics = data.metrics;
   }
-  return parsed;
+  return parsed || {
+    place: "Unknown",
+    city: "-",
+    country: "-",
+    type: "landmark",
+    confidence: 0.0,
+    similar_locations: [],
+    ai_reasoning: ["Failed to parse JSON response"],
+    metrics: data?.metrics,
+  };
 }
 
 async function chatOpenRouter(
@@ -1518,46 +1640,74 @@ async function getInitialGuessesOpenRouter(
   modelId: string,
   options?: VisionAnalysisOptions
 ): Promise<InitialGuessResult> {
-  const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
-          ],
-        }
-      ],
-      expect_json: true,
-      allow_fallback: options?.allowFallback !== undefined ? options.allowFallback : true,
-      temperature: options?.temperature !== undefined ? options.temperature : undefined,
-      top_p: options?.top_p !== undefined ? options.top_p : undefined,
-    }),
-  });
-  const raw = data.text?.trim() ?? "";
+  let data: any;
+  try {
+    data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } }
+            ],
+          }
+        ],
+        expect_json: true,
+        allow_fallback: options?.allowFallback !== undefined ? options.allowFallback : true,
+        temperature: options?.temperature !== undefined ? Math.max(options.temperature, 0.3) : undefined,
+        top_p: options?.top_p !== undefined ? options.top_p : undefined,
+        max_tokens: 1024,
+      }),
+    });
+  } catch (err: any) {
+    console.error(`[getInitialGuessesOpenRouter] Error calling ${modelId}:`, err);
+    return {
+      isIdentifiablePlace: false,
+      imageCategory: "non_travel",
+      places: [],
+      rejectionReason: String(err?.message || err),
+      detectedContent: "Upstream Error",
+      detailedDescription: String(err?.message || err),
+    };
+  }
+
+  const raw = data?.text?.trim() ?? "";
   let result: any;
   try {
     result = safeParseJson<any>(raw);
   } catch (e) {
     console.error("Failed to parse JSON from Vision API:", raw, e);
-    throw new Error("Vision API returned non-JSON response.");
+    return {
+      isIdentifiablePlace: false,
+      imageCategory: "non_travel",
+      places: [],
+      rejectionReason: "Vision API returned non-JSON response.",
+      detectedContent: "รูปแบบข้อมูลไม่ถูกต้อง",
+      detailedDescription: raw,
+    };
   }
 
   // Backward compatibility: if result is directly an array
   if (Array.isArray(result)) {
+    const cleanedArr = result
+      .map((p: any) => (typeof p === "string" ? p.replace(/^[\d+.\-•*#\s]+/, "").trim() : String(p || "").trim()))
+      .filter((p: string) => p.length > 0);
     return {
-      isIdentifiablePlace: result.length > 0,
+      isIdentifiablePlace: cleanedArr.length > 0,
       imageCategory: "landmark",
-      places: result,
+      places: cleanedArr,
     };
   }
 
-  // Extract places array safely
-  const places: string[] = Array.isArray(result.places) ? result.places : [];
+  // Extract places array safely, cleaning numbering prefixes or quotes
+  const rawPlaces: string[] = Array.isArray(result.places) ? result.places : [];
+  const places = rawPlaces
+    .map((p: any) => (typeof p === "string" ? p.replace(/^[\d+.\-•*#\s]+/, "").trim() : String(p || "").trim()))
+    .filter((p: string) => p.length > 0);
 
   // Determine if this is an identifiable travel place
   const isIdentifiable =
@@ -1999,12 +2149,7 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
 }
 
 async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (error) => reject(error);
-  });
+  return fileToBase64Optimized(file);
 }
 
 // ==========================================

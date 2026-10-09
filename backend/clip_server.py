@@ -7,6 +7,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 import json
 import time
 import datetime
+import base64
 from io import BytesIO
 
 from flask import Flask, request, jsonify
@@ -57,6 +58,153 @@ else:
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+
+
+# --------------------
+# OpenRouter Generation Analytics & Server-Side Timing Cache
+# --------------------
+generation_stats_cache = {}
+generation_stats_lock = threading.Lock()
+
+def fetch_openrouter_generation_stats(gen_id, max_retries=6, initial_delay=2.0):
+    """
+    Fetches real server-side generation stats (generation_time, latency, provider_name)
+    from OpenRouter API https://openrouter.ai/api/v1/generation?id={gen_id}.
+    """
+    if not gen_id or not OPENROUTER_API_KEY:
+        return None
+    with generation_stats_lock:
+        if gen_id in generation_stats_cache:
+            return generation_stats_cache[gen_id]
+
+    url = f"https://openrouter.ai/api/v1/generation?id={gen_id}"
+    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}"}
+
+    if initial_delay > 0:
+        time.sleep(initial_delay)
+
+    for attempt in range(max_retries):
+        try:
+            res = requests.get(url, headers=headers, timeout=6)
+            if res.status_code == 200:
+                data = res.json().get("data", {})
+                gen_time = data.get("generation_time")
+                gateway_lat = data.get("latency")
+                provider = data.get("provider_name") or ""
+                res_obj = {
+                    "generation_time_ms": int(gen_time) if gen_time is not None else None,
+                    "gateway_latency_ms": int(gateway_lat) if gateway_lat is not None else None,
+                    "provider_name": str(provider),
+                }
+                with generation_stats_lock:
+                    generation_stats_cache[gen_id] = res_obj
+                print(f"[OpenRouter Stats] Cached for {gen_id}: gen_time={gen_time}ms, provider={provider}")
+                return res_obj
+            elif res.status_code == 404 and attempt < max_retries - 1:
+                time.sleep(1.0)
+        except Exception as e:
+            print(f"[OpenRouter Stats] Error fetching stats for {gen_id}: {e}")
+            break
+    # Cache negative lookup to prevent hammering API for expired/unknown IDs
+    with generation_stats_lock:
+        generation_stats_cache[gen_id] = {"generation_time_ms": None, "gateway_latency_ms": None, "provider_name": ""}
+    return None
+
+def get_generation_metrics(gen_id, completion_tokens):
+    """Helper to retrieve pure generation time, pure TPS, and provider from cache/API."""
+    if not gen_id:
+        return {"generation_time_ms": "", "pure_tokens_per_sec": "", "provider_name": "", "openrouter_id": ""}
+    
+    with generation_stats_lock:
+        stats = generation_stats_cache.get(gen_id)
+    if not stats:
+        # Quick fallback fetch if not yet in cache (up to 3 attempts, 0.5s delay)
+        stats = fetch_openrouter_generation_stats(gen_id, max_retries=3, initial_delay=0.5)
+    
+    gen_time = stats.get("generation_time_ms") if stats else None
+    provider = stats.get("provider_name") if stats else ""
+    try:
+        c_tokens = int(float(completion_tokens or 0))
+    except (ValueError, TypeError):
+        c_tokens = 0
+    pure_tps = round(c_tokens / (gen_time / 1000.0), 2) if (gen_time and gen_time > 0 and c_tokens > 0) else ""
+
+    return {
+        "generation_time_ms": gen_time if gen_time is not None else "",
+        "pure_tokens_per_sec": pure_tps,
+        "provider_name": provider,
+        "openrouter_id": gen_id
+    }
+
+def backfill_csv_generation_stats(csv_path):
+    """
+    Spawns a daemon thread to scan a CSV file for rows with an OpenRouter ID but missing
+    Generation Time MS, without blocking the HTTP response.
+    """
+    def _run():
+        import csv
+        if not os.path.exists(csv_path):
+            return
+        try:
+            rows = []
+            updated = False
+            with open(csv_path, mode="r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames
+                if not fieldnames:
+                    return
+                has_id = "OpenRouter ID" in fieldnames or "OpenRouter ID CLIP" in fieldnames
+                if not has_id:
+                    return
+                for r in reader:
+                    # Handle single model CSVs (Exp 1, 3, 4, 5)
+                    if "OpenRouter ID" in fieldnames:
+                        gen_id = r.get("OpenRouter ID") or ""
+                        gen_time = r.get("Generation Time MS") or ""
+                        if gen_id and not gen_time:
+                            metrics = get_generation_metrics(gen_id, r.get("Completion Tokens") or r.get("Tokens") or 0)
+                            if metrics.get("generation_time_ms"):
+                                r["Generation Time MS"] = metrics["generation_time_ms"]
+                                r["Pure Tokens Per Sec"] = metrics["pure_tokens_per_sec"]
+                                if not r.get("Provider Name"):
+                                    r["Provider Name"] = metrics["provider_name"]
+                                updated = True
+                    
+                    # Handle Exp 2 (dual pipeline)
+                    if "OpenRouter ID CLIP" in fieldnames:
+                        gen_id_clip = r.get("OpenRouter ID CLIP") or ""
+                        gen_time_clip = r.get("Gen Time CLIP (ms)") or ""
+                        if gen_id_clip and not gen_time_clip:
+                            m_clip = get_generation_metrics(gen_id_clip, r.get("Tokens CLIP") or 0)
+                            if m_clip.get("generation_time_ms"):
+                                r["Gen Time CLIP (ms)"] = m_clip["generation_time_ms"]
+                                r["Pure TPS CLIP"] = m_clip["pure_tokens_per_sec"]
+                                r["Provider CLIP"] = m_clip["provider_name"]
+                                updated = True
+
+                        gen_id_noclip = r.get("OpenRouter ID No CLIP") or ""
+                        gen_time_noclip = r.get("Gen Time No CLIP (ms)") or ""
+                        if gen_id_noclip and not gen_time_noclip:
+                            m_noclip = get_generation_metrics(gen_id_noclip, r.get("Tokens No CLIP") or 0)
+                            if m_noclip.get("generation_time_ms"):
+                                r["Gen Time No CLIP (ms)"] = m_noclip["generation_time_ms"]
+                                r["Pure TPS No CLIP"] = m_noclip["pure_tokens_per_sec"]
+                                r["Provider No CLIP"] = m_noclip["provider_name"]
+                                updated = True
+
+                    rows.append(r)
+            
+            if updated:
+                with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+                    writer.writeheader()
+                    writer.writerows(rows)
+                print(f"[Backfill] Updated missing generation stats in {csv_path}")
+        except Exception as e:
+            print(f"[Backfill Warning] Failed to backfill stats in {csv_path}: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
 
 
 
@@ -629,9 +777,13 @@ LEGACY_MODEL_MAP = {
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "gpt-4o": "openai/gpt-4o",
     "claude-sonnet": "anthropic/claude-sonnet-5",
-    "qwen-vl": "qwen/qwen3.8-flash",
-    "qwen-vl-32b": "qwen/qwen3.8-flash",
-    "qwen-38-flash": "qwen/qwen3.8-flash",
+    "qwen-vl": "qwen/qwen2.5-vl-72b-instruct",
+    "qwen-vl-32b": "qwen/qwen2.5-vl-72b-instruct",
+    "qwen-38-flash": "qwen/qwen2.5-vl-72b-instruct",
+    "qwen3.8-flash": "qwen/qwen2.5-vl-72b-instruct",
+    "qwen/qwen3.8-flash": "qwen/qwen2.5-vl-72b-instruct",
+    "qwen-25-vl-72b": "qwen/qwen2.5-vl-72b-instruct",
+    "qwen2.5-vl-72b": "qwen/qwen2.5-vl-72b-instruct",
     "llama4": "meta-llama/llama-3.3-70b-instruct",
 }
 
@@ -685,8 +837,10 @@ BENCHMARK_MODEL_PRICING = {
     "gpt-5.4": (2.50, 10.00),
     "google/gemini-3.8-flash": (0.10, 0.40),
     "gemini-3.8-flash": (0.10, 0.40),
-    "qwen/qwen3.8-flash": (0.20, 0.80),
-    "qwen3.8-flash": (0.20, 0.80),
+    "qwen/qwen2.5-vl-72b-instruct": (0.80, 1.00),
+    "qwen2.5-vl-72b": (0.80, 1.00),
+    "qwen/qwen3.8-flash": (0.80, 1.00),
+    "qwen3.8-flash": (0.80, 1.00),
     "meta-llama/llama-4-maverick": (0.20, 0.60),
     "llama-4-maverick": (0.20, 0.60),
     "gpt-4o-mini": (0.15, 0.60),
@@ -706,6 +860,69 @@ def calculate_fallback_cost(model_name: str, p_tokens: int, c_tokens: int) -> fl
             break
     calc = (p_tokens * in_rate + c_tokens * out_rate) / 1_000_000.0
     return round(calc, 7)
+
+
+def optimize_base64_image(data_url: str, max_size_bytes: int = 3_500_000, max_dim: int = 1600) -> str:
+    """
+    Ensures image payload does not exceed provider size limits (e.g. Anthropic Claude 5MB limit).
+    Compresses and resizes image if necessary.
+    """
+    if not data_url or not isinstance(data_url, str) or not data_url.startswith("data:image/"):
+        return data_url
+
+    try:
+        header, b64_str = data_url.split(",", 1)
+        raw_bytes = base64.b64decode(b64_str)
+
+        # Detect actual MIME type from magic bytes to prevent Claude/OpenRouter 400 mismatched media type errors
+        detected_mime = None
+        if raw_bytes.startswith(b'\xff\xd8\xff'):
+            detected_mime = "image/jpeg"
+        elif raw_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
+            detected_mime = "image/png"
+        elif raw_bytes.startswith(b'RIFF') and len(raw_bytes) >= 12 and raw_bytes[8:12] == b'WEBP':
+            detected_mime = "image/webp"
+        elif raw_bytes.startswith(b'GIF87a') or raw_bytes.startswith(b'GIF89a'):
+            detected_mime = "image/gif"
+
+        declared_mime = header.split(";")[0].replace("data:", "").strip().lower()
+        if detected_mime and detected_mime != declared_mime:
+            print(f"[Image Optimizer] Auto-correcting mismatched MIME: declared '{declared_mime}' -> detected '{detected_mime}'")
+            header = f"data:{detected_mime}"
+            data_url = f"{header};base64,{b64_str}"
+
+        if len(raw_bytes) <= max_size_bytes:
+            return data_url  # Already small enough (and MIME is verified/fixed)
+
+        print(f"[Image Optimizer] Compressing large image: {len(raw_bytes):,} bytes (> {max_size_bytes:,} limit)")
+        img = Image.open(BytesIO(raw_bytes))
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        # Resize if dimensions exceed max_dim
+        w, h = img.size
+        if max(w, h) > max_dim:
+            scale = max_dim / float(max(w, h))
+            new_w, new_h = int(w * scale), int(h * scale)
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        # Save with progressive JPEG compression
+        out_buf = BytesIO()
+        img.save(out_buf, format="JPEG", quality=85, optimize=True)
+        compressed_bytes = out_buf.getvalue()
+
+        # If still above limit, reduce quality further
+        if len(compressed_bytes) > max_size_bytes:
+            out_buf = BytesIO()
+            img.save(out_buf, format="JPEG", quality=70, optimize=True)
+            compressed_bytes = out_buf.getvalue()
+
+        new_b64 = base64.b64encode(compressed_bytes).decode("ascii")
+        print(f"[Image Optimizer] Successfully compressed from {len(raw_bytes):,} bytes to {len(compressed_bytes):,} bytes ({round((1 - len(compressed_bytes)/len(raw_bytes))*100, 1)}% reduction)")
+        return f"data:image/jpeg;base64,{new_b64}"
+    except Exception as opt_err:
+        print(f"[Image Optimizer Warning] Failed to compress image: {opt_err}")
+        return data_url
 
 
 @app.route("/ai", methods=["POST"])
@@ -754,6 +971,17 @@ def call_ai():
                 messages = [{"role": "user", "content": prompt_text}]
 
         formatted_messages = list(messages)
+
+        # Sanitize and optimize image payloads in formatted_messages to prevent 5MB/10MB provider payload limit errors
+        for msg in formatted_messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        img_url_obj = part.get("image_url", {})
+                        raw_url = img_url_obj.get("url", "")
+                        if raw_url and raw_url.startswith("data:image/"):
+                            img_url_obj["url"] = optimize_base64_image(raw_url)
 
         # ── Conversational ChatBot Handling with 4-Tier Real-Time Search (expect_json=False) ──
         if not expect_json:
@@ -915,114 +1143,146 @@ def call_ai():
         call_metrics = None
 
         for current_model in candidate_models:
-            try:
-                print(f"[AI] Requesting model: {current_model} (expect_json={expect_json}, allow_fallback={allow_fallback}, temp={temperature})")
-                create_kwargs = {
-                    "model": current_model,
-                    "messages": formatted_messages,
-                    "max_tokens": 8192,
-                }
-                if temperature is not None:
-                    try:
-                        create_kwargs["temperature"] = float(temperature)
-                    except (ValueError, TypeError):
-                        pass
-                if top_p is not None:
-                    try:
-                        create_kwargs["top_p"] = float(top_p)
-                    except (ValueError, TypeError):
-                        pass
-
-                start_call_time = time.perf_counter()
-                response = openrouter_client.chat.completions.create(**create_kwargs)
-                latency_sec = time.perf_counter() - start_call_time
-
-                if not response or not getattr(response, "choices", None):
-                    print(f"[AI] Model {current_model} returned no choices object")
-                    last_error = f"AI model {current_model} returned no choices"
-                    continue
-
-                choice = response.choices[0]
-                msg = getattr(choice, "message", None)
-                content = getattr(msg, "content", None) if msg else None
-
-                if content is None and msg and hasattr(msg, "reasoning_content"):
-                    content = getattr(msg, "reasoning_content", None)
-
-                if content is not None and str(content).strip():
-                    cleaned = str(content).strip()
-                    if cleaned.startswith("```"):
-                        lines = cleaned.splitlines()
-                        if lines and lines[0].startswith("```"):
-                            lines = lines[1:]
-                        if lines and lines[-1].startswith("```"):
-                            lines = lines[:-1]
-                        cleaned = "\n".join(lines).strip()
-
-                    if expect_json and not cleaned.startswith(("{", "[")):
-                        print(f"[AI] Model {current_model} non-JSON response: {cleaned[:150]}")
-                        last_error = f"AI model {current_model} declined to output valid JSON"
-                        continue
-
-                    # Extract usage and cost metrics
-                    prompt_tokens = 0
-                    completion_tokens = 0
-                    total_tokens = 0
-                    cost_usd = 0.0
-
-                    usage_obj = getattr(response, "usage", None)
-                    if usage_obj:
-                        if hasattr(usage_obj, "model_dump"):
-                            u_dict = usage_obj.model_dump()
-                        elif isinstance(usage_obj, dict):
-                            u_dict = usage_obj
-                        else:
-                            u_dict = {}
-
-                        prompt_tokens = getattr(usage_obj, "prompt_tokens", None) or u_dict.get("prompt_tokens", 0) or 0
-                        completion_tokens = getattr(usage_obj, "completion_tokens", None) or u_dict.get("completion_tokens", 0) or 0
-                        total_tokens = getattr(usage_obj, "total_tokens", None) or u_dict.get("total_tokens", 0) or (prompt_tokens + completion_tokens)
-                        cost_usd = getattr(usage_obj, "cost", None) or u_dict.get("cost", 0.0) or 0.0
-
-                    if not cost_usd and hasattr(response, "model_dump"):
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                try:
+                    print(f"[AI] Requesting model: {current_model} (attempt {attempt+1}/{max_attempts}, expect_json={expect_json}, allow_fallback={allow_fallback}, temp={temperature})")
+                    max_tokens_val = int(data.get("max_tokens") or 1024)
+                    create_kwargs = {
+                        "model": current_model,
+                        "messages": formatted_messages,
+                        "max_tokens": max_tokens_val,
+                    }
+                    if temperature is not None:
                         try:
-                            r_dump = response.model_dump()
-                            cost_usd = r_dump.get("usage", {}).get("cost", 0.0) or 0.0
-                        except Exception:
+                            create_kwargs["temperature"] = float(temperature)
+                        except (ValueError, TypeError):
+                            pass
+                    if top_p is not None:
+                        try:
+                            create_kwargs["top_p"] = float(top_p)
+                        except (ValueError, TypeError):
                             pass
 
-                    # Fallback pricing calculation if cost_usd is 0.0 or omitted by OpenRouter
-                    if (not cost_usd or float(cost_usd) <= 0.0) and (prompt_tokens > 0 or completion_tokens > 0):
-                        cost_usd = calculate_fallback_cost(current_model, prompt_tokens, completion_tokens)
+                    start_call_time = time.perf_counter()
+                    response = openrouter_client.chat.completions.create(**create_kwargs)
+                    latency_sec = time.perf_counter() - start_call_time
 
-                    tokens_per_sec = round(completion_tokens / latency_sec, 2) if latency_sec > 0 else 0.0
-                    gen_id = getattr(response, "id", None) or ""
+                    if not response or not getattr(response, "choices", None):
+                        print(f"[AI] Model {current_model} returned no choices object (attempt {attempt+1})")
+                        last_error = f"AI model {current_model} returned no choices"
+                        if attempt < max_attempts - 1:
+                            time.sleep(1.5)
+                            continue
+                        break
 
-                    call_metrics = {
-                        "prompt_tokens": int(prompt_tokens),
-                        "completion_tokens": int(completion_tokens),
-                        "total_tokens": int(total_tokens),
-                        "latency_ms": round(latency_sec * 1000, 2),
-                        "latency_sec": round(latency_sec, 3),
-                        "cost_usd": float(cost_usd),
-                        "tokens_per_sec": tokens_per_sec,
-                        "model_used": current_model,
-                        "openrouter_id": str(gen_id),
-                        "temperature": float(temperature) if temperature is not None else None,
-                        "allow_fallback": bool(allow_fallback)
-                    }
+                    choice = response.choices[0]
+                    msg = getattr(choice, "message", None)
+                    content = getattr(msg, "content", None) if msg else None
 
-                    cleaned_content = cleaned
-                    print(f"[AI] Successfully generated content using model: {current_model} (tokens: in={prompt_tokens}, out={completion_tokens}, cost=${cost_usd:.6f}, time={latency_sec:.2f}s, temp={temperature})")
-                    break
-                else:
-                    refusal = getattr(msg, "refusal", None) if msg else None
-                    finish_reason = getattr(choice, "finish_reason", None)
-                    print(f"[AI] Model {current_model} returned empty content (finish_reason={finish_reason}, refusal={refusal})")
-                    last_error = f"AI model {current_model} returned empty content"
-            except Exception as model_err:
-                print(f"[AI] Exception calling model {current_model}: {model_err}")
-                last_error = str(model_err)
+                    # Fallback for reasoning models (Qwen, DeepSeek, Claude) when content is None or empty string
+                    if not content and msg:
+                        content = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or getattr(msg, "thought", None) or getattr(msg, "text", None)
+                        if not content and hasattr(msg, "model_extra") and msg.model_extra:
+                            content = msg.model_extra.get("reasoning_content") or msg.model_extra.get("reasoning") or msg.model_extra.get("thought")
+                    if not content and hasattr(choice, "text"):
+                        content = getattr(choice, "text", None)
+
+                    if content is not None and str(content).strip():
+                        cleaned = str(content).strip()
+                        if cleaned.startswith("```"):
+                            lines = cleaned.splitlines()
+                            if lines and lines[0].startswith("```"):
+                                lines = lines[1:]
+                            if lines and lines[-1].startswith("```"):
+                                lines = lines[:-1]
+                            cleaned = "\n".join(lines).strip()
+
+                        if expect_json and not cleaned.startswith(("{", "[")):
+                            print(f"[AI] Model {current_model} non-JSON response: {cleaned[:150]}")
+                            last_error = f"AI model {current_model} declined to output valid JSON"
+                            if attempt < max_attempts - 1:
+                                time.sleep(1.5)
+                                continue
+                            break
+
+                        # Extract usage and cost metrics
+                        prompt_tokens = 0
+                        completion_tokens = 0
+                        total_tokens = 0
+                        cost_usd = 0.0
+
+                        usage_obj = getattr(response, "usage", None)
+                        if usage_obj:
+                            if hasattr(usage_obj, "model_dump"):
+                                u_dict = usage_obj.model_dump()
+                            elif isinstance(usage_obj, dict):
+                                u_dict = usage_obj
+                            else:
+                                u_dict = {}
+
+                            prompt_tokens = getattr(usage_obj, "prompt_tokens", None) or u_dict.get("prompt_tokens", 0) or 0
+                            completion_tokens = getattr(usage_obj, "completion_tokens", None) or u_dict.get("completion_tokens", 0) or 0
+                            total_tokens = getattr(usage_obj, "total_tokens", None) or u_dict.get("total_tokens", 0) or (prompt_tokens + completion_tokens)
+                            cost_usd = getattr(usage_obj, "cost", None) or u_dict.get("cost", 0.0) or 0.0
+
+                        if not cost_usd and hasattr(response, "model_dump"):
+                            try:
+                                r_dump = response.model_dump()
+                                cost_usd = r_dump.get("usage", {}).get("cost", 0.0) or 0.0
+                            except Exception:
+                                pass
+
+                        # Fallback pricing calculation if cost_usd is 0.0 or omitted by OpenRouter
+                        if (not cost_usd or float(cost_usd) <= 0.0) and (prompt_tokens > 0 or completion_tokens > 0):
+                            cost_usd = calculate_fallback_cost(current_model, prompt_tokens, completion_tokens)
+
+                        tokens_per_sec = round(completion_tokens / latency_sec, 2) if latency_sec > 0 else 0.0
+                        gen_id = getattr(response, "id", None) or ""
+                        if gen_id and OPENROUTER_API_KEY:
+                            threading.Thread(target=fetch_openrouter_generation_stats, args=(gen_id, 4, 2.5), daemon=True).start()
+
+                        call_metrics = {
+                            "prompt_tokens": int(prompt_tokens),
+                            "completion_tokens": int(completion_tokens),
+                            "total_tokens": int(total_tokens),
+                            "latency_ms": round(latency_sec * 1000, 2),
+                            "latency_sec": round(latency_sec, 3),
+                            "cost_usd": float(cost_usd),
+                            "tokens_per_sec": tokens_per_sec,
+                            "model_used": current_model,
+                            "openrouter_id": str(gen_id),
+                            "temperature": float(temperature) if temperature is not None else None,
+                            "allow_fallback": bool(allow_fallback)
+                        }
+
+                        cleaned_content = cleaned
+                        print(f"[AI] Successfully generated content using model: {current_model} (tokens: in={prompt_tokens}, out={completion_tokens}, cost=${cost_usd:.6f}, time={latency_sec:.2f}s, temp={temperature})")
+                        break
+                    else:
+                        refusal = getattr(msg, "refusal", None) if msg else None
+                        finish_reason = getattr(choice, "finish_reason", None)
+                        print(f"[AI] Model {current_model} returned empty content (finish_reason={finish_reason}, refusal={refusal}, attempt {attempt+1})")
+                        last_error = f"AI model {current_model} returned empty content"
+                        if attempt < max_attempts - 1:
+                            time.sleep(1.5)
+                            continue
+                        break
+                except Exception as model_err:
+                    err_str = str(model_err).lower()
+                    print(f"[AI] Exception calling model {current_model} (attempt {attempt+1}/{max_attempts}): {model_err}")
+                    last_error = str(model_err)
+                    is_rate_limit = any(term in err_str for term in ["429", "rate-limit", "rate limit", "temporarily", "busy", "upstream"])
+                    if is_rate_limit and attempt < max_attempts - 1:
+                        backoff = 2.0 * (attempt + 1)
+                        print(f"[AI Retry] Model {current_model} upstream rate-limited or busy. Retrying in {backoff}s...")
+                        time.sleep(backoff)
+                        continue
+                    else:
+                        break
+
+            if cleaned_content:
+                break
 
         if cleaned_content:
             return jsonify({
@@ -1050,6 +1310,19 @@ def call_ai():
     except Exception as e:
         print("AI Error:", e)
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/ai/generation_stats", methods=["GET"])
+def get_ai_generation_stats():
+    gen_id = request.args.get("id")
+    if not gen_id:
+        return jsonify({"error": "Missing id"}), 400
+    with generation_stats_lock:
+        stats = generation_stats_cache.get(gen_id)
+    if not stats:
+        stats = fetch_openrouter_generation_stats(gen_id, max_retries=2, initial_delay=0.6)
+    return jsonify({"stats": stats or {}})
+
 
 
 # In-memory cache for live transit check (5-minute TTL per query)
@@ -2408,43 +2681,69 @@ def flight_trends():
 
 EXP1_FIELDNAMES = [
     "Timestamp", "Image Name", "Ground Truth", "Tier", "Model",
+    "Prompt Variant ID", "Prompt Variant Name",
     "Predicted Place", "Confidence", "Time MS", "Is Correct",
-    "Recall Rank", "Matched Alias", "Temperature", "Failure Mode",
-    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec"
+    "Recall Rank", "Matched Alias", "AI Reasoning",
+    "Temperature", "Failure Mode",
+    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec",
+    "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID"
 ]
 
 EXP2_FIELDNAMES = [
     "Timestamp", "Image Name", "Ground Truth", "Tier", "Model",
-    "Predicted (CLIP)", "Predicted (No CLIP)",
-    "Confidence (CLIP)", "Confidence (No CLIP)",
-    "Correct (CLIP)", "Correct (No CLIP)",
-    "Latency CLIP (ms)", "Latency No CLIP (ms)", "Delta Latency (ms)",
-    "Temperature", "Failure Mode (CLIP)", "Failure Mode (No CLIP)",
-    "Tokens CLIP", "Tokens No CLIP", "Cost CLIP (USD)", "Cost No CLIP (USD)", "Delta Cost (USD)"
+    "Prompt Variant",
+    "Top 1 Place", "Confidence",
+    "Candidate 1 Name", "Candidate 1 Score", "Candidate 1 Failure Mode",
+    "Candidate 2 Name", "Candidate 2 Score", "Candidate 2 Failure Mode",
+    "Candidate 3 Name", "Candidate 3 Score", "Candidate 3 Failure Mode",
+    "Top 1 Strict", "Top 3 Recall", "Avg Candidate Score",
+    "Failure Mode", "AI Reasoning",
+    "Time MS", "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec",
+    "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID",
+    # Legacy fields retained for backward-compatibility
+    "Predicted (CLIP)", "Predicted (No CLIP)", "Confidence (CLIP)", "Confidence (No CLIP)",
+    "Correct (CLIP)", "Correct (No CLIP)", "Latency CLIP (ms)", "Latency No CLIP (ms)", "Delta Latency (ms)"
 ]
 
 EXP3_FIELDNAMES = [
     "Timestamp", "Landmark Ground Truth", "Image Name", "Tier",
     "Condition Category", "Condition Label",
+    "Prompt Variant ID", "Prompt Variant Name",
     "Model", "Predicted Place", "Confidence", "Time MS", "Is Correct",
+    "Recall Rank", "Matched Alias", "AI Reasoning",
     "Temperature", "Failure Mode",
-    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec"
+    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec",
+    "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID"
 ]
 
 EXP4_FIELDNAMES = [
     "Timestamp", "Image Name", "Ground Truth", "Tier", "Model",
     "Prompt Variant ID", "Prompt Variant Name",
-    "Predicted Place", "Confidence", "Time MS", "Is Correct", "AI Reasoning",
+    "Predicted Place", "Confidence", "Time MS", "Is Correct",
+    "Recall Rank", "Matched Alias", "AI Reasoning",
     "Temperature", "Failure Mode",
-    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec"
+    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec",
+    "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID"
 ]
 
 EXP5_FIELDNAMES = [
     "Timestamp", "Session ID", "Image Name", "Ground Truth", "Tier", "Model",
-    "Run Number", "Total Runs", "Predicted Place", "Confidence", "Time MS", "Is Correct",
+    "Run Number", "Total Runs",
+    "Prompt Variant ID", "Prompt Variant Name",
+    "Predicted Place", "Confidence", "Time MS", "Is Correct",
+    "Recall Rank", "Matched Alias", "AI Reasoning",
     "Temperature", "Failure Mode",
-    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec"
+    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec",
+    "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID"
 ]
+
+EXP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "experiment"))
+EXP1_CSV_PATH = os.path.join(EXP_DIR, "exp1_model_benchmark.csv")
+EXP1_LEGACY_CSV_PATH = os.path.join(EXP_DIR, "experiment_results.csv")
+EXP2_CSV_PATH = os.path.join(EXP_DIR, "exp2_pipeline_comparison.csv")
+EXP3_CSV_PATH = os.path.join(EXP_DIR, "exp3_robustness.csv")
+EXP4_CSV_PATH = os.path.join(EXP_DIR, "exp4_prompt_sensitivity.csv")
+EXP5_CSV_PATH = os.path.join(EXP_DIR, "exp5_consistency.csv")
 
 
 def ensure_csv_file(csv_path, expected_fieldnames):
@@ -2487,7 +2786,14 @@ def ensure_csv_file(csv_path, expected_fieldnames):
                         elif val in (None, "") and col in ("Failure Mode", "Failure Mode (CLIP)", "Failure Mode (No CLIP)"):
                             val = "none"
                         elif val in (None, "") and col == "Temperature":
-                            val = "0.0"
+                            val = "0.1"
+                        elif val in (None, "") and col in ("Prompt Variant ID", "Prompt Variant"):
+                            val = "P1"
+                        elif val in (None, "") and col == "Prompt Variant Name":
+                            val = "P1: Zero-Shot Direct (EN)"
+                        elif val in (None, "") and col == "Recall Rank":
+                            is_c = r.get("Is Correct") or r.get("Correct") or r.get("Correct (CLIP)")
+                            val = "1" if str(is_c).lower() in ("true", "1") else "0"
                         elif val is None:
                             val = ""
                         row_dict[col] = val
@@ -2515,7 +2821,17 @@ def save_experiment():
     results = data["results"]
 
     os.makedirs("../experiment", exist_ok=True)
-    csv_path = "../experiment/experiment_results.csv"
+    csv_path = EXP1_CSV_PATH
+
+    # Migrate from legacy experiment_results.csv if exp1_model_benchmark.csv doesn't exist
+    if not os.path.exists(csv_path) and os.path.exists(EXP1_LEGACY_CSV_PATH):
+        try:
+            ensure_csv_file(EXP1_LEGACY_CSV_PATH, EXP1_FIELDNAMES)
+            import shutil
+            shutil.copyfile(EXP1_LEGACY_CSV_PATH, csv_path)
+            print(f"[Migration] Copied {EXP1_LEGACY_CSV_PATH} to {csv_path}")
+        except Exception as mig_err:
+            print(f"[Migration Warning] Could not copy legacy CSV: {mig_err}")
 
     try:
         ensure_csv_file(csv_path, EXP1_FIELDNAMES)
@@ -2529,28 +2845,37 @@ def save_experiment():
                 if rank is None:
                     rank = 1 if (is_corr is True or is_corr == "True" or is_corr == "true" or is_corr == 1) else 0
 
+                gen_metrics = get_generation_metrics(res.get("openrouter_id"), res.get("completion_tokens", 0))
+
                 writer.writerow({
                     "Timestamp": timestamp,
                     "Image Name": image_name,
                     "Ground Truth": ground_truth,
                     "Tier": res.get("tier") or tier,
                     "Model": res.get("model"),
+                    "Prompt Variant ID": res.get("variant_id") or "P1",
+                    "Prompt Variant Name": res.get("variant_name") or "P1: Zero-Shot Direct (EN)",
                     "Predicted Place": res.get("predicted"),
                     "Confidence": res.get("confidence"),
                     "Time MS": res.get("time_ms"),
                     "Is Correct": res.get("is_correct"),
                     "Recall Rank": rank,
                     "Matched Alias": res.get("matched_alias") or "",
+                    "AI Reasoning": res.get("reasoning") or res.get("ai_reasoning") or "",
                     "Temperature": res.get("temperature", temperature),
                     "Failure Mode": res.get("failure_mode", "none"),
                     "Prompt Tokens": res.get("prompt_tokens", 0),
                     "Completion Tokens": res.get("completion_tokens", 0),
                     "Total Tokens": res.get("total_tokens", 0),
                     "Cost USD": res.get("cost_usd", 0.0),
-                    "Tokens Per Sec": res.get("tokens_per_sec", 0.0)
+                    "Tokens Per Sec": res.get("tokens_per_sec", 0.0),
+                    "Generation Time MS": gen_metrics["generation_time_ms"],
+                    "Pure Tokens Per Sec": gen_metrics["pure_tokens_per_sec"],
+                    "Provider Name": gen_metrics["provider_name"],
+                    "OpenRouter ID": gen_metrics["openrouter_id"]
                 })
 
-        return jsonify({"status": "success", "message": "Results saved successfully"})
+        return jsonify({"status": "success", "message": "Results saved successfully to exp1_model_benchmark.csv"})
     except Exception as e:
         print("Error saving experiment:", e)
         return jsonify({"error": str(e)}), 500
@@ -2562,9 +2887,20 @@ def get_experiment_results():
     Reads the existing experiment results from the local CSV file.
     """
     import csv
-    csv_path = "../experiment/experiment_results.csv"
+    csv_path = EXP1_CSV_PATH
+    if not os.path.exists(csv_path) and os.path.exists(EXP1_LEGACY_CSV_PATH):
+        try:
+            ensure_csv_file(EXP1_LEGACY_CSV_PATH, EXP1_FIELDNAMES)
+            import shutil
+            shutil.copyfile(EXP1_LEGACY_CSV_PATH, csv_path)
+        except Exception:
+            pass
+
     if not os.path.exists(csv_path):
         return jsonify({"results": []})
+
+    # Auto-backfill any missing generation stats
+    backfill_csv_generation_stats(csv_path)
 
     try:
         results = []
@@ -2581,19 +2917,26 @@ def get_experiment_results():
                     "ground_truth": row.get("Ground Truth"),
                     "tier": row.get("Tier") or "tier1_iconic",
                     "model": row.get("Model"),
+                    "variant_id": row.get("Prompt Variant ID") or "P1",
+                    "variant_name": row.get("Prompt Variant Name") or "P1: Zero-Shot Direct (EN)",
                     "predicted": row.get("Predicted Place"),
                     "confidence": float(row.get("Confidence") or 0.0),
                     "time_ms": int(row.get("Time MS") or 0),
                     "is_correct": is_correct,
                     "recall_rank": rank,
                     "matched_alias": row.get("Matched Alias") or None,
-                    "temperature": float(row.get("Temperature") or 0.0),
+                    "reasoning": row.get("AI Reasoning") or "",
+                    "temperature": float(row.get("Temperature") or 0.1),
                     "failure_mode": row.get("Failure Mode") or "none",
                     "prompt_tokens": int(row.get("Prompt Tokens") or 0),
                     "completion_tokens": int(row.get("Completion Tokens") or 0),
                     "total_tokens": int(row.get("Total Tokens") or 0),
                     "cost_usd": float(row.get("Cost USD") or 0.0),
-                    "tokens_per_sec": float(row.get("Tokens Per Sec") or 0.0)
+                    "tokens_per_sec": float(row.get("Tokens Per Sec") or 0.0),
+                    "generation_time_ms": int(row.get("Generation Time MS")) if row.get("Generation Time MS") and str(row.get("Generation Time MS")).isdigit() else None,
+                    "pure_tokens_per_sec": float(row.get("Pure Tokens Per Sec")) if row.get("Pure Tokens Per Sec") else None,
+                    "provider_name": row.get("Provider Name") or "",
+                    "openrouter_id": row.get("OpenRouter ID") or ""
                 })
         return jsonify({"results": results})
     except Exception as e:
@@ -2613,7 +2956,7 @@ def save_exp2():
         return jsonify({"error": "Missing data"}), 400
 
     os.makedirs("../experiment", exist_ok=True)
-    csv_path = "../experiment/exp2_pipeline_comparison.csv"
+    csv_path = EXP2_CSV_PATH
 
     try:
         ensure_csv_file(csv_path, EXP2_FIELDNAMES)
@@ -2623,32 +2966,66 @@ def save_exp2():
 
             tier = data.get("tier") or "tier1_iconic"
             temperature = data.get("temperature", 0.0)
+            prompt_variant = data.get("prompt_variant") or "P1: Zero-Shot Direct (EN)"
             for res in data["results"]:
+                gen_clip = get_generation_metrics(res.get("openrouter_id_clip") or res.get("openrouter_id"), res.get("tokens_clip", 0) or res.get("total_tokens", 0))
+                gen_noclip = get_generation_metrics(res.get("openrouter_id_noclip"), res.get("tokens_noclip", 0))
+
+                c1_score = int(res.get("candidate_1_score", 0))
+                c2_score = int(res.get("candidate_2_score", 0))
+                c3_score = int(res.get("candidate_3_score", 0))
+                top1_strict = res.get("top1_strict") if res.get("top1_strict") is not None else (c1_score == 3)
+                top3_recall = res.get("top3_recall") if res.get("top3_recall") is not None else any(s >= 2 for s in [c1_score, c2_score, c3_score])
+                avg_score = float(res.get("avg_candidate_score") or round((c1_score + c2_score + c3_score) / 3.0, 2))
+
+                top1_place = res.get("top1_place") or res.get("predicted_clip") or res.get("predicted_noclip") or res.get("candidate_1_name") or ""
+                conf = float(res.get("confidence") if res.get("confidence") is not None else (res.get("confidence_clip") or 0.0))
+
                 writer.writerow({
                     "Timestamp": timestamp,
                     "Image Name": data.get("image_name"),
                     "Ground Truth": data.get("ground_truth"),
                     "Tier": res.get("tier") or tier,
                     "Model": res.get("model"),
-                    "Predicted (CLIP)": res.get("predicted_clip"),
-                    "Predicted (No CLIP)": res.get("predicted_noclip"),
-                    "Confidence (CLIP)": res.get("confidence_clip", 0.0),
+                    "Prompt Variant": res.get("prompt_variant") or prompt_variant,
+                    "Top 1 Place": top1_place,
+                    "Confidence": conf,
+                    "Candidate 1 Name": res.get("candidate_1_name") or top1_place,
+                    "Candidate 1 Score": c1_score,
+                    "Candidate 1 Failure Mode": res.get("candidate_1_failure_mode") or ("none" if c1_score == 3 else "visual_confusion"),
+                    "Candidate 2 Name": res.get("candidate_2_name") or "",
+                    "Candidate 2 Score": c2_score,
+                    "Candidate 2 Failure Mode": res.get("candidate_2_failure_mode") or ("none" if c2_score == 3 else "visual_confusion"),
+                    "Candidate 3 Name": res.get("candidate_3_name") or "",
+                    "Candidate 3 Score": c3_score,
+                    "Candidate 3 Failure Mode": res.get("candidate_3_failure_mode") or ("none" if c3_score == 3 else "visual_confusion"),
+                    "Top 1 Strict": top1_strict,
+                    "Top 3 Recall": top3_recall,
+                    "Avg Candidate Score": avg_score,
+                    "Failure Mode": res.get("failure_mode") or res.get("failure_mode_clip") or ("none" if top1_strict else "visual_confusion"),
+                    "AI Reasoning": res.get("reasoning") or res.get("reasoning_clip") or res.get("reasoning_noclip") or "",
+                    "Time MS": res.get("time_ms") or res.get("latency_clip") or 0,
+                    "Prompt Tokens": res.get("prompt_tokens", 0),
+                    "Completion Tokens": res.get("completion_tokens", 0),
+                    "Total Tokens": res.get("total_tokens") or res.get("tokens_clip", 0),
+                    "Cost USD": res.get("cost_usd") or res.get("cost_clip", 0.0),
+                    "Tokens Per Sec": res.get("tokens_per_sec", 0.0),
+                    "Generation Time MS": gen_clip["generation_time_ms"],
+                    "Pure Tokens Per Sec": gen_clip["pure_tokens_per_sec"],
+                    "Provider Name": gen_clip["provider_name"],
+                    "OpenRouter ID": gen_clip["openrouter_id"],
+                    # Legacy fields retained for backward-compatibility
+                    "Predicted (CLIP)": res.get("predicted_clip") or top1_place,
+                    "Predicted (No CLIP)": res.get("predicted_noclip") or "",
+                    "Confidence (CLIP)": conf,
                     "Confidence (No CLIP)": res.get("confidence_noclip", 0.0),
-                    "Correct (CLIP)": res.get("correct_clip"),
-                    "Correct (No CLIP)": res.get("correct_noclip"),
-                    "Latency CLIP (ms)": res.get("latency_clip"),
-                    "Latency No CLIP (ms)": res.get("latency_noclip"),
-                    "Delta Latency (ms)": res.get("delta_latency"),
-                    "Temperature": res.get("temperature", temperature),
-                    "Failure Mode (CLIP)": res.get("failure_mode_clip", "none"),
-                    "Failure Mode (No CLIP)": res.get("failure_mode_noclip", "none"),
-                    "Tokens CLIP": res.get("tokens_clip", 0),
-                    "Tokens No CLIP": res.get("tokens_noclip", 0),
-                    "Cost CLIP (USD)": res.get("cost_clip", 0.0),
-                    "Cost No CLIP (USD)": res.get("cost_noclip", 0.0),
-                    "Delta Cost (USD)": res.get("delta_cost", 0.0)
+                    "Correct (CLIP)": top1_strict,
+                    "Correct (No CLIP)": res.get("correct_noclip", False),
+                    "Latency CLIP (ms)": res.get("latency_clip") or res.get("time_ms") or 0,
+                    "Latency No CLIP (ms)": res.get("latency_noclip", 0),
+                    "Delta Latency (ms)": res.get("delta_latency", 0)
                 })
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success", "message": "Results saved successfully to exp2_pipeline_comparison.csv"})
     except Exception as e:
         print("Error saving exp2:", e)
         return jsonify({"error": str(e)}), 500
@@ -2657,9 +3034,13 @@ def save_exp2():
 @app.route("/experiment/results_exp2", methods=["GET"])
 def get_exp2_results():
     import csv
-    csv_path = "../experiment/exp2_pipeline_comparison.csv"
+    csv_path = EXP2_CSV_PATH
     if not os.path.exists(csv_path):
         return jsonify({"results": []})
+    
+    # Auto-backfill any missing generation stats
+    backfill_csv_generation_stats(csv_path)
+
     try:
         results = []
         with open(csv_path, mode="r", encoding="utf-8") as f:
@@ -2686,7 +3067,7 @@ def save_exp3():
         return jsonify({"error": "Missing data"}), 400
 
     os.makedirs("../experiment", exist_ok=True)
-    csv_path = "../experiment/exp3_robustness.csv"
+    csv_path = EXP3_CSV_PATH
 
     try:
         ensure_csv_file(csv_path, EXP3_FIELDNAMES)
@@ -2697,6 +3078,12 @@ def save_exp3():
             temperature = data.get("temperature", 0.0)
 
             for res in data["results"]:
+                gen_metrics = get_generation_metrics(res.get("openrouter_id"), res.get("completion_tokens", 0))
+                is_corr = res.get("is_correct")
+                rank = res.get("recall_rank")
+                if rank is None:
+                    rank = 1 if (is_corr is True or is_corr == "True" or is_corr == "true" or is_corr == 1) else 0
+
                 writer.writerow({
                     "Timestamp": timestamp,
                     "Landmark Ground Truth": data.get("ground_truth"),
@@ -2704,20 +3091,29 @@ def save_exp3():
                     "Tier": res.get("tier") or tier,
                     "Condition Category": res.get("condition_category"),
                     "Condition Label": res.get("condition_label"),
+                    "Prompt Variant ID": res.get("variant_id") or "P1",
+                    "Prompt Variant Name": res.get("variant_name") or "P1: Zero-Shot Direct (EN)",
                     "Model": res.get("model"),
                     "Predicted Place": res.get("predicted"),
                     "Confidence": res.get("confidence"),
                     "Time MS": res.get("time_ms"),
                     "Is Correct": res.get("is_correct"),
+                    "Recall Rank": rank,
+                    "Matched Alias": res.get("matched_alias") or "",
+                    "AI Reasoning": res.get("reasoning") or res.get("ai_reasoning") or "",
                     "Temperature": res.get("temperature", temperature),
                     "Failure Mode": res.get("failure_mode", "none"),
                     "Prompt Tokens": res.get("prompt_tokens", 0),
                     "Completion Tokens": res.get("completion_tokens", 0),
                     "Total Tokens": res.get("total_tokens", 0),
                     "Cost USD": res.get("cost_usd", 0.0),
-                    "Tokens Per Sec": res.get("tokens_per_sec", 0.0)
+                    "Tokens Per Sec": res.get("tokens_per_sec", 0.0),
+                    "Generation Time MS": gen_metrics["generation_time_ms"],
+                    "Pure Tokens Per Sec": gen_metrics["pure_tokens_per_sec"],
+                    "Provider Name": gen_metrics["provider_name"],
+                    "OpenRouter ID": gen_metrics["openrouter_id"]
                 })
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success", "message": "Results saved successfully to exp3_robustness.csv"})
     except Exception as e:
         print("Error saving exp3:", e)
         return jsonify({"error": str(e)}), 500
@@ -2726,9 +3122,13 @@ def save_exp3():
 @app.route("/experiment/results_exp3", methods=["GET"])
 def get_exp3_results():
     import csv
-    csv_path = "../experiment/exp3_robustness.csv"
+    csv_path = EXP3_CSV_PATH
     if not os.path.exists(csv_path):
         return jsonify({"results": []})
+    
+    # Auto-backfill any missing generation stats
+    backfill_csv_generation_stats(csv_path)
+
     try:
         results = []
         with open(csv_path, mode="r", encoding="utf-8") as f:
@@ -2755,7 +3155,7 @@ def save_exp4():
         return jsonify({"error": "Missing data"}), 400
 
     os.makedirs("../experiment", exist_ok=True)
-    csv_path = "../experiment/exp4_prompt_sensitivity.csv"
+    csv_path = EXP4_CSV_PATH
 
     try:
         ensure_csv_file(csv_path, EXP4_FIELDNAMES)
@@ -2766,6 +3166,12 @@ def save_exp4():
             temperature = data.get("temperature", 0.0)
 
             for res in data["results"]:
+                gen_metrics = get_generation_metrics(res.get("openrouter_id"), res.get("completion_tokens", 0))
+                is_corr = res.get("is_correct")
+                rank = res.get("recall_rank")
+                if rank is None:
+                    rank = 1 if (is_corr is True or is_corr == "True" or is_corr == "true" or is_corr == 1) else 0
+
                 writer.writerow({
                     "Timestamp": timestamp,
                     "Image Name": data.get("image_name"),
@@ -2778,16 +3184,22 @@ def save_exp4():
                     "Confidence": res.get("confidence"),
                     "Time MS": res.get("time_ms"),
                     "Is Correct": res.get("is_correct"),
-                    "AI Reasoning": res.get("reasoning"),
+                    "Recall Rank": rank,
+                    "Matched Alias": res.get("matched_alias") or "",
+                    "AI Reasoning": res.get("reasoning") or res.get("ai_reasoning") or "",
                     "Temperature": res.get("temperature", temperature),
                     "Failure Mode": res.get("failure_mode", "none"),
                     "Prompt Tokens": res.get("prompt_tokens", 0),
                     "Completion Tokens": res.get("completion_tokens", 0),
                     "Total Tokens": res.get("total_tokens", 0),
                     "Cost USD": res.get("cost_usd", 0.0),
-                    "Tokens Per Sec": res.get("tokens_per_sec", 0.0)
+                    "Tokens Per Sec": res.get("tokens_per_sec", 0.0),
+                    "Generation Time MS": gen_metrics["generation_time_ms"],
+                    "Pure Tokens Per Sec": gen_metrics["pure_tokens_per_sec"],
+                    "Provider Name": gen_metrics["provider_name"],
+                    "OpenRouter ID": gen_metrics["openrouter_id"]
                 })
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success", "message": "Results saved successfully to exp4_prompt_sensitivity.csv"})
     except Exception as e:
         print("Error saving exp4:", e)
         return jsonify({"error": str(e)}), 500
@@ -2796,9 +3208,13 @@ def save_exp4():
 @app.route("/experiment/results_exp4", methods=["GET"])
 def get_exp4_results():
     import csv
-    csv_path = "../experiment/exp4_prompt_sensitivity.csv"
+    csv_path = EXP4_CSV_PATH
     if not os.path.exists(csv_path):
         return jsonify({"results": []})
+    
+    # Auto-backfill any missing generation stats
+    backfill_csv_generation_stats(csv_path)
+
     try:
         results = []
         with open(csv_path, mode="r", encoding="utf-8") as f:
@@ -2825,7 +3241,7 @@ def save_exp5():
         return jsonify({"error": "Missing data"}), 400
 
     os.makedirs("../experiment", exist_ok=True)
-    csv_path = "../experiment/exp5_consistency.csv"
+    csv_path = EXP5_CSV_PATH
 
     try:
         ensure_csv_file(csv_path, EXP5_FIELDNAMES)
@@ -2837,6 +3253,12 @@ def save_exp5():
             temperature = data.get("temperature", 0.0)
 
             for res in data["results"]:
+                gen_metrics = get_generation_metrics(res.get("openrouter_id"), res.get("completion_tokens", 0))
+                is_corr = res.get("is_correct")
+                rank = res.get("recall_rank")
+                if rank is None:
+                    rank = 1 if (is_corr is True or is_corr == "True" or is_corr == "true" or is_corr == 1) else 0
+
                 writer.writerow({
                     "Timestamp": timestamp,
                     "Session ID": session_id,
@@ -2846,19 +3268,28 @@ def save_exp5():
                     "Model": res.get("model"),
                     "Run Number": res.get("run_number"),
                     "Total Runs": res.get("total_runs"),
+                    "Prompt Variant ID": res.get("variant_id") or "P1",
+                    "Prompt Variant Name": res.get("variant_name") or "P1: Zero-Shot Direct (EN)",
                     "Predicted Place": res.get("predicted"),
                     "Confidence": res.get("confidence"),
                     "Time MS": res.get("time_ms"),
                     "Is Correct": res.get("is_correct"),
+                    "Recall Rank": rank,
+                    "Matched Alias": res.get("matched_alias") or "",
+                    "AI Reasoning": res.get("reasoning") or res.get("ai_reasoning") or "",
                     "Temperature": res.get("temperature", temperature),
                     "Failure Mode": res.get("failure_mode", "none"),
                     "Prompt Tokens": res.get("prompt_tokens", 0),
                     "Completion Tokens": res.get("completion_tokens", 0),
                     "Total Tokens": res.get("total_tokens", 0),
                     "Cost USD": res.get("cost_usd", 0.0),
-                    "Tokens Per Sec": res.get("tokens_per_sec", 0.0)
+                    "Tokens Per Sec": res.get("tokens_per_sec", 0.0),
+                    "Generation Time MS": gen_metrics["generation_time_ms"],
+                    "Pure Tokens Per Sec": gen_metrics["pure_tokens_per_sec"],
+                    "Provider Name": gen_metrics["provider_name"],
+                    "OpenRouter ID": gen_metrics["openrouter_id"]
                 })
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success", "message": "Results saved successfully to exp5_consistency.csv"})
     except Exception as e:
         print("Error saving exp5:", e)
         return jsonify({"error": str(e)}), 500
@@ -2867,9 +3298,13 @@ def save_exp5():
 @app.route("/experiment/results_exp5", methods=["GET"])
 def get_exp5_results():
     import csv
-    csv_path = "../experiment/exp5_consistency.csv"
+    csv_path = EXP5_CSV_PATH
     if not os.path.exists(csv_path):
         return jsonify({"results": []})
+    
+    # Auto-backfill any missing generation stats
+    backfill_csv_generation_stats(csv_path)
+
     try:
         results = []
         with open(csv_path, mode="r", encoding="utf-8") as f:

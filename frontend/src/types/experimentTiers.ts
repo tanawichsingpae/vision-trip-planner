@@ -80,7 +80,7 @@ export const TIER_CONFIGS: Record<VPRTier, TierConfig> = {
     borderColor: "#fed7aa",
     description: "Casual user-generated photos from IG, TikTok",
     thesisNotes: "Real-world domain shift & robustness under authentic user photography.",
-    detectionKeywords: ["t4", "tier4", "ugc", "social", "ig", "tiktok", "selfie", "wild", "phone"],
+    detectionKeywords: ["t4", "tier4", "ugc", "social", "ig", "tiktok", "selfie", "wild", "phone", "screenshot", "screen", "capture", "story", "reel"],
   },
 };
 

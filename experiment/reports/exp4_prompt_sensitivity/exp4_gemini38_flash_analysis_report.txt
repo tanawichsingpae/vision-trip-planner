@@ -1,0 +1,226 @@
+================================================================================
+รายงานการตรวจสอบผลการทดลอง Experiment 4: Prompt Sensitivity & In-Context Reasoning
+การวิเคราะห์เชิงลึกคำตอบของโมเดล Google Gemini 3.8 Flash (google-gemini-38-flash)
+โครงการวิจัย: Pixinerary (Visual Place Recognition Benchmark)
+ไฟล์ข้อมูลต้นทาง: experiment/exp4_prompt_sensitivity.csv
+วันที่ตรวจสอบ: 2026-10-04
+================================================================================
+
+1. ภาพรวมการทดลอง (EXPERIMENT OVERVIEW)
+--------------------------------------------------------------------------------
+การทดลอง Exp 4 ทำการประเมินความไวต่อรูปแบบคำสั่ง (Prompt Sensitivity) และความสามารถ
+ในการให้เหตุผลในบริบท (In-Context Reasoning) ของโมเดล Vision-Language Models (VLMs)
+ชั้นนำ 6 โมเดล บนชุดภาพทดสอบมาตรฐานจำนวน 40 รูปภาพ ครอบคลุม 4 Tiers (Tier ละ 10 ภาพ)
+ผ่าน 5 รูปแบบพรอมต์ (Prompt Paradigms):
+
+  - P1: Zero-Shot Direct (EN) - คำสั่งระบุสถานที่ตรง ไม่มีการชี้นำ
+  - P2: Expert Persona (Role) - กำหนดบทบาทผู้เชี่ยวชาญภูมิศาสตร์และแลนด์มาร์กระดับโลก
+  - P3: Chain-of-Thought (CoT) - บังคับให้คิดและแจกแจงลักษณะภาพทีละขั้นตอนก่อนสรุป
+  - P4: Cross-Lingual Thai (TH) - คำสั่งภาษาไทยโครงสร้างเดียวกับ P1 เพื่อทดสอบข้ามภาษา
+  - P5: Few-Shot In-Context (ICL) - ให้ตัวอย่างคู่ภาพ-คำตอบ (Eiffel Tower, Taj Mahal) นำหน้า
+
+ขนาดตัวอย่างทั้งหมด: 40 รูปภาพ × 6 โมเดล × 5 พรอมต์ = 1,200 แถวข้อมูล
+ขนาดตัวอย่างของ Gemini 3.8 Flash: 40 รูปภาพ × 5 พรอมต์ = 200 รายการ
+
+
+2. ผลคะแนนความถูกต้อง (ACCURACY & ERROR AUDIT)
+--------------------------------------------------------------------------------
+จากการตรวจสอบคอลัมน์ "Is Correct" และ "Failure Mode" ของทุกโมเดล:
+
++----------------------------+-----------+-----------+--------------+
+| Vision-Language Model      | ถูก (ข้อ) | ผิด (ข้อ) | ความถูกต้อง  |
++----------------------------+-----------+-----------+--------------+
+| google-gemini-38-flash     | 200 / 200 |   0 ข้อ   |   100.0%     |
+| anthropic-claude-sonnet5   | 192 / 200 |   8 ข้อ   |    96.0%     |
+| openai-gpt-54              | 192 / 200 |   8 ข้อ   |    96.0%     |
+| qwen-25-vl-72b             | 188 / 200 |  12 ข้อ   |    94.0%     |
+| openai-gpt-54-mini         | 184 / 200 |  16 ข้อ   |    92.0%     |
+| meta-llama4                | 183 / 200 |  17 ข้อ   |    91.5%     |
++----------------------------+-----------+-----------+--------------+
+
+ข้อสรุปประเด็น "มีคำตอบที่ผิดหรือไม่?":
+>>> ไม่พบคำตอบที่ผิดของโมเดล Gemini 3.8 Flash เลยแม้แต่ข้อเดียว (0 ผิด, ถูก 100%)
+    ค่า Failure Mode เป็น "none" ทั้ง 200 รายการ
+
+
+3. การวิเคราะห์คำตอบที่ไม่เหมือนโมเดลอื่นในสถานที่เดียวกัน (CROSS-MODEL DISCREPANCIES)
+--------------------------------------------------------------------------------
+คำตอบของ Gemini 3.8 Flash ที่แตกต่างจากโมเดลอื่นอย่างมีนัยสำคัญ แบ่งออกเป็น 3 มิติ:
+
+[มิติที่ 1] โมเดลอื่นตอบผิดหรือสับสนทางสายตา (Visual Confusion) แต่ Gemini ตอบถูกต้องแม่นยำ
+--------------------------------------------------------------------------------
+1) ภาพ images17.1.jpg (Tier 3 Nature)
+   - สถานที่จริง: ภูเขาไฟบาตอก (Mount Batok / Gunung Batok) ในแอ่งภูเขาไฟโบรโมเติงเกอร์
+   - คำตอบ Gemini 3.8 Flash:
+       P1: Mount Batok
+       P2: Mount Batok, Bromo Tengger Semeru National Park
+       P3: Mount Batok, Bromo Tengger Semeru National Park
+       P4: ภูเขาไฟบาตอก (Gunung Batok) / อุทยานแห่งชาติโบรโมเติงเกอร์เซเมรู
+       P5: Mount Batok (Bromo Tengger Semeru National Park)
+   - โมเดลอื่นล้มเหลว (13 ครั้ง):
+       Claude Sonnet 5, GPT-5.4, GPT-5.4 Mini ตอบว่า "Mount Bromo"
+   - คำอธิบาย: ภูเขาไฟบาตอกเป็นภูเขาไฟดับแล้วทรงกรวยที่มีริ้วร่องลึก (radial erosion) 
+     ตั้งอยู่ติดกับโบรโม โมเดลส่วนใหญ่สับสนมองเป็นภูเขาไฟโบรโม แต่ Gemini วิเคราะห์ลักษณะ
+     ร่องริ้วและรถจี๊ป FJ40 บนลานทราย Laut Pasir ได้อย่างถูกต้องเด็ดขาด
+
+2) ภาพ images20.1.jpg (Tier 3 Nature)
+   - สถานที่จริง: เส้นทางศึกษาธรรมชาติกิ่วแม่ปาน อุทยานแห่งชาติดอยอินทนนท์ จ.เชียงใหม่
+   - คำตอบ Gemini 3.8 Flash:
+       P1: Kew Mae Pan Nature Trail, Doi Inthanon National Park
+       P2: Kew Mae Pan Nature Trail, Doi Inthanon National Park
+       P3: Kew Mae Pan Nature Trail, Doi Inthanon National Park
+       P4: กิ่วแม่ปาน (อุทยานแห่งชาติดอยอินทนนท์)
+       P5: Kew Mae Pan Nature Trail, Doi Inthanon
+   - โมเดลอื่นล้มเหลว (15 ครั้ง):
+       - Claude Sonnet 5 ตอบ: ดอยม่อนจอง (Doi Mon Jong), ดอยแม่สลอง, ดอยผ้าห่มปก
+       - GPT-5.4 Mini ตอบ: ภูกระดึง, Mount Bromo viewpoint
+       - Qwen 2.5 VL ตอบ: ภูชี้ฟ้า (Phu Chi Fa), ภูเขาฟ้า
+       - Llama 4 ตอบ: ดอยอ่างขาง (Doi Ang Khang), กวางเที่ยว เชียงราย
+   - คำอธิบาย: ภาพระเบียงไม้ชมทะเลหมอกบนทุ่งหญ้าสันเขา เป็นโจทย์ Localized Landmark ที่
+     ท้าทายมาก Gemini เป็นโมเดลเดียวที่ตอบตรงเป้ากิ่วแม่ปานครบ 100% ทุกพรอมต์
+
+3) ภาพ images25.1.jpg (Tier 3 Nature)
+   - สถานที่จริง: โขดหินอุลซานบาอวี (Ulsanbawi Rock), อุทยานแห่งชาติซอรัคซาน ประเทศเกาหลีใต้
+   - คำตอบ Gemini 3.8 Flash:
+       P1-P5: Ulsanbawi Rock, Seoraksan National Park / โขดหินอุลซานบาอวี อุทยานแห่งชาติซอรัคซาน
+   - โมเดลอื่นล้มเหลว (6 ครั้ง):
+       - GPT-5.4 ตอบผิดทั้ง 5 พรอมต์ว่าเป็น: "Bukhansan National Park" (อุทยานแห่งชาติพูคันซาน)
+       - GPT-5.4 Mini ตอบ: Daedunsan Rock Ridge
+   - คำอธิบาย: สันเขาหินแกรนิตยอดแหลมที่มีราวบันไดเหล็ก Gemini จดจำรูปแบบเฉพาะของยอดเขา
+     Ulsanbawi ได้ถูกต้อง ขณะที่ GPT-5.4 สับสนกับแนวเขาพูคันซานในกรุงโซล
+
+4) ภาพ 11.jpg (Tier 4 UGC)
+   - สถานที่จริง: สถานีรถไฟใต้ดินนิวยอร์ก 57th Street–Seventh Avenue subway station
+   - คำตอบ Gemini 3.8 Flash:
+       P1-P5: 57th Street–Seventh Avenue subway station
+   - โมเดลอื่นล้มเหลว (13 ครั้ง):
+       - GPT-5.4 Mini ตอบ: "145 Street Subway Station" (Hallucination)
+       - Qwen 2.5 VL & Llama 4 ตอบ: "55th Street & 7th Avenue" หรือ "7 Subway Line, 55th Street"
+   - คำอธิบาย: ภาพมุมถ่ายบุคคลแบบ UGC ในสถานีรถไฟใต้ดิน มีป้ายระบุ '57' บนเสา และป้ายชี้
+     ทางออก '55 Street & 7 Avenue Exit' โมเดลอื่นสับสนนำชื่อทางออกไปตอบเป็นชื่อสถานี 
+     แต่ Gemini ให้เหตุผลใน AI Reasoning แยกแยะเลขเสากับป้ายทางออกได้อย่างถูกต้อง
+
+5) ภาพ images19.1.jpg (Tier 3 Nature)
+   - สถานที่จริง: เขื่อนเชี่ยวหลาน (เขื่อนรัชชประภา) อุทยานแห่งชาติเขาสก จ.สุราษฎร์ธานี
+   - คำตอบ Gemini 3.8 Flash:
+       P1-P5: Cheow Lan Lake (Khao Sok National Park) / เขื่อนเชี่ยวหลาน (เขื่อนรัชชประภา)
+   - โมเดลอื่นล้มเหลว (8 ครั้ง):
+       - GPT-5.4 Mini ตอบ: Phi Phi Leh, Phi Phi Islands, Phang Nga Bay
+       - Llama 4 ตอบ: Phang Nga Bay, อ่าวภูมหลวงพันที่พันธ์ (คำแปลหลอน)
+
+
+[มิติที่ 2] ความละเอียดและระดับความเฉพาะเจาะจงของสถานที่ (Granularity & Specificity)
+--------------------------------------------------------------------------------
+ในโจทย์ภาพที่โมเดลอื่นตอบเฉพาะชื่อสถานที่หลักกว้าง ๆ Gemini 3.8 Flash มีความสามารถ
+ในการระบุลึกถึงระดับ "Micro-landmark / Sub-landmark":
+
+1) ภาพ 3.PNG (Tier 4 UGC)
+   - โมเดลอื่นตอบ: "Venice" หรือ "Venice Canal" (ระบุเพียงเมืองหรือคลองกว้าง ๆ)
+   - Gemini 3.8 Flash ตอบ: "Calle Varisco, Venice"
+   - เหตุผล: ตรอกดังกล่าวคือ Calle Varisco ในย่าน Cannaregio ของเวนิส ซึ่งมีชื่อเสียงระดับโลก
+     ว่าเป็นตรอกที่แคบที่สุดในเวนิส (กว้าง 53 ซม.) ที่ปลายตรอกเปิดออกสู่ผืนน้ำคลองโดยตรง
+
+2) ภาพ images01.1.jpg (Tier 3 Nature)
+   - โมเดลอื่นตอบ: "Cappadocia"
+   - Gemini 3.8 Flash ตอบ: "Love Valley, Cappadocia" (เจาะจงหุบเขาเลิฟวัลเลย์)
+
+3) ภาพ images20.1.jpg (Tier 1 Iconic)
+   - โมเดลอื่นตอบ: "Marina Bay Sands"
+   - Gemini 3.8 Flash ตอบ: "ArtScience Museum and Marina Bay Sands"
+   - เหตุผล: ระบุเพิ่มอาคารรูปทรงดอกบัวของ ArtScience Museum ที่เด่นชัดในระนาบหน้า
+
+4) ภาพ images16.1.jpg (Tier 2 Longtail)
+   - โมเดลอื่นตอบ: "Charles Bridge"
+   - Gemini 3.8 Flash ตอบ: "Old Town Bridge Tower, Charles Bridge, Prague"
+   - เหตุผล: ระบุเจาะจงหอคอยสะพานฝั่งเมืองเก่าของสะพานชาลส์
+
+5) ภาพ 2.PNG (Tier 4 UGC)
+   - โมเดลอื่นตอบ: "Pike Place Market"
+   - Gemini 3.8 Flash ตอบ: "Pike Place Fish Market" (ระบุแผงปลาโยนชื่อดังในตลาด)
+
+6) ภาพ images23.1.jpg (Tier 1 Iconic)
+   - โมเดลอื่นตอบ: "Great Wall of China"
+   - Gemini 3.8 Flash ตอบ: "Badaling Great Wall" (เจาะจงด่านปาต๋าหลิ่ง)
+
+
+[มิติที่ 3] ประสิทธิภาพข้ามภาษา (Cross-Lingual Capability ในพรอมต์ P4 - ภาษาไทย)
+--------------------------------------------------------------------------------
+โมเดล Open-source และโมเดลขนาดเล็ก เช่น Llama 4 Maverick และ Qwen 2.5 VL มักประสบปัญหา
+รุนแรงในการตอบภาษาไทยสำหรับโจทย์ VPR:
+  - Llama 4 สร้างคำหลอนที่ไม่มีความหมาย เช่น 'พระจำนหนากเฉียง', 'วัดการความรู้', 
+    'อุทยแยนเที่ยงเจียน', 'ทะเลสาบมอร์יין', 'กวางเที่ยว เชียงราย'
+  - Qwen 2.5 VL เกิดข้อผิดพลาดด้าน Encoding ปนอักษรซีริลลิก เช่น ' Петรอนัสทวินทาวเวอร์'
+
+ในทางตรงกันข้าม Gemini 3.8 Flash ให้คำตอบภาษาไทยในพรอมต์ P4 ที่ถูกต้อง สมบูรณ์ สละสลวย 
+และมีวงเล็บชื่อทางการภาษาอังกฤษกำกับอย่างเป็นมาตรฐานเสมอ เช่น:
+  - 'ปราสาทสัจธรรม (Sanctuary of Truth)'
+  - 'เขาอวตารฮัลเลลูยาห์ (เสาหินเฉียนคุน) อุทยานแห่งชาติจางเจียเจี้ย'
+  - 'ทะเลสาบมอเรน (Moraine Lake), อุทยานแห่งชาติแบมฟ์'
+  - 'มัสยิดใหญ่แห่งเจนนี (Great Mosque of Djenné)'
+  - 'วัดพระศรีรัตนศาสดาราม (วัดพระแก้ว) และพระบรมมหาราชวัง'
+
+
+[มิติที่ 4] กรณีศึกษาความผันแปรของคำตอบภายในโมเดลเอง (Internal Variant Discrepancy)
+--------------------------------------------------------------------------------
+มีรูปภาพ 1 ภาพที่มีการเปลี่ยนชื่อส่วนประกอบย่อยของสถานที่เมื่อเปลี่ยนรูปแบบพรอมต์:
+
+ภาพ images15.1.jpg (Tier 1 Iconic - พระราชวังต้องห้าม กู้กง กรุงปักกิ่ง)
+  - P1 (Zero-Shot Direct): "Forbidden City (Donghuamen Gate)" [ประตูตงหัวเหมิน - ประตูทิศตะวันออก]
+  - P2 (Expert Persona):   "Donghuamen (East Glorious Gate), Forbidden City"
+  - P3 (Chain-of-Thought): "Gate of Divine Might (Shenwumen), Forbidden City" [ประตูเสินอู่เหมิน - ทิศเหนือ]
+  - P4 (Cross-Lingual TH): "พระราชวังต้องห้าม (Forbidden City)"
+  - P5 (Few-Shot ICL):     "Forbidden City"
+
+ข้อสังเกต: ภาพนี้เป็นมุมถ่ายคูเมือง (Tongzi River) และกำแพงวังด้านนอกพร้อมต้นแปะก๊วยสีทอง 
+สถาปัตยกรรมหอคอยประตูรอบนอกมีรูปแบบละม้ายคล้ายคลึงกันอย่างยิ่ง การใช้พรอมต์บังคับคิด 
+Chain-of-Thought (P3) ทำให้โมเดลเปลี่ยนการคาดเดาจากประตูตงหัวเหมินมาเป็นประตูเสินอู่เหมิน 
+อย่างไรก็ตาม เนื่องจากทั้งคู่คือประตูของพระราชวังต้องห้าม ระบบจึงตัดสินว่าถูกต้อง (True)
+
+
+4. สรุปรายการคำตอบของ GEMINI 3.8 FLASH ครบทั้ง 40 ภาพ (P1 vs P4)
+--------------------------------------------------------------------------------
+ลำดับ | รหัสภาพ        | Tier           | คำตอบ P1 (Zero-Shot EN)                     | คำตอบ P4 (Thai)
+------+---------------+----------------+---------------------------------------------+-------------------------------------------------------------
+1     | images02.1.jpg| tier1_iconic   | Colosseum, Rome                             | โคลอสเซียม (Colosseum)
+2     | images04.1.jpg| tier1_iconic   | Statue of Liberty                           | อนุสาวรีย์เทพีเสรีภาพ (Statue of Liberty)
+3     | images07.1.jpg| tier1_iconic   | Giza pyramid complex                        | กลุ่มพีระมิดแห่งกิซา
+4     | images08.1.jpg| tier1_iconic   | Basílica de la Sagrada Família              | ซากราดาฟามิเลีย (Sagrada Família)
+5     | images11.1.jpg| tier1_iconic   | Saint Basil's Cathedral                     | มหาวิหารเซนต์บาซิล (Saint Basil's Cathedral)
+6     | images12.jpg  | tier1_iconic   | Wat Phra Kaew (Temple of Emerald Buddha)    | วัดพระศรีรัตนศาสดาราม (วัดพระแก้ว) และพระบรมมหาราชวัง
+7     | images15.1.jpg| tier1_iconic   | Forbidden City (Donghuamen Gate)            | พระราชวังต้องห้าม (Forbidden City)
+8     | images19.1.jpg| tier1_iconic   | Petronas Twin Towers, Kuala Lumpur          | ตึกแฝดเปโตรนาส (Petronas Twin Towers)
+9     | images20.1.jpg| tier1_iconic   | ArtScience Museum and Marina Bay Sands      | มารีนาเบย์แซนส์ และ พิพิธภัณฑ์ศิลปะวิทยาศาสตร์
+10    | images23.1.jpg| tier1_iconic   | Badaling Great Wall                         | กำแพงเมืองจีน (Great Wall of China)
+11    | images03.1.jpg| tier2_longtail | Fushimi Inari Shrine                        | ศาลเจ้าฟูชิมิอินาริ (Fushimi Inari Taisha), เกียวโต
+12    | images06.1.jpg| tier2_longtail | Bran Castle                                 | ปราสาทบราน (Bran Castle)
+13    | images09.1.jpg| tier2_longtail | Sanctuary of Truth                          | ปราสาทสัจธรรม (Sanctuary of Truth)
+14    | images10.1.jpg| tier2_longtail | Borobudur Temple                            | บุโรพุทโธ (Borobudur)
+15    | images14.1.jpg| tier2_longtail | Shwedagon Pagoda                            | มหาเจดีย์ชเวดากอง
+16    | images16.1.jpg| tier2_longtail | Old Town Bridge Tower, Charles Bridge, Prag | สะพานชาลส์ และหอคอยสะพานเมืองเก่า
+17    | images18.1.jpg| tier2_longtail | Amer Fort                                   | ป้อมอาเมร์ (Amber Fort)
+18    | images21.1.jpg| tier2_longtail | Great Mosque of Djenné                      | มัสยิดใหญ่แห่งเจนนี (Great Mosque of Djenné)
+19    | images22.1.jpg| tier2_longtail | Dubrovnik Old Town                          | เมืองเก่าดูบรอฟนิก (Dubrovnik Old Town)
+20    | images25.1.jpg| tier2_longtail | Wat Rong Khun (White Temple)                | วัดร่องขุ่น (Wat Rong Khun / White Temple)
+21    | images01.1.jpg| tier3_nature   | Love Valley, Cappadocia                     | คัปปาโดเกีย (Cappadocia)
+22    | images05.1.jpg| tier3_nature   | Plitvice Lakes National Park                | อุทยานแห่งชาติทะเลสาบพลิทวิเซ (Plitvice Lakes)
+23    | images08.1.jpg| tier3_nature   | Torres del Paine National Park              | อุทยานแห่งชาติตอร์เรสเดลไปเน (Torres del Paine)
+24    | images12.1.jpg| tier3_nature   | Avatar Hallelujah Mountain, Zhangjiajie     | เขาอวตารฮัลเลลูยาห์ (เสาหินเฉียนคุน) จางเจียเจี้ย
+25    | images13.1.jpg| tier3_nature   | Moraine Lake                                | ทะเลสาบมอเรน (Moraine Lake), อุทยานแห่งชาติแบมฟ์
+26    | images17.1.jpg| tier3_nature   | Mount Batok                                 | ภูเขาไฟบาตอก (Gunung Batok) / อุทยานฯ โบรโม
+27    | images19.1.jpg| tier3_nature   | Cheow Lan Lake (Khao Sok National Park)     | เขื่อนเชี่ยวหลาน (เขื่อนรัชชประภา) อุทยานฯ เขาสก
+28    | images20.1.jpg| tier3_nature   | Kew Mae Pan Nature Trail, Doi Inthanon      | กิ่วแม่ปาน (อุทยานแห่งชาติดอยอินทนนท์)
+29    | images24.1.jpg| tier3_nature   | Uluru                                       | อุลูรู (Uluru / Ayers Rock)
+30    | images25.1.jpg| tier3_nature   | Ulsanbawi Rock, Seoraksan National Park     | โขดหินอุลซานบาอวี อุทยานแห่งชาติซอรัคซาน
+31    | 2.PNG         | tier4_ugc      | Pike Place Fish Market                      | ตลาดพายก์เพลซ (Pike Place Market)
+32    | 3.PNG         | tier4_ugc      | Calle Varisco, Venice                       | เวนิส (Venice)
+33    | 7.PNG         | tier4_ugc      | Palacio de Bellas Artes                      | Palacio de Bellas Artes (พระราชวังวิจิตรศิลป์)
+34    | 10.PNG        | tier4_ugc      | Yaowarat Road (Bangkok Chinatown)           | ถนนเยาวราช (Yaowarat Road)
+35    | 11.jpg        | tier4_ugc      | 57th Street–Seventh Avenue subway station   | 57th Street–Seventh Avenue subway station
+36    | 14.PNG        | tier4_ugc      | Café de Flore                               | Café de Flore
+37    | 18.PNG        | tier4_ugc      | East Side Gallery                           | อีสต์ไซด์แกลเลอรี (กำแพงเบอร์ลิน)
+38    | 21.PNG        | tier4_ugc      | Alfama, Lisbon                              | ย่านอัลฟามา (Alfama), ลิสบอน
+39    | 23.PNG        | tier4_ugc      | Myeongdong Shopping Street                  | ย่านเมียงดง (Myeongdong), โซล
+40    | 24.PNG        | tier4_ugc      | Degraves Street, Melbourne                  | Degraves Street (ถนนเดเกรฟส์)
+================================================================================
+จบรายงานการตรวจสอบ (End of Report)
+================================================================================

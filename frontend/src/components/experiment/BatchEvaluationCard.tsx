@@ -58,6 +58,8 @@ export interface BatchItemResult {
   tier: VPRTier;
   model: AIModelType;
   modelLabel: string;
+  variant_id?: string;
+  variant_name?: string;
   predicted: string;
   confidence: number;
   time_ms: number;
@@ -65,6 +67,7 @@ export interface BatchItemResult {
   recall_rank: number; // 1 for top-1, 2 for top-2, etc. 0 if not matched
   match_score: number;
   matched_alias: string | null;
+  reasoning?: string;
   failure_mode?: FailureMode;
   temperature?: number;
   prompt_tokens?: number;
@@ -72,6 +75,7 @@ export interface BatchItemResult {
   total_tokens?: number;
   cost_usd?: number;
   tokens_per_sec?: number;
+  openrouter_id?: string;
 }
 
 interface BatchEvaluationCardProps {
@@ -85,7 +89,7 @@ interface BatchEvaluationCardProps {
 export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
   selectedModels,
   useClip,
-  temperature = 0.0,
+  temperature = 0.1,
   onBatchComplete,
   onSingleItemLogged,
 }) => {
@@ -333,12 +337,15 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
       temperature: temperature,
       results: results.map((r) => ({
         model: r.model,
+        variant_id: r.variant_id || "P1",
+        variant_name: r.variant_name || "P1: Zero-Shot Direct (EN)",
         predicted: r.predicted,
         confidence: r.confidence,
         time_ms: r.time_ms,
         is_correct: r.is_correct,
         recall_rank: r.recall_rank,
         matched_alias: r.matched_alias,
+        reasoning: r.reasoning || "",
         temperature: r.temperature ?? temperature,
         failure_mode: r.failure_mode ?? "none",
         tier: r.tier || tier,
@@ -347,6 +354,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
         total_tokens: r.total_tokens,
         cost_usd: r.cost_usd,
         tokens_per_sec: r.tokens_per_sec,
+        openrouter_id: r.openrouter_id || "",
       })),
     };
 
@@ -424,7 +432,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
                 item.file,
                 modelId,
                 (step) => setCurrentStepText(`[${modelLabel}] ${step}`),
-                { allowFallback: false, temperature }
+                { allowFallback: false, temperature, promptVariant: "P1" }
               );
           const tEnd = performance.now();
           const duration = Math.round(tEnd - tStart);
@@ -448,12 +456,16 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
             }
           );
 
+          const reasoningText = Array.isArray(res.ai_reasoning) ? res.ai_reasoning.join("; ") : (res.ai_reasoning || "");
+
           const itemRes: BatchItemResult = {
             image_name: item.name,
             ground_truth: item.groundTruth,
             tier: item.tier,
             model: modelId,
             modelLabel,
+            variant_id: "P1",
+            variant_name: "P1: Zero-Shot Direct (EN)",
             predicted: res.place || "Unknown",
             confidence: res.confidence || 0.0,
             time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
@@ -461,6 +473,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
             recall_rank: matchResult.rank,
             match_score: matchResult.matchScore,
             matched_alias: matchResult.matchedAlias,
+            reasoning: reasoningText,
             failure_mode: failureMode,
             temperature: temperature,
             prompt_tokens: res.metrics?.prompt_tokens ?? (res as any).prompt_tokens ?? 0,
@@ -468,6 +481,7 @@ export const BatchEvaluationCard: React.FC<BatchEvaluationCardProps> = ({
             total_tokens: res.metrics?.total_tokens ?? (res as any).total_tokens ?? 0,
             cost_usd: res.metrics?.cost_usd ?? (res as any).cost_usd ?? 0.0,
             tokens_per_sec: res.metrics?.tokens_per_sec ?? (res as any).tokens_per_sec ?? 0.0,
+            openrouter_id: res.metrics?.openrouter_id || "",
           };
 
           itemResults.push(itemRes);

@@ -666,7 +666,12 @@ export function classifyErrorCategory(
     pNorm.includes("unidentifiable") ||
     pNorm.includes("n/a") ||
     context.conditionCategory === "Quality" ||
-    (context.conditionLabel && ["blurred", "low_res", "noisy", "nighttime", "harsh_shadows"].includes(context.conditionLabel)) ||
+    context.conditionCategory === "Occlusion" ||
+    (context.conditionLabel && [
+      "blurred", "low_res", "noisy", "nighttime", "harsh_shadows",
+      "tourist_crowd_occlusion", "vehicle_umbrella_obstacle", "motion_blur_partial_view",
+      "heavy_rain_wet", "dense_fog_mist", "night_spotlight"
+    ].includes(context.conditionLabel)) ||
     (context.tier === "tier4_ugc" && context.confidence < 0.35)
   ) {
     return "degradation_rejection";

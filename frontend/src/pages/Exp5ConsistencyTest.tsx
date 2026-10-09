@@ -40,6 +40,7 @@ import {
   Activity,
   FileCode2,
   Check,
+  CheckCheck,
   Play,
   RotateCcw,
   Sparkles,
@@ -69,20 +70,29 @@ interface Exp5RunResult {
   total_runs: number;
   model: AIModelType;
   modelLabel: string;
+  variant_id?: string;
+  variant_name?: string;
   predicted: string;
   confidence: number;
   time_ms: number;
   is_correct: boolean;
+  recall_rank?: number;
   match_score?: number;
   user_verified?: boolean;
   tier?: VPRTier;
   matched_alias?: string | null;
+  reasoning?: string;
   failure_mode?: FailureMode;
   temperature?: number;
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
   cost_usd?: number;
+  tokens_per_sec?: number;
+  openrouter_id?: string;
+  generation_time_ms?: number;
+  pure_tokens_per_sec?: number;
+  provider_name?: string;
 }
 
 interface Exp5History {
@@ -94,10 +104,15 @@ interface Exp5History {
   model: string;
   run_number: number | string;
   total_runs: number | string;
+  variant_id?: string;
+  variant_name?: string;
   predicted: string;
   confidence: number | string;
   time_ms: number | string;
   is_correct: string | boolean;
+  recall_rank?: number;
+  matched_alias?: string | null;
+  reasoning?: string;
   failure_mode?: FailureMode;
   temperature?: number;
   prompt_tokens?: number;
@@ -105,6 +120,10 @@ interface Exp5History {
   total_tokens?: number;
   cost_usd?: number;
   tokens_per_sec?: number;
+  openrouter_id?: string;
+  generation_time_ms?: number;
+  pure_tokens_per_sec?: number;
+  provider_name?: string;
 }
 
 function isTruthy(v: string | boolean | undefined): boolean {
@@ -120,7 +139,7 @@ export default function Exp5ConsistencyTest() {
     "google-gemini-38-flash",
   ]);
   const [numRuns, setNumRuns] = useState<number>(5);
-  const [temperature, setTemperature] = useState<number>(0.7);
+  const [temperature, setTemperature] = useState<number>(0.1);
 
   const [isRunning, setIsRunning] = useState(false);
   const [progressLabel, setProgressLabel] = useState("");
@@ -142,10 +161,15 @@ export default function Exp5ConsistencyTest() {
           model: row["Model"] || row.model || "",
           run_number: row["Run Number"] !== undefined ? row["Run Number"] : row.run_number,
           total_runs: row["Total Runs"] !== undefined ? row["Total Runs"] : row.total_runs,
+          variant_id: row["Prompt Variant ID"] || row.variant_id || "P1",
+          variant_name: row["Prompt Variant Name"] || row.variant_name || "P1: Zero-Shot Direct (EN)",
           predicted: row["Predicted Place"] || row.predicted || "",
           confidence: row["Confidence"] !== undefined ? row["Confidence"] : row.confidence,
           time_ms: row["Time MS"] !== undefined ? row["Time MS"] : row.time_ms,
           is_correct: row["Is Correct"] !== undefined ? row["Is Correct"] : row.is_correct,
+          recall_rank: row["Recall Rank"] !== undefined ? Number(row["Recall Rank"]) : (isTruthy(row["Is Correct"] || row.is_correct) ? 1 : 0),
+          matched_alias: row["Matched Alias"] || row.matched_alias || null,
+          reasoning: row["AI Reasoning"] || row.reasoning || "",
           failure_mode: (row["Failure Mode"] || row.failure_mode || "none") as FailureMode,
           temperature: row["Temperature"] !== undefined ? Number(row["Temperature"]) : 0.7,
           prompt_tokens: row["Prompt Tokens"] !== undefined ? Number(row["Prompt Tokens"]) : row.prompt_tokens,
@@ -153,6 +177,10 @@ export default function Exp5ConsistencyTest() {
           total_tokens: row["Total Tokens"] !== undefined ? Number(row["Total Tokens"]) : row.total_tokens,
           cost_usd: row["Cost USD"] !== undefined ? Number(row["Cost USD"]) : row.cost_usd,
           tokens_per_sec: row["Tokens Per Sec"] !== undefined ? Number(row["Tokens Per Sec"]) : row.tokens_per_sec,
+          openrouter_id: row["OpenRouter ID"] || row.openrouter_id || "",
+          generation_time_ms: row["Generation Time MS"] ? Number(row["Generation Time MS"]) : undefined,
+          pure_tokens_per_sec: row["Pure Tokens Per Sec"] ? Number(row["Pure Tokens Per Sec"]) : undefined,
+          provider_name: row["Provider Name"] || row.provider_name || "",
         }));
         setDbLogs(mapped);
       }
@@ -205,7 +233,7 @@ export default function Exp5ConsistencyTest() {
             imageFile,
             mVal,
             (step) => setProgressLabel(`[${modelLabel}] Run ${i}/${numRuns}: ${step}`),
-            { allowFallback: false, temperature }
+            { allowFallback: false, temperature, promptVariant: "P1" }
           );
         } catch (err) {
           console.error(`Exp5 [${modelLabel}] Run ${i} error:`, err);
@@ -229,14 +257,18 @@ export default function Exp5ConsistencyTest() {
           total_runs: numRuns,
           model: mVal,
           modelLabel,
+          variant_id: "P1",
+          variant_name: "P1: Zero-Shot Direct (EN)",
           predicted: pred,
           confidence: res.confidence || 0.0,
           time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
           is_correct: match.isCorrect,
+          recall_rank: match.rank,
           match_score: match.matchScore,
           user_verified: false,
           tier: singleTier,
           matched_alias: match.matchedAlias,
+          reasoning: Array.isArray(res.ai_reasoning) ? res.ai_reasoning.join("; ") : (res.ai_reasoning || ""),
           failure_mode: failureMode,
           temperature,
           prompt_tokens: res.metrics?.prompt_tokens ?? 0,
@@ -244,6 +276,7 @@ export default function Exp5ConsistencyTest() {
           total_tokens: res.metrics?.total_tokens ?? 0,
           cost_usd: res.metrics?.cost_usd ?? 0.0,
           tokens_per_sec: res.metrics?.tokens_per_sec ?? 0.0,
+          openrouter_id: res.metrics?.openrouter_id || "",
         });
 
         setCurrentResults([...temp]);
@@ -280,6 +313,20 @@ export default function Exp5ConsistencyTest() {
     });
   };
 
+  const markAllCorrect = () => {
+    if (currentResults.length === 0) return;
+    setCurrentResults((prev) =>
+      prev.map((r) => ({
+        ...r,
+        is_correct: true,
+        user_verified: true,
+        recall_rank: r.recall_rank && r.recall_rank > 0 ? r.recall_rank : 1,
+        failure_mode: "none",
+      }))
+    );
+    toast.success(`Marked all ${currentResults.length} repetition trials as Correct! (Click "Commit Session" when ready)`);
+  };
+
   const commitResults = async () => {
     if (currentResults.length === 0) return;
 
@@ -294,10 +341,15 @@ export default function Exp5ConsistencyTest() {
         model: r.model,
         run_number: r.run_number,
         total_runs: r.total_runs,
+        variant_id: r.variant_id || "P1",
+        variant_name: r.variant_name || "P1: Zero-Shot Direct (EN)",
         predicted: r.predicted,
         confidence: r.confidence,
         time_ms: r.time_ms,
         is_correct: r.is_correct,
+        recall_rank: r.recall_rank,
+        matched_alias: r.matched_alias,
+        reasoning: r.reasoning || "",
         tier: r.tier || singleTier,
         temperature,
         failure_mode: r.failure_mode || "none",
@@ -306,6 +358,7 @@ export default function Exp5ConsistencyTest() {
         total_tokens: r.total_tokens ?? 0,
         cost_usd: r.cost_usd ?? 0.0,
         tokens_per_sec: r.tokens_per_sec ?? 0.0,
+        openrouter_id: r.openrouter_id || "",
       })),
     };
 
@@ -500,17 +553,26 @@ ${rows}
       "Model",
       "Run Number",
       "Total Runs",
-      "Temperature",
+      "Prompt Variant ID",
+      "Prompt Variant Name",
       "Predicted Place",
       "Confidence",
       "Time MS",
       "Is Correct",
+      "Recall Rank",
+      "Matched Alias",
+      "AI Reasoning",
+      "Temperature",
       "Failure Mode",
       "Prompt Tokens",
       "Completion Tokens",
       "Total Tokens",
       "Cost USD",
       "Tokens Per Sec",
+      "Generation Time MS",
+      "Pure Tokens Per Sec",
+      "Provider Name",
+      "OpenRouter ID",
     ];
 
     const rows = records.map((log) => [
@@ -522,17 +584,26 @@ ${rows}
       log.model,
       log.run_number,
       log.total_runs,
-      log.temperature ?? temperature,
+      log.variant_id || "P1",
+      log.variant_name || "P1: Zero-Shot Direct (EN)",
       log.predicted || "",
       log.confidence !== undefined ? Number(log.confidence).toFixed(4) : "",
       log.time_ms,
       isTruthy(log.is_correct) ? "True" : "False",
+      log.recall_rank !== undefined ? log.recall_rank : (isTruthy(log.is_correct) ? 1 : 0),
+      log.matched_alias || "",
+      log.reasoning || "",
+      log.temperature ?? temperature,
       log.failure_mode || "none",
       log.prompt_tokens ?? "",
       log.completion_tokens ?? "",
       log.total_tokens ?? "",
       log.cost_usd !== undefined ? Number(log.cost_usd).toFixed(6) : "",
       log.tokens_per_sec !== undefined ? Number(log.tokens_per_sec).toFixed(2) : "",
+      log.generation_time_ms ?? "",
+      log.pure_tokens_per_sec !== undefined ? Number(log.pure_tokens_per_sec).toFixed(2) : "",
+      log.provider_name || "",
+      log.openrouter_id || "",
     ]);
 
     const filename = `VPR_Thesis_Exp5_Consistency_${new Date().toISOString().slice(0, 10)}.csv`;
@@ -546,12 +617,15 @@ ${rows}
         {/* Header Title */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="text-left">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
                 Experiment 5: Model Consistency & Operational Stability
               </h2>
               <Badge className="bg-rose-50 text-rose-700 border-rose-200 text-xs font-semibold">
                 Thesis Chap. 4.5
+              </Badge>
+              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-semibold">
+                Prompt: P1 Zero-Shot (Exp 4 Optimal)
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -757,8 +831,8 @@ ${rows}
 
         {/* Main 2-Column Area */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column: SETUP (5 cols) */}
-          <div className="lg:col-span-5 space-y-6">
+          {/* Left Column: SETUP (4-5 cols) */}
+          <div className="lg:col-span-5 xl:col-span-4 space-y-6">
             <Card className="bg-white border-slate-200 shadow-sm text-left">
               <CardHeader className="border-b border-slate-100 pb-4">
                 <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -944,7 +1018,7 @@ ${rows}
                   </div>
                   <div className="grid grid-cols-4 gap-1.5">
                     {[
-                      { val: 0.0, label: "0.0 Greedy" },
+                      { val: 0.1, label: "0.1 Greedy" },
                       { val: 0.2, label: "0.2 Low" },
                       { val: 0.7, label: "0.7 Std" },
                       { val: 1.0, label: "1.0 High" },
@@ -963,7 +1037,7 @@ ${rows}
                     ))}
                   </div>
                   <p className="text-[10px] text-slate-400">
-                    Set T=0.0 to test deterministic stability, or T=0.7+ to measure stochastic variance.
+                    Set T=0.1 to test deterministic baseline, or T=0.7 to measure stochastic variance.
                   </p>
                 </div>
 
@@ -991,8 +1065,8 @@ ${rows}
             </Card>
           </div>
 
-          {/* Right Column: LIVE RUNS TABLE (7 cols) */}
-          <div className="lg:col-span-7 space-y-6">
+          {/* Right Column: LIVE RUNS TABLE (7-8 cols) */}
+          <div className="lg:col-span-7 xl:col-span-8 space-y-6">
             <Card className="bg-white border-slate-200 shadow-sm text-left">
               <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-slate-100">
                 <div>
@@ -1005,14 +1079,28 @@ ${rows}
                   </CardDescription>
                 </div>
                 {currentResults.length > 0 && (
-                  <Button
-                    onClick={commitResults}
-                    size="sm"
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-xs"
-                  >
-                    <Save className="w-3.5 h-3.5 mr-1" />
-                    Commit Session
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={markAllCorrect}
+                      className="text-xs h-8 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300 font-semibold shadow-2xs transition-colors"
+                      disabled={isRunning}
+                      title="Mark all repetition runs in this session as Correct"
+                    >
+                      <CheckCheck className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                      Correct All
+                    </Button>
+                    <Button
+                      onClick={commitResults}
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-xs"
+                      disabled={isRunning}
+                    >
+                      <Save className="w-3.5 h-3.5 mr-1" />
+                      Commit Session
+                    </Button>
+                  </div>
                 )}
               </CardHeader>
 
@@ -1024,24 +1112,70 @@ ${rows}
                     <p className="text-[10px] text-slate-400 mt-1">Upload a photo and click Execute Stability Test.</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-                    <Table>
-                      <TableHeader className="bg-slate-50">
-                        <TableRow className="border-b border-slate-200 text-xs">
-                          <TableHead className="py-2.5">Model</TableHead>
-                          <TableHead className="py-2.5">Run #</TableHead>
-                          <TableHead className="py-2.5">Tier</TableHead>
-                          <TableHead className="py-2.5">Prediction</TableHead>
-                          <TableHead className="py-2.5 text-center">Tokens (In / Out)</TableHead>
-                          <TableHead className="py-2.5 text-center">Cost ($)</TableHead>
-                          <TableHead className="py-2.5 text-center">Latency</TableHead>
-                          <TableHead className="py-2.5 text-center">Failure Mode</TableHead>
-                          <TableHead className="py-2.5 text-center">Double-Check (Verdict)</TableHead>
-                        </TableRow>
-                      </TableHeader>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gradient-to-r from-rose-50/60 via-slate-50 to-emerald-50/60 rounded-xl border border-slate-200 shadow-2xs">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                        <span className="text-xs font-bold text-slate-800">Repetition Verification Verdict</span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-xs">
+                        <span className="font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px]">
+                          ✓ {currentResults.filter((r) => r.is_correct).length} Correct
+                        </span>
+                        <span className="font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md border border-rose-200 text-[11px]">
+                          ✗ {currentResults.filter((r) => !r.is_correct).length} Wrong
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={markAllCorrect}
+                          disabled={isRunning}
+                          className="h-6 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100/80 rounded border border-emerald-300 transition-colors cursor-pointer"
+                          title="Mark all repetition runs in this session as Correct"
+                        >
+                          <CheckCheck className="w-3 h-3 mr-1 text-emerald-600" />
+                          Correct All
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                      <Table>
+                        <TableHeader className="bg-slate-50">
+                          <TableRow className="border-b border-slate-200 text-xs">
+                            <TableHead className="py-2.5">Model</TableHead>
+                            <TableHead className="py-2.5">Run #</TableHead>
+                            <TableHead className="py-2.5">Tier</TableHead>
+                            <TableHead className="py-2.5 min-w-[220px]">Prediction</TableHead>
+                            <TableHead className="py-2.5 text-center">Tokens (In / Out)</TableHead>
+                            <TableHead className="py-2.5 text-center">Cost ($)</TableHead>
+                            <TableHead className="py-2.5 text-center">Latency</TableHead>
+                            <TableHead className="py-2.5 text-center">Failure Mode</TableHead>
+                            <TableHead className="py-2.5 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <span>Double-Check (Verdict)</span>
+                                <button
+                                  type="button"
+                                  onClick={markAllCorrect}
+                                  disabled={isRunning}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 hover:bg-emerald-200 rounded border border-emerald-300 transition-colors cursor-pointer"
+                                  title="Mark all runs as Correct"
+                                >
+                                  <CheckCheck className="w-3 h-3 text-emerald-600" />
+                                  Correct All
+                                </button>
+                              </div>
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
                       <TableBody>
                         {currentResults.map((r, idx) => (
-                          <TableRow key={idx} className="border-b border-slate-100 text-xs">
+                          <TableRow
+                            key={idx}
+                            className={`border-b border-slate-100 text-xs transition-colors ${
+                              r.is_correct ? "bg-emerald-50/20" : ""
+                            }`}
+                          >
                             <TableCell className="font-semibold text-slate-800 py-2.5 text-xs whitespace-nowrap">
                               {r.modelLabel}
                             </TableCell>
@@ -1058,8 +1192,8 @@ ${rows}
                                 );
                               })()}
                             </TableCell>
-                            <TableCell className="py-2.5">
-                              <span className="font-semibold text-slate-900 block truncate max-w-[150px]">{r.predicted}</span>
+                            <TableCell className="py-2.5 min-w-[220px]">
+                              <span className="font-semibold text-slate-900 block break-words" title={r.predicted}>{r.predicted}</span>
                               {r.matched_alias && (
                                 <span className="text-[10px] text-emerald-600 block">Matched: "{r.matched_alias}"</span>
                               )}
@@ -1111,6 +1245,7 @@ ${rows}
                       </TableBody>
                     </Table>
                   </div>
+                </div>
                 )}
               </CardContent>
             </Card>
@@ -1146,7 +1281,7 @@ ${rows}
                         <TableHead className="py-2">Tier</TableHead>
                         <TableHead className="py-2">Temp</TableHead>
                         <TableHead className="py-2">Model</TableHead>
-                        <TableHead className="py-2">Prediction</TableHead>
+                        <TableHead className="py-2 min-w-[200px]">Prediction</TableHead>
                         <TableHead className="py-2 text-center">Failure Mode</TableHead>
                         <TableHead className="py-2 text-right">Result</TableHead>
                       </TableRow>
@@ -1166,7 +1301,7 @@ ${rows}
                               T={row.temperature ?? 0.7}
                             </TableCell>
                             <TableCell className="py-2 font-medium text-slate-800">{row.model}</TableCell>
-                            <TableCell className="py-2 text-slate-700 truncate max-w-[130px]">{row.predicted}</TableCell>
+                            <TableCell className="py-2 text-slate-700 min-w-[200px] break-words" title={row.predicted}>{row.predicted}</TableCell>
                             <TableCell className="py-2 text-center">
                               {isTruthy(row.is_correct) ? (
                                 <span className="text-[10px] text-slate-400">-</span>

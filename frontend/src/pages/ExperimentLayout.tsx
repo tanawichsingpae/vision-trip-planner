@@ -73,7 +73,7 @@ export const ExperimentLayout: React.FC<ExperimentLayoutProps> = ({ children }) 
     <div className="min-h-screen bg-slate-50/60 text-slate-900 font-sans pb-16 antialiased">
       {/* Top Glassmorphic Navigation Bar */}
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-10">
           <div className="flex items-center justify-between h-16">
             {/* Logo & Navigation Back */}
             <div className="flex items-center space-x-3 sm:space-x-4">
@@ -154,7 +154,7 @@ export const ExperimentLayout: React.FC<ExperimentLayoutProps> = ({ children }) 
       </header>
 
       {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+      <main className="w-full px-4 sm:px-6 lg:px-8 xl:px-10 pt-6">
         {children}
       </main>
     </div>

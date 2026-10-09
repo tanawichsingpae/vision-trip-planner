@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Clock,
   Check,
+  CheckCheck,
   AlertCircle,
   Scale,
   FileCode2,
@@ -93,6 +94,8 @@ import {
 interface TrialResult {
   model: AIModelType;
   modelLabel: string;
+  variant_id?: string;
+  variant_name?: string;
   predicted: string;
   confidence: number;
   time_ms: number;
@@ -100,6 +103,7 @@ interface TrialResult {
   recall_rank: number;
   match_score: number;
   matched_alias: string | null;
+  reasoning?: string;
   user_verified?: boolean;
   failure_mode?: FailureMode;
   temperature?: number;
@@ -109,6 +113,10 @@ interface TrialResult {
   total_tokens?: number;
   cost_usd?: number;
   tokens_per_sec?: number;
+  openrouter_id?: string;
+  generation_time_ms?: number;
+  pure_tokens_per_sec?: number;
+  provider_name?: string;
 }
 
 interface HistoricalRecord {
@@ -118,12 +126,15 @@ interface HistoricalRecord {
   tier: VPRTier;
   model: AIModelType;
   modelLabel: string;
+  variant_id?: string;
+  variant_name?: string;
   predicted: string;
   confidence: number;
   time_ms: number;
   is_correct: boolean;
   recall_rank?: number;
   matched_alias?: string | null;
+  reasoning?: string;
   failure_mode?: FailureMode;
   temperature?: number;
   prompt_tokens?: number;
@@ -131,6 +142,10 @@ interface HistoricalRecord {
   total_tokens?: number;
   cost_usd?: number;
   tokens_per_sec?: number;
+  openrouter_id?: string;
+  generation_time_ms?: number;
+  pure_tokens_per_sec?: number;
+  provider_name?: string;
 }
 
 export default function ExperimentConsole() {
@@ -147,7 +162,7 @@ export default function ExperimentConsole() {
   // Ground truth, pipeline config & temperature
   const [groundTruth, setGroundTruth] = useState<string>("");
   const [useClip, setUseClip] = useState<boolean>(false);
-  const [benchmarkTemperature, setBenchmarkTemperature] = useState<number>(0.0);
+  const [benchmarkTemperature, setBenchmarkTemperature] = useState<number>(0.1);
 
   // Models selected for testing
   const [selectedModels, setSelectedModels] = useState<AIModelType[]>(
@@ -195,8 +210,12 @@ export default function ExperimentConsole() {
             ...row,
             tier: normalizeTier(row.tier),
             modelLabel: opt ? opt.label : row.model,
+            variant_id: row.variant_id || row["Prompt Variant ID"] || "P1",
+            variant_name: row.variant_name || row["Prompt Variant Name"] || "P1: Zero-Shot Direct (EN)",
             is_correct: isCorr,
             recall_rank: row.recall_rank !== undefined ? Number(row.recall_rank) : isCorr ? 1 : 0,
+            matched_alias: row.matched_alias || row["Matched Alias"] || null,
+            reasoning: row.reasoning || row["AI Reasoning"] || "",
             failure_mode: fm as FailureMode,
             temperature: row.temperature !== undefined ? Number(row.temperature) : (row["Temperature"] !== undefined ? Number(row["Temperature"]) : 0.0),
             prompt_tokens: row.prompt_tokens ? Number(row.prompt_tokens) : 0,
@@ -204,6 +223,10 @@ export default function ExperimentConsole() {
             total_tokens: row.total_tokens ? Number(row.total_tokens) : 0,
             cost_usd: row.cost_usd ? Number(row.cost_usd) : 0.0,
             tokens_per_sec: row.tokens_per_sec ? Number(row.tokens_per_sec) : 0.0,
+            openrouter_id: row.openrouter_id || row["OpenRouter ID"] || "",
+            generation_time_ms: row.generation_time_ms !== undefined && row.generation_time_ms !== null ? Number(row.generation_time_ms) : (row["Generation Time MS"] ? Number(row["Generation Time MS"]) : undefined),
+            pure_tokens_per_sec: row.pure_tokens_per_sec !== undefined && row.pure_tokens_per_sec !== null ? Number(row.pure_tokens_per_sec) : (row["Pure Tokens Per Sec"] ? Number(row["Pure Tokens Per Sec"]) : undefined),
+            provider_name: row.provider_name || row["Provider Name"] || "",
           };
         });
         setDbLogs(mapped);
@@ -311,7 +334,7 @@ export default function ExperimentConsole() {
               imageFile,
               modelId,
               (step) => setProgressLabel(`[${modelLabel}] ${step}`),
-              { allowFallback: false, temperature: benchmarkTemperature }
+              { allowFallback: false, temperature: benchmarkTemperature, promptVariant: "P1" }
             );
         const endTime = performance.now();
         const duration = Math.round(endTime - startTime);
@@ -334,9 +357,13 @@ export default function ExperimentConsole() {
           tier: singleTier,
         });
 
+        const reasoningText = Array.isArray(res.ai_reasoning) ? res.ai_reasoning.join("; ") : (res.ai_reasoning || "");
+
         tempResults.push({
           model: modelId,
           modelLabel,
+          variant_id: "P1",
+          variant_name: "P1: Zero-Shot Direct (EN)",
           predicted: prediction,
           confidence,
           time_ms: res.metrics?.latency_ms ? Math.round(res.metrics.latency_ms) : duration,
@@ -344,6 +371,7 @@ export default function ExperimentConsole() {
           recall_rank: evalResult.rank,
           match_score: evalResult.matchScore,
           matched_alias: evalResult.matchedAlias,
+          reasoning: reasoningText,
           user_verified: false,
           failure_mode: failureMode,
           temperature: benchmarkTemperature,
@@ -353,12 +381,37 @@ export default function ExperimentConsole() {
           total_tokens: res.metrics?.total_tokens ?? 0,
           cost_usd: res.metrics?.cost_usd ?? 0.0,
           tokens_per_sec: res.metrics?.tokens_per_sec ?? 0.0,
+          openrouter_id: res.metrics?.openrouter_id || "",
         });
 
         setCurrentResults([...tempResults]);
-      } catch (err) {
+      } catch (err: any) {
         console.error(`Error running VPR for ${modelLabel}:`, err);
-        toast.error(`Failed to get VPR prediction from ${modelLabel}`);
+        const errMsg = err?.message || String(err);
+        const isRateLimit = errMsg.includes("429") || errMsg.includes("rate-limit") || errMsg.includes("temporarily");
+        toast.warning(`[${modelLabel}] ${isRateLimit ? "Upstream rate limit (429)" : "Request error"}`);
+        tempResults.push({
+          model: modelId,
+          modelLabel,
+          predicted: isRateLimit ? "Upstream Rate-Limited (429)" : "API Error",
+          confidence: 0.0,
+          time_ms: 0,
+          is_correct: false,
+          recall_rank: 0,
+          match_score: 0,
+          matched_alias: null,
+          user_verified: false,
+          failure_mode: "degradation_rejection",
+          temperature: benchmarkTemperature,
+          tier: singleTier,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+          cost_usd: 0.0,
+          tokens_per_sec: 0.0,
+          openrouter_id: "",
+        });
+        setCurrentResults([...tempResults]);
       }
     }
 
@@ -382,6 +435,21 @@ export default function ExperimentConsole() {
       };
       return copy;
     });
+  };
+
+  // Mark all current predictions as correct without saving yet
+  const markAllCorrect = () => {
+    if (currentResults.length === 0) return;
+    setCurrentResults((prev) =>
+      prev.map((r) => ({
+        ...r,
+        is_correct: true,
+        user_verified: true,
+        recall_rank: r.recall_rank > 0 ? r.recall_rank : 1,
+        failure_mode: "none",
+      }))
+    );
+    toast.success(`Marked all ${currentResults.length} predictions as Correct! (Click "Log to CSV" when ready)`);
   };
 
   // Update failure mode symptom manually
@@ -410,12 +478,15 @@ export default function ExperimentConsole() {
       temperature: benchmarkTemperature,
       results: currentResults.map((r) => ({
         model: r.model,
+        variant_id: r.variant_id || "P1",
+        variant_name: r.variant_name || "P1: Zero-Shot Direct (EN)",
         predicted: r.predicted,
         confidence: r.confidence,
         time_ms: r.time_ms,
         is_correct: r.is_correct,
         recall_rank: r.recall_rank,
         matched_alias: r.matched_alias,
+        reasoning: r.reasoning || "",
         temperature: r.temperature ?? benchmarkTemperature,
         failure_mode: r.failure_mode ?? "none",
         tier: r.tier || singleTier,
@@ -424,6 +495,7 @@ export default function ExperimentConsole() {
         total_tokens: r.total_tokens ?? 0,
         cost_usd: r.cost_usd ?? 0.0,
         tokens_per_sec: r.tokens_per_sec ?? 0.0,
+        openrouter_id: r.openrouter_id || "",
       })),
     };
 
@@ -496,14 +568,16 @@ export default function ExperimentConsole() {
   const tierBreakdown = useMemo(() => {
     const tierCounts: Record<VPRTier, { total: number; correct: number }> = {
       tier1_iconic: { total: 0, correct: 0 },
-      tier2_long_tail: { total: 0, correct: 0 },
-      tier3_nature_landscape: { total: 0, correct: 0 },
-      tier4_social_ugc: { total: 0, correct: 0 },
+      tier2_longtail: { total: 0, correct: 0 },
+      tier3_nature: { total: 0, correct: 0 },
+      tier4_ugc: { total: 0, correct: 0 },
     };
     dbLogs.forEach((l) => {
       const t = normalizeTier(l.tier);
-      tierCounts[t].total += 1;
-      if (l.is_correct) tierCounts[t].correct += 1;
+      if (tierCounts[t]) {
+        tierCounts[t].total += 1;
+        if (l.is_correct) tierCounts[t].correct += 1;
+      }
     });
 
     const modelMap = new Map<
@@ -523,21 +597,23 @@ export default function ExperimentConsole() {
           label,
           tiers: {
             tier1_iconic: { total: 0, correct: 0, times: [] },
-            tier2_long_tail: { total: 0, correct: 0, times: [] },
-            tier3_nature_landscape: { total: 0, correct: 0, times: [] },
-            tier4_social_ugc: { total: 0, correct: 0, times: [] },
+            tier2_longtail: { total: 0, correct: 0, times: [] },
+            tier3_nature: { total: 0, correct: 0, times: [] },
+            tier4_ugc: { total: 0, correct: 0, times: [] },
           },
         });
       }
       const entry = modelMap.get(m)!;
-      entry.tiers[t].total += 1;
-      if (l.is_correct) entry.tiers[t].correct += 1;
-      entry.tiers[t].times.push(l.time_ms);
+      if (entry.tiers[t]) {
+        entry.tiers[t].total += 1;
+        if (l.is_correct) entry.tiers[t].correct += 1;
+        entry.tiers[t].times.push(l.time_ms);
+      }
     });
 
     const matrixRows = Array.from(modelMap.entries()).map(([model, data]) => {
       const calcR1 = (t: VPRTier) =>
-        data.tiers[t].total > 0
+        data.tiers[t] && data.tiers[t].total > 0
           ? parseFloat(((data.tiers[t].correct / data.tiers[t].total) * 100).toFixed(1))
           : null;
       const totalAll = Object.values(data.tiers).reduce((s, x) => s + x.total, 0);
@@ -548,9 +624,9 @@ export default function ExperimentConsole() {
         model,
         modelLabel: data.label,
         tier1_iconic: calcR1("tier1_iconic"),
-        tier2_longtail: calcR1("tier2_long_tail"),
-        tier3_nature: calcR1("tier3_nature_landscape"),
-        tier4_ugc: calcR1("tier4_social_ugc"),
+        tier2_longtail: calcR1("tier2_longtail"),
+        tier3_nature: calcR1("tier3_nature"),
+        tier4_ugc: calcR1("tier4_ugc"),
         overall: r1All,
       };
     }).sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0));
@@ -776,12 +852,26 @@ export default function ExperimentConsole() {
       "Ground Truth",
       "Tier",
       "Model",
+      "Prompt Variant ID",
+      "Prompt Variant Name",
       "Predicted Place",
       "Confidence",
       "Time MS",
       "Is Correct",
       "Recall Rank",
       "Matched Alias",
+      "AI Reasoning",
+      "Temperature",
+      "Failure Mode",
+      "Prompt Tokens",
+      "Completion Tokens",
+      "Total Tokens",
+      "Cost USD",
+      "Tokens Per Sec",
+      "Generation Time MS",
+      "Pure Tokens Per Sec",
+      "Provider Name",
+      "OpenRouter ID",
     ];
 
     const rows = dbLogs.map((log) => [
@@ -790,12 +880,26 @@ export default function ExperimentConsole() {
       `"${(log.ground_truth || "").replace(/"/g, '""')}"`,
       `"${log.tier || "tier1_iconic"}"`,
       log.model,
+      `"${log.variant_id || "P1"}"`,
+      `"${log.variant_name || "P1: Zero-Shot Direct (EN)"}"`,
       `"${(log.predicted || "").replace(/"/g, '""')}"`,
       (log.confidence || 0).toFixed(4),
       log.time_ms,
       log.is_correct ? "True" : "False",
       log.recall_rank !== undefined ? log.recall_rank : log.is_correct ? 1 : 0,
       `"${(log.matched_alias || "").replace(/"/g, '""')}"`,
+      `"${(log.reasoning || "").replace(/"/g, '""')}"`,
+      log.temperature !== undefined ? log.temperature : benchmarkTemperature,
+      `"${log.failure_mode || "none"}"`,
+      log.prompt_tokens ?? 0,
+      log.completion_tokens ?? 0,
+      log.total_tokens ?? 0,
+      log.cost_usd !== undefined ? Number(log.cost_usd).toFixed(6) : "0.000000",
+      log.tokens_per_sec !== undefined ? Number(log.tokens_per_sec).toFixed(2) : "0.00",
+      log.generation_time_ms ?? "",
+      log.pure_tokens_per_sec !== undefined ? Number(log.pure_tokens_per_sec).toFixed(2) : "",
+      `"${(log.provider_name || "").replace(/"/g, '""')}"`,
+      `"${(log.openrouter_id || "").replace(/"/g, '""')}"`,
     ]);
 
     const csvContent =
@@ -804,7 +908,7 @@ export default function ExperimentConsole() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `VPR_Thesis_Experiment1_Extended_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute("download", `VPR_Thesis_Experiment1_ModelBenchmark_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -919,8 +1023,8 @@ export default function ExperimentConsole() {
           {/* TAB 1: SINGLE QUERY BENCHMARK */}
           <TabsContent value="single" className="space-y-6 mt-4">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Left Column: SETUP PANEL (5 cols) */}
-              <div className="lg:col-span-5 space-y-6">
+              {/* Left Column: SETUP PANEL (4-5 cols) */}
+              <div className="lg:col-span-5 xl:col-span-4 space-y-6">
                 {/* Box 1: Image & Ground Truth Setup */}
                 <Card className="bg-white border-slate-200 text-slate-800 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
                   <CardHeader className="border-b border-slate-100 pb-4">
@@ -1046,12 +1150,19 @@ export default function ExperimentConsole() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-150">
                         <div className="space-y-0.5 pr-2 text-left">
-                          <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                            <Layers className="w-3.5 h-3.5 text-blue-500" />
-                            {useClip ? "2-Turn CLIP Pipeline" : "1-Turn Direct (Pure VLM)"}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                              <Layers className="w-3.5 h-3.5 text-blue-500" />
+                              {useClip ? "2-Turn CLIP Pipeline" : "1-Turn Direct (Pure VLM)"}
+                            </span>
+                            {!useClip && (
+                              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0 font-medium">
+                                P1 Zero-Shot
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-[10px] text-slate-400">
-                            {useClip ? "Proposed Retrieval-Augmented System" : "Pure Zero-Shot Model Baseline"}
+                            {useClip ? "Proposed Retrieval-Augmented System" : "Pure Zero-Shot Model Baseline (Exp 4 Optimal)"}
                           </p>
                         </div>
                         <Switch
@@ -1068,7 +1179,7 @@ export default function ExperimentConsole() {
                             <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
                             Temp ({benchmarkTemperature})
                           </span>
-                          <p className="text-[10px] text-slate-400">0.0 = Deterministic</p>
+                          <p className="text-[10px] text-slate-400">0.1 = Near-Deterministic (Optimal)</p>
                         </div>
                         <select
                           value={benchmarkTemperature}
@@ -1076,8 +1187,9 @@ export default function ExperimentConsole() {
                           disabled={isRunning}
                           className="text-xs bg-white border border-slate-200 rounded-lg px-2 py-1 font-mono text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         >
-                          <option value="0.0">0.0 (Greedy)</option>
-                          <option value="0.2">0.2 (Low)</option>
+                          <option value="0.1">0.1 (Optimal Benchmark - Exp 4)</option>
+                          <option value="0.0">0.0 (Greedy / Deterministic)</option>
+                          <option value="0.2">0.2 (Low Jitter)</option>
                           <option value="0.7">0.7 (Standard)</option>
                           <option value="1.0">1.0 (Creative)</option>
                         </select>
@@ -1182,8 +1294,8 @@ export default function ExperimentConsole() {
                 </Card>
               </div>
 
-              {/* Right Column: RESULTS BOARD & LIVE PREDICTIONS (7 cols) */}
-              <div className="lg:col-span-7 space-y-6">
+              {/* Right Column: RESULTS BOARD & LIVE PREDICTIONS (7-8 cols) */}
+              <div className="lg:col-span-7 xl:col-span-8 space-y-6">
                 {/* Box 3: Live Predictions Table */}
                 <Card className="bg-white border-slate-200 text-slate-800 shadow-sm hover:shadow-md transition-shadow">
                   <CardHeader className="border-b border-slate-100 pb-4 flex flex-row items-center justify-between">
@@ -1197,7 +1309,7 @@ export default function ExperimentConsole() {
                       </CardDescription>
                     </div>
                     {currentResults.length > 0 && (
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         <Button
                           variant="outline"
                           onClick={clearCurrent}
@@ -1206,6 +1318,16 @@ export default function ExperimentConsole() {
                         >
                           <RotateCcw className="w-3 h-3 mr-1" />
                           Reset
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={markAllCorrect}
+                          className="text-xs h-8 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300 font-semibold shadow-xs transition-colors"
+                          disabled={isRunning}
+                          title="Mark all predictions in this trial as Correct (does not save until Log to CSV is clicked)"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                          Correct All
                         </Button>
                         <Button
                           onClick={commitResults}
@@ -1259,12 +1381,26 @@ export default function ExperimentConsole() {
                             <TableHeader className="bg-slate-50">
                               <TableRow className="border-b border-slate-200">
                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-left">Model</TableHead>
-                                <TableHead className="text-slate-500 text-xs py-3 font-semibold text-left">Prediction</TableHead>
+                                <TableHead className="text-slate-500 text-xs py-3 font-semibold text-left min-w-[220px]">Prediction</TableHead>
                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Recall Rank</TableHead>
                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Tokens (In / Out)</TableHead>
                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Cost / Req</TableHead>
                                  <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Latency & Speed</TableHead>
-                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Double-Check (Verdict)</TableHead>
+                                 <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <span>Double-Check (Verdict)</span>
+                                    <button
+                                      type="button"
+                                      onClick={markAllCorrect}
+                                      disabled={isRunning}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 hover:bg-emerald-200 rounded border border-emerald-300 transition-colors cursor-pointer"
+                                      title="Mark all models as Correct without saving yet"
+                                    >
+                                      <CheckCheck className="w-3 h-3 text-emerald-600" />
+                                      Correct All
+                                    </button>
+                                  </div>
+                                </TableHead>
                                  <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Failure Mode</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -1281,8 +1417,8 @@ export default function ExperimentConsole() {
                                   <TableCell className="font-medium text-slate-700 py-3 text-xs text-left">
                                     {row.modelLabel}
                                   </TableCell>
-                                  <TableCell className="py-3 text-xs text-left">
-                                    <span className="font-semibold text-slate-900 block">{row.predicted}</span>
+                                  <TableCell className="py-3 text-xs text-left min-w-[220px]">
+                                    <span className="font-semibold text-slate-900 block break-words" title={row.predicted}>{row.predicted}</span>
                                     {row.matched_alias && (
                                       <span className="text-[10px] text-emerald-600 block">
                                         Matched: "{row.matched_alias}"
@@ -1346,11 +1482,14 @@ export default function ExperimentConsole() {
                                         onChange={(e) => updateFailureMode(idx, e.target.value as FailureMode)}
                                         className="text-[10px] bg-rose-50 border border-rose-200 text-rose-800 rounded px-1.5 py-1 font-semibold focus:outline-none focus:ring-1 focus:ring-rose-400"
                                       >
-                                        {FAILURE_MODE_OPTIONS.filter((o) => o.value !== "none").map((opt) => (
-                                          <option key={opt.value} value={opt.value}>
-                                            {opt.icon} {opt.shortLabel}
-                                          </option>
-                                        ))}
+                                        {FAILURE_MODE_OPTIONS.filter((mode) => mode !== "none").map((mode) => {
+                                          const cfg = FAILURE_MODE_CONFIGS[mode];
+                                          return (
+                                            <option key={mode} value={mode}>
+                                              {cfg?.shortName || mode} ({cfg?.labelTh || ""})
+                                            </option>
+                                          );
+                                        })}
                                       </select>
                                     )}
                                   </TableCell>
@@ -2240,7 +2379,7 @@ export default function ExperimentConsole() {
                       <TableHead className="text-slate-500 text-xs py-3 font-semibold text-left">Tier</TableHead>
                       <TableHead className="text-slate-500 text-xs py-3 font-semibold text-left">Ground Truth</TableHead>
                       <TableHead className="text-slate-500 text-xs py-3 font-semibold text-left">Model</TableHead>
-                      <TableHead className="text-slate-500 text-xs py-3 font-semibold text-left">Prediction</TableHead>
+                      <TableHead className="text-slate-500 text-xs py-3 font-semibold text-left min-w-[200px]">Prediction</TableHead>
                       <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Recall Rank</TableHead>
                       <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Temp</TableHead>
                       <TableHead className="text-slate-500 text-xs py-3 font-semibold text-center">Latency</TableHead>
@@ -2267,13 +2406,13 @@ export default function ExperimentConsole() {
                             );
                           })()}
                         </TableCell>
-                        <TableCell className="py-3 text-slate-700 text-xs text-left max-w-[140px] truncate" title={log.ground_truth}>
+                        <TableCell className="py-3 text-slate-700 text-xs text-left min-w-[150px] break-words" title={log.ground_truth}>
                           {log.ground_truth}
                         </TableCell>
                         <TableCell className="py-3 text-slate-700 text-xs text-left">
                           {log.modelLabel || log.model}
                         </TableCell>
-                        <TableCell className="py-3 font-semibold text-slate-900 text-xs text-left">
+                        <TableCell className="py-3 font-semibold text-slate-900 text-xs text-left min-w-[200px] break-words" title={log.predicted}>
                           {log.predicted}
                         </TableCell>
                         <TableCell className="py-3 text-center text-xs">

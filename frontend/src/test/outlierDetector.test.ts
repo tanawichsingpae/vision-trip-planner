@@ -260,6 +260,70 @@ describe("Vision AI Outlier Detection & Geo-Distance Rules", () => {
     expect(outliers[1].category).toBe("NON_TRAVEL");
   });
 
+  it("should keep valid travel destinations captured as screenshots (Exp2 UGC & Screenshot Support)", () => {
+    const results: GeoVisionResult[] = [
+      {
+        place: "Omoide Yokocho",
+        country: "Japan",
+        type: "screenshot", // Model tagged as screenshot, but is_identifiable_place is true
+        confidence: 0.88,
+        is_identifiable_place: true,
+        lat: 35.6931,
+        lng: 139.7001,
+        similar_locations: [],
+      },
+      {
+        place: "Shibuya Crossing",
+        country: "Japan",
+        type: "landmark",
+        confidence: 0.95,
+        is_identifiable_place: true,
+        lat: 35.6595,
+        lng: 139.7004,
+        similar_locations: [],
+      },
+    ];
+
+    const { kept, outliers } = detectVisionOutliers(results, true);
+
+    expect(outliers.length).toBe(0);
+    expect(kept.length).toBe(2);
+    const omoide = kept.find((k) => k.place === "Omoide Yokocho");
+    expect(omoide).toBeDefined();
+    expect(omoide!.type).toBe("landmark"); // normalized from screenshot
+  });
+
+  it("should flag pure non-travel screenshots (chats, settings) as NON_TRAVEL outliers", () => {
+    const results: GeoVisionResult[] = [
+      {
+        place: "Wat Arun",
+        country: "Thailand",
+        type: "culture",
+        confidence: 0.89,
+        lat: 13.7437,
+        lng: 100.4888,
+        similar_locations: [],
+      },
+      {
+        place: "ภาพไม่ระบุสถานที่ (ภาพแคปหน้าจอแชท / ระบบที่ไม่มีสถานที่ท่องเที่ยว)",
+        country: "-",
+        type: "screenshot",
+        confidence: 0,
+        is_identifiable_place: false,
+        non_travel_category: "screenshot",
+        rejection_reason: "ภาพนี้เป็นภาพบันทึกหน้าจอแชท ไม่ใช่สถานที่ท่องเที่ยว",
+        similar_locations: [],
+      },
+    ];
+
+    const { kept, outliers } = detectVisionOutliers(results, true);
+
+    expect(kept.length).toBe(1);
+    expect(outliers.length).toBe(1);
+    expect(outliers[0].category).toBe("NON_TRAVEL");
+    expect(outliers[0].reasonTitle).toContain("ภาพแคปหน้าจอ");
+  });
+
   it("should detect low visual confidence outliers", () => {
     const results: GeoVisionResult[] = [
       {

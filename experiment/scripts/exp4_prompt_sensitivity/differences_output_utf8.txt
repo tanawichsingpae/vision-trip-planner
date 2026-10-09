@@ -1,0 +1,371 @@
+﻿Loaded 40 images analysis.
+
+================================================================================
+1. IMAGES WHERE OTHER MODELS FAILED (Is Correct == False):
+================================================================================
+Total images with other model failures: 11 / 40
+
+Image: images15.1.jpg | Tier: tier1_iconic
+  Gemini answers:
+    P1: Forbidden City (Donghuamen Gate)
+    P2: Donghuamen (East Glorious Gate), Forbidden City
+    P3: Gate of Divine Might (Shenwumen), Forbidden City
+    P4: เธเธฃเธฐเธฃเธฒเธเธงเธฑเธเธ•เนเธญเธเธซเนเธฒเธก (Forbidden City)
+    P5: Forbidden City
+  Other models failed count: 1
+    Model: meta-llama4 [P4] -> 'เธเธฃเธฐเธเธณเธเธซเธเธฒเธเน€เธเธตเธขเธ' (Failure: hallucination_overconfidence)
+------------------------------------------------------------
+Image: images19.1.jpg | Tier: tier1_iconic
+  Gemini answers:
+    P1: Petronas Twin Towers, Kuala Lumpur
+    P2: Petronas Twin Towers
+    P3: Petronas Twin Towers
+    P4: เธ•เธถเธเนเธเธ”เน€เธเนเธ•เธฃเธเธฒเธช (Petronas Twin Towers)
+    P5: Petronas Twin Towers
+  Other models failed count: 1
+    Model: qwen-25-vl-72b [P4] -> ' ะะตัั€เธญเธเธฑเธชเธ—เธงเธดเธเธ—เธฒเธงเน€เธงเธญเธฃเน' (Failure: hallucination_overconfidence)
+------------------------------------------------------------
+Image: images09.1.jpg | Tier: tier2_longtail
+  Gemini answers:
+    P1: Sanctuary of Truth
+    P2: Sanctuary of Truth
+    P3: Sanctuary of Truth
+    P4: เธเธฃเธฒเธชเธฒเธ—เธชเธฑเธเธเธฃเธฃเธก (Sanctuary of Truth)
+    P5: Sanctuary of Truth
+  Other models failed count: 1
+    Model: meta-llama4 [P4] -> 'เธงเธฑเธ”เธเธฒเธฃเธเธงเธฒเธกเธฃเธนเน' (Failure: hallucination_overconfidence)
+------------------------------------------------------------
+Image: images12.1.jpg | Tier: tier3_nature
+  Gemini answers:
+    P1: Avatar Hallelujah Mountain (Southern Sky Column), Zhangjiajie National Forest Park
+    P2: Avatar Hallelujah Mountain (Qiankun Column), Zhangjiajie National Forest Park
+    P3: Avatar Hallelujah Mountain (Southern Sky Column), Zhangjiajie National Forest Park
+    P4: เน€เธเธฒเธญเธงเธ•เธฒเธฃเธฎเธฑเธฅเน€เธฅเธฅเธนเธขเธฒเธซเน (เน€เธชเธฒเธซเธดเธเน€เธเธตเธขเธเธเธธเธ) เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธเธฒเธเน€เธเธตเธขเน€เธเธตเนเธข
+    P5: Avatar Hallelujah Mountain (Zhangjiajie National Forest Park)
+  Other models failed count: 1
+    Model: meta-llama4 [P4] -> 'เธญเธธเธ—เธขเนเธขเธเน€เธ—เธตเนเธขเธเน€เธเธตเธขเธ' (Failure: hallucination_overconfidence)
+------------------------------------------------------------
+Image: images13.1.jpg | Tier: tier3_nature
+  Gemini answers:
+    P1: Moraine Lake
+    P2: Moraine Lake, Banff National Park
+    P3: Moraine Lake
+    P4: เธ—เธฐเน€เธฅเธชเธฒเธเธกเธญเน€เธฃเธ (Moraine Lake), เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเนเธเธกเธเน
+    P5: Moraine Lake
+  Other models failed count: 1
+    Model: meta-llama4 [P4] -> 'เธ—เธฐเน€เธฅเธชเธฒเธเธกเธญเธฃเนืืื' (Failure: hallucination_overconfidence)
+------------------------------------------------------------
+Image: images17.1.jpg | Tier: tier3_nature
+  Gemini answers:
+    P1: Mount Batok
+    P2: Mount Batok, Bromo Tengger Semeru National Park
+    P3: Mount Batok, Bromo Tengger Semeru National Park
+    P4: เธ เธนเน€เธเธฒเนเธเธเธฒเธ•เธญเธ (Gunung Batok) / เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเนเธเธฃเนเธกเน€เธ•เธดเธเน€เธเธญเธฃเนเน€เธเน€เธกเธฃเธน
+    P5: Mount Batok (Bromo Tengger Semeru National Park)
+  Other models failed count: 13
+    Model: anthropic-claude-sonnet5 [P1] -> 'Mount Bromo (Bromo Tengger Semeru National Park)' (Failure: visual_confusion)
+    Model: anthropic-claude-sonnet5 [P2] -> 'Mount Bromo (Bromo Tengger Semeru National Park)' (Failure: visual_confusion)
+    Model: anthropic-claude-sonnet5 [P3] -> 'Mount Bromo (Bromo Tengger Semeru National Park)' (Failure: visual_confusion)
+    Model: anthropic-claude-sonnet5 [P4] -> 'เธ เธนเน€เธเธฒเนเธเนเธเธฃเนเธก (Mount Bromo) - เธ—เธฐเน€เธฅเธ—เธฃเธฒเธขเน€เธเธฒเธเธฒเธ•เธญเธ' (Failure: visual_confusion)
+    Model: anthropic-claude-sonnet5 [P5] -> 'Mount Bromo' (Failure: visual_confusion)
+    Model: openai-gpt-54 [P3] -> 'Mount Bromo viewpoint area / Sea of Sand, Bromo Tengger Semeru National Park' (Failure: visual_confusion)
+    Model: openai-gpt-54 [P4] -> 'Mount Bromo' (Failure: visual_confusion)
+    Model: openai-gpt-54 [P5] -> 'Mount Bromo' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P1] -> 'Mount Bromo' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P2] -> 'Mount Bromo' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P3] -> 'Mount Bromo (view of the Bromo-Tengger-Semeru volcanic area)' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P4] -> 'เธ เธนเน€เธเธฒเนเธเธฃเนเธก (Mount Bromo)' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P5] -> 'Mount Bromo' (Failure: visual_confusion)
+------------------------------------------------------------
+Image: images19.1.jpg | Tier: tier3_nature
+  Gemini answers:
+    P1: Cheow Lan Lake (Khao Sok National Park)
+    P2: Cheow Lan Lake (Khao Sok National Park)
+    P3: Cheow Lan Lake, Khao Sok National Park
+    P4: เน€เธเธทเนเธญเธเน€เธเธตเนเธขเธงเธซเธฅเธฒเธ (เน€เธเธทเนเธญเธเธฃเธฑเธเธเธเธฃเธฐเธ เธฒ) เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเน€เธเธฒเธชเธ
+    P5: Cheow Lan Lake (Khao Sok National Park)
+  Other models failed count: 8
+    Model: openai-gpt-54-mini [P1] -> 'Phi Phi Leh' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P2] -> 'Phi Phi Islands' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P3] -> 'Phi Phi Islands (likely Ko Phi Phi Leh / Viking Cave area)' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P4] -> 'เธญเนเธฒเธงเธเธฑเธเธเธฒ (Phang Nga Bay)' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P5] -> 'Phang Nga Bay' (Failure: visual_confusion)
+    Model: meta-llama4 [P2] -> 'Phang Nga Bay' (Failure: visual_confusion)
+    Model: meta-llama4 [P3] -> 'Phang Nga Bay' (Failure: visual_confusion)
+    Model: meta-llama4 [P4] -> 'เธญเนเธฒเธงเธ เธนเธกเธซเธฅเธงเธเธเธฑเธเธ—เธตเนเธเธฑเธเธเน' (Failure: hallucination_overconfidence)
+------------------------------------------------------------
+Image: images20.1.jpg | Tier: tier3_nature
+  Gemini answers:
+    P1: Kew Mae Pan Nature Trail, Doi Inthanon National Park
+    P2: Kew Mae Pan Nature Trail, Doi Inthanon National Park
+    P3: Kew Mae Pan Nature Trail, Doi Inthanon National Park
+    P4: เธเธดเนเธงเนเธกเนเธเธฒเธ (เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธ”เธญเธขเธญเธดเธเธ—เธเธเธ—เน)
+    P5: Kew Mae Pan Nature Trail, Doi Inthanon
+  Other models failed count: 15
+    Model: anthropic-claude-sonnet5 [P1] -> 'Doi Mon Jong Viewpoint, near Chiang Mai' (Failure: visual_confusion)
+    Model: anthropic-claude-sonnet5 [P2] -> 'Doi Mae Salong (viewpoint near Chiang Rai)' (Failure: visual_confusion)
+    Model: anthropic-claude-sonnet5 [P4] -> 'เธ”เธญเธขเธเนเธฒเธซเนเธกเธเธ เธซเธฃเธทเธญเธเธธเธ”เธเธกเธงเธดเธงเธ เธนเน€เธเธฒเธ เธฒเธเน€เธซเธเธทเธญ' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P4] -> 'เธ เธนเธเธฃเธฐเธ”เธถเธ' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P5] -> 'Mount Bromo viewpoint' (Failure: visual_confusion)
+    Model: qwen-25-vl-72b [P1] -> 'Phu Chi Fa' (Failure: visual_confusion)
+    Model: qwen-25-vl-72b [P2] -> 'Phu Chi Fa' (Failure: visual_confusion)
+    Model: qwen-25-vl-72b [P3] -> 'Phu Chi Fa' (Failure: visual_confusion)
+    Model: qwen-25-vl-72b [P4] -> 'เธ เธนเน€เธเธฒเธเนเธฒ' (Failure: hallucination_overconfidence)
+    Model: qwen-25-vl-72b [P5] -> 'Phu Chi Fa' (Failure: visual_confusion)
+    Model: meta-llama4 [P1] -> 'Doi Ang Khang' (Failure: visual_confusion)
+    Model: meta-llama4 [P2] -> 'Doi Ang Khang' (Failure: visual_confusion)
+    Model: meta-llama4 [P3] -> 'Doi Ang Khang' (Failure: visual_confusion)
+    Model: meta-llama4 [P4] -> 'เธเธงเธฒเธเน€เธ—เธตเนเธขเธง เน€เธเธตเธขเธเธฃเธฒเธข' (Failure: hallucination_overconfidence)
+    Model: meta-llama4 [P5] -> 'Doi Ang Khang' (Failure: visual_confusion)
+------------------------------------------------------------
+Image: images25.1.jpg | Tier: tier3_nature
+  Gemini answers:
+    P1: Ulsanbawi Rock, Seoraksan National Park
+    P2: Ulsanbawi Rock, Seoraksan National Park
+    P3: Ulsanbawi Rock, Seoraksan National Park
+    P4: เนเธเธ”เธซเธดเธเธญเธธเธฅเธเธฒเธเธเธฒเธญเธงเธต เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธเธญเธฃเธฑเธเธเธฒเธ (Ulsanbawi, Seoraksan National Park)
+    P5: Ulsanbawi Rock, Seoraksan National Park
+  Other models failed count: 6
+    Model: openai-gpt-54 [P1] -> 'Bukhansan National Park' (Failure: visual_confusion)
+    Model: openai-gpt-54 [P2] -> 'Bukhansan National Park' (Failure: visual_confusion)
+    Model: openai-gpt-54 [P3] -> 'Bukhansan National Park granite ridge' (Failure: visual_confusion)
+    Model: openai-gpt-54 [P4] -> 'Bukhansan National Park' (Failure: visual_confusion)
+    Model: openai-gpt-54 [P5] -> 'Bukhansan National Park' (Failure: visual_confusion)
+    Model: openai-gpt-54-mini [P2] -> 'Dodeamsan Mountain (Daedunsan Rock Ridge)' (Failure: visual_confusion)
+------------------------------------------------------------
+Image: 7.PNG | Tier: tier4_ugc
+  Gemini answers:
+    P1: Palacio de Bellas Artes
+    P2: Palacio de Bellas Artes
+    P3: Palacio de Bellas Artes (Metro Bellas Artes)
+    P4: Palacio de Bellas Artes (เธเธฃเธฐเธฃเธฒเธเธงเธฑเธเธงเธดเธเธดเธ•เธฃเธจเธดเธฅเธเน)
+    P5: Palacio de Bellas Artes
+  Other models failed count: 1
+    Model: qwen-25-vl-72b [P4] -> 'เธเธดเธเธดเธเธ เธฑเธ“เธ‘เนเธจเธดเธฅเธเธฐเนเธซเนเธเธเธฒเธ•เธดเน€เธกเนเธเธเธดเนเธ' (Failure: visual_confusion)
+------------------------------------------------------------
+Image: 11.jpg | Tier: tier4_ugc
+  Gemini answers:
+    P1: 57th Streetโ€“Seventh Avenue subway station
+    P2: 57th Street - Seventh Avenue subway station
+    P3: 57th Streetโ€“Seventh Avenue subway station, Manhattan, New York City
+    P4: 57th Streetโ€“Seventh Avenue subway station
+    P5: 57th Streetโ€“Seventh Avenue Subway Station
+  Other models failed count: 13
+    Model: openai-gpt-54-mini [P1] -> '145 Street Subway Station' (Failure: hallucination_overconfidence)
+    Model: openai-gpt-54-mini [P2] -> '145th Street โ€“ Broadway / Seventh Avenue Line Subway Station' (Failure: hallucination_overconfidence)
+    Model: openai-gpt-54-mini [P4] -> '55 Street & 7 Avenue Subway Station' (Failure: hallucination_overconfidence)
+    Model: qwen-25-vl-72b [P1] -> '55th Street & 7th Avenue Subway Station' (Failure: hallucination_overconfidence)
+    Model: qwen-25-vl-72b [P2] -> '55th Street & 7th Avenue Subway Station' (Failure: hallucination_overconfidence)
+    Model: qwen-25-vl-72b [P3] -> '55th Street & 7th Avenue Subway Station' (Failure: hallucination_overconfidence)
+    Model: qwen-25-vl-72b [P4] -> '55 Street & 7 Avenue Subway Station' (Failure: hallucination_overconfidence)
+    Model: qwen-25-vl-72b [P5] -> '55th Street & 7th Avenue Subway Station' (Failure: hallucination_overconfidence)
+    Model: meta-llama4 [P1] -> '55 Street & 7 Avenue Subway Station' (Failure: hallucination_overconfidence)
+    Model: meta-llama4 [P2] -> '7 Subway Line, 55th Street Station' (Failure: hallucination_overconfidence)
+    Model: meta-llama4 [P3] -> '7 Avenue Subway Station' (Failure: hallucination_overconfidence)
+    Model: meta-llama4 [P4] -> '55 Street & 7 Avenue Subway Station' (Failure: hallucination_overconfidence)
+    Model: meta-llama4 [P5] -> '55th Street & 7th Avenue Subway Station' (Failure: hallucination_overconfidence)
+------------------------------------------------------------
+
+================================================================================
+2. SUMMARY OF ALL 40 IMAGES: GEMINI vs CONSENSUS OF OTHER MODELS
+================================================================================
+[tier1_iconic] images02.1.jpg:
+   Gemini P1: Colosseum, Rome | P4: เนเธเธฅเธญเธชเน€เธเธตเธขเธก (Colosseum)
+   Gemini all variants: [('P1', 'Colosseum, Rome'), ('P2', 'Colosseum'), ('P3', 'Colosseum'), ('P4', 'เนเธเธฅเธญเธชเน€เธเธตเธขเธก (Colosseum)'), ('P5', 'Colosseum')]
+   Others P1: ['Colosseum', 'Colosseum', 'Colosseum', 'Colosseum', 'Colosseum']
+
+[tier1_iconic] images04.1.jpg:
+   Gemini P1: Statue of Liberty | P4: เธญเธเธธเธชเธฒเธงเธฃเธตเธขเนเน€เธ—เธเธตเน€เธชเธฃเธตเธ เธฒเธ (Statue of Liberty)
+   Gemini all variants: [('P1', 'Statue of Liberty'), ('P2', 'Statue of Liberty'), ('P3', 'Statue of Liberty'), ('P4', 'เธญเธเธธเธชเธฒเธงเธฃเธตเธขเนเน€เธ—เธเธตเน€เธชเธฃเธตเธ เธฒเธ (Statue of Liberty)'), ('P5', 'Statue of Liberty')]
+   Others P1: ['Statue of Liberty', 'Statue of Liberty, New York City', 'Statue of Liberty', 'Statue of Liberty', 'Statue of Liberty']
+
+[tier1_iconic] images07.1.jpg:
+   Gemini P1: Giza pyramid complex | P4: เธเธฅเธธเนเธกเธเธตเธฃเธฐเธกเธดเธ”เนเธซเนเธเธเธดเธเธฒ
+   Gemini all variants: [('P1', 'Giza pyramid complex'), ('P2', 'Giza Pyramid Complex'), ('P3', 'Giza pyramid complex'), ('P4', 'เธเธฅเธธเนเธกเธเธตเธฃเธฐเธกเธดเธ”เนเธซเนเธเธเธดเธเธฒ'), ('P5', 'Pyramids of Giza')]
+   Others P1: ['Pyramids of Giza', 'Pyramids of Giza', 'Pyramids of Giza', 'Giza Pyramids', 'Pyramids of Giza']
+
+[tier1_iconic] images08.1.jpg:
+   Gemini P1: Basรญlica de la Sagrada Famรญlia | P4: เธเธฒเธเธฃเธฒเธ”เธฒเธเธฒเธกเธดเน€เธฅเธตเธข (Sagrada Famรญlia)
+   Gemini all variants: [('P1', 'Basรญlica de la Sagrada Famรญlia'), ('P2', 'Basรญlica de la Sagrada Famรญlia'), ('P3', 'Basรญlica de la Sagrada Famรญlia'), ('P4', 'เธเธฒเธเธฃเธฒเธ”เธฒเธเธฒเธกเธดเน€เธฅเธตเธข (Sagrada Famรญlia)'), ('P5', 'Sagrada Famรญlia')]
+   Others P1: ['Sagrada Famรญlia', 'Sagrada Famรญlia, Barcelona', 'Sagrada Famรญlia', 'Sagrada Familia', 'Sagrada Familia']
+
+[tier1_iconic] images11.1.jpg:
+   Gemini P1: Saint Basil's Cathedral | P4: เธกเธซเธฒเธงเธดเธซเธฒเธฃเน€เธเธเธ•เนเธเธฒเธเธดเธฅ (Saint Basil's Cathedral)
+   Gemini all variants: [('P1', "Saint Basil's Cathedral"), ('P2', "Saint Basil's Cathedral"), ('P3', "Saint Basil's Cathedral, Moscow"), ('P4', "เธกเธซเธฒเธงเธดเธซเธฒเธฃเน€เธเธเธ•เนเธเธฒเธเธดเธฅ (Saint Basil's Cathedral)"), ('P5', "Saint Basil's Cathedral")]
+   Others P1: ["Saint Basil's Cathedral", "Saint Basil's Cathedral, Moscow", "St. Basil's Cathedral", "Saint Basil's Cathedral", "St. Basil's Cathedral"]
+
+[tier1_iconic] images12.jpg:
+   Gemini P1: Wat Phra Kaew (Temple of the Emerald Buddha) | P4: เธงเธฑเธ”เธเธฃเธฐเธจเธฃเธตเธฃเธฑเธ•เธเธจเธฒเธชเธ”เธฒเธฃเธฒเธก (เธงเธฑเธ”เธเธฃเธฐเนเธเนเธง) เนเธฅเธฐเธเธฃเธฐเธเธฃเธกเธกเธซเธฒเธฃเธฒเธเธงเธฑเธ
+   Gemini all variants: [('P1', 'Wat Phra Kaew (Temple of the Emerald Buddha)'), ('P2', 'Wat Phra Kaew and the Grand Palace'), ('P3', 'Wat Phra Kaew (Grand Palace)'), ('P4', 'เธงเธฑเธ”เธเธฃเธฐเธจเธฃเธตเธฃเธฑเธ•เธเธจเธฒเธชเธ”เธฒเธฃเธฒเธก (เธงเธฑเธ”เธเธฃเธฐเนเธเนเธง) เนเธฅเธฐเธเธฃเธฐเธเธฃเธกเธกเธซเธฒเธฃเธฒเธเธงเธฑเธ'), ('P5', 'Grand Palace and Wat Phra Kaew')]
+   Others P1: ['Grand Palace and Wat Phra Kaew', 'The Grand Palace, Bangkok', 'Grand Palace', 'Grand Palace', 'Grand Palace']
+
+[tier1_iconic] images15.1.jpg:
+   Gemini P1: Forbidden City (Donghuamen Gate) | P4: เธเธฃเธฐเธฃเธฒเธเธงเธฑเธเธ•เนเธญเธเธซเนเธฒเธก (Forbidden City)
+   Gemini all variants: [('P1', 'Forbidden City (Donghuamen Gate)'), ('P2', 'Donghuamen (East Glorious Gate), Forbidden City'), ('P3', 'Gate of Divine Might (Shenwumen), Forbidden City'), ('P4', 'เธเธฃเธฐเธฃเธฒเธเธงเธฑเธเธ•เนเธญเธเธซเนเธฒเธก (Forbidden City)'), ('P5', 'Forbidden City')]
+   Others P1: ['Forbidden City (Shenwumen - Gate of Divine Might)', 'Forbidden City', 'Forbidden City', 'Forbidden City', 'Forbidden City']
+
+[tier1_iconic] images19.1.jpg:
+   Gemini P1: Petronas Twin Towers, Kuala Lumpur | P4: เธ•เธถเธเนเธเธ”เน€เธเนเธ•เธฃเธเธฒเธช (Petronas Twin Towers)
+   Gemini all variants: [('P1', 'Petronas Twin Towers, Kuala Lumpur'), ('P2', 'Petronas Twin Towers'), ('P3', 'Petronas Twin Towers'), ('P4', 'เธ•เธถเธเนเธเธ”เน€เธเนเธ•เธฃเธเธฒเธช (Petronas Twin Towers)'), ('P5', 'Petronas Twin Towers')]
+   Others P1: ['Petronas Twin Towers', 'Petronas Twin Towers, Kuala Lumpur', 'Petronas Twin Towers', 'Petronas Twin Towers', 'Petronas Twin Towers']
+
+[tier1_iconic] images20.1.jpg:
+   Gemini P1: ArtScience Museum and Marina Bay Sands | P4: เธกเธฒเธฃเธตเธเธฒเน€เธเธขเนเนเธเธเธชเน เนเธฅเธฐ เธเธดเธเธดเธเธ เธฑเธ“เธ‘เนเธจเธดเธฅเธเธฐเธงเธดเธ—เธขเธฒเธจเธฒเธชเธ•เธฃเน (Marina Bay Sands & ArtScience Museum)
+   Gemini all variants: [('P1', 'ArtScience Museum and Marina Bay Sands'), ('P2', 'Marina Bay Sands and ArtScience Museum'), ('P3', 'Marina Bay Sands and ArtScience Museum'), ('P4', 'เธกเธฒเธฃเธตเธเธฒเน€เธเธขเนเนเธเธเธชเน เนเธฅเธฐ เธเธดเธเธดเธเธ เธฑเธ“เธ‘เนเธจเธดเธฅเธเธฐเธงเธดเธ—เธขเธฒเธจเธฒเธชเธ•เธฃเน (Marina Bay Sands & ArtScience Museum)'), ('P5', 'Marina Bay Sands and ArtScience Museum')]
+   Others P1: ['Marina Bay Sands', 'Marina Bay Sands', 'Marina Bay Sands and ArtScience Museum', 'Marina Bay Sands', 'Marina Bay Sands']
+
+[tier1_iconic] images23.1.jpg:
+   Gemini P1: Badaling Great Wall | P4: เธเธณเนเธเธเน€เธกเธทเธญเธเธเธตเธ (Great Wall of China)
+   Gemini all variants: [('P1', 'Badaling Great Wall'), ('P2', 'Great Wall of China'), ('P3', 'Great Wall of China (Badaling section)'), ('P4', 'เธเธณเนเธเธเน€เธกเธทเธญเธเธเธตเธ (Great Wall of China)'), ('P5', 'Great Wall of China')]
+   Others P1: ['Great Wall of China (Juyongguan or similar section)', 'Great Wall of China', 'Great Wall of China', 'Great Wall of China', 'Great Wall of China']
+
+[tier2_longtail] images03.1.jpg:
+   Gemini P1: Fushimi Inari Shrine | P4: เธจเธฒเธฅเน€เธเนเธฒเธเธนเธเธดเธกเธดเธญเธดเธเธฒเธฃเธด (Fushimi Inari Taisha), เน€เธเธตเธขเธงเนเธ•
+   Gemini all variants: [('P1', 'Fushimi Inari Shrine'), ('P2', 'Fushimi Inari Taisha'), ('P3', 'Fushimi Inari-taisha'), ('P4', 'เธจเธฒเธฅเน€เธเนเธฒเธเธนเธเธดเธกเธดเธญเธดเธเธฒเธฃเธด (Fushimi Inari Taisha), เน€เธเธตเธขเธงเนเธ•'), ('P5', 'Fushimi Inari Taisha')]
+   Others P1: ['Fushimi Inari Taisha', 'Fushimi Inari Taisha', 'Fushimi Inari Taisha', 'Fushimi Inari Shrine', 'Fushimi Inari Shrine']
+
+[tier2_longtail] images06.1.jpg:
+   Gemini P1: Bran Castle | P4: เธเธฃเธฒเธชเธฒเธ—เธเธฃเธฒเธ (Bran Castle)
+   Gemini all variants: [('P1', 'Bran Castle'), ('P2', 'Bran Castle'), ('P3', 'Bran Castle'), ('P4', 'เธเธฃเธฒเธชเธฒเธ—เธเธฃเธฒเธ (Bran Castle)'), ('P5', 'Bran Castle')]
+   Others P1: ['Bran Castle', 'Bran Castle', 'Bran Castle', 'Bran Castle', 'Bran Castle']
+
+[tier2_longtail] images09.1.jpg:
+   Gemini P1: Sanctuary of Truth | P4: เธเธฃเธฒเธชเธฒเธ—เธชเธฑเธเธเธฃเธฃเธก (Sanctuary of Truth)
+   Gemini all variants: [('P1', 'Sanctuary of Truth'), ('P2', 'Sanctuary of Truth'), ('P3', 'Sanctuary of Truth'), ('P4', 'เธเธฃเธฒเธชเธฒเธ—เธชเธฑเธเธเธฃเธฃเธก (Sanctuary of Truth)'), ('P5', 'Sanctuary of Truth')]
+   Others P1: ['Sanctuary of Truth', 'The Sanctuary of Truth, Pattaya', 'Sanctuary of Truth', 'Sanctuary of Truth', 'Sanctuary of Truth']
+
+[tier2_longtail] images10.1.jpg:
+   Gemini P1: Borobudur Temple | P4: เธเธธเนเธฃเธเธธเธ—เนเธ (Borobudur)
+   Gemini all variants: [('P1', 'Borobudur Temple'), ('P2', 'Borobudur Temple'), ('P3', 'Borobudur Temple'), ('P4', 'เธเธธเนเธฃเธเธธเธ—เนเธ (Borobudur)'), ('P5', 'Borobudur Temple')]
+   Others P1: ['Borobudur Temple', 'Borobudur Temple', 'Borobudur Temple', 'Borobudur', 'Borobudur']
+
+[tier2_longtail] images14.1.jpg:
+   Gemini P1: Shwedagon Pagoda | P4: เธกเธซเธฒเน€เธเธ”เธตเธขเนเธเน€เธงเธ”เธฒเธเธญเธ
+   Gemini all variants: [('P1', 'Shwedagon Pagoda'), ('P2', 'Shwedagon Pagoda'), ('P3', 'Shwedagon Pagoda'), ('P4', 'เธกเธซเธฒเน€เธเธ”เธตเธขเนเธเน€เธงเธ”เธฒเธเธญเธ'), ('P5', 'Shwedagon Pagoda')]
+   Others P1: ['Shwedagon Pagoda', 'Shwedagon Pagoda', 'Shwedagon Pagoda', 'Shwedagon Pagoda', 'Shwedagon Pagoda']
+
+[tier2_longtail] images16.1.jpg:
+   Gemini P1: Old Town Bridge Tower, Charles Bridge, Prague | P4: เธชเธฐเธเธฒเธเธเธฒเธฅเธชเน เนเธฅเธฐเธซเธญเธเธญเธขเธชเธฐเธเธฒเธเน€เธกเธทเธญเธเน€เธเนเธฒ (Charles Bridge & Old Town Bridge Tower), เธเธฃเธฒเธ
+   Gemini all variants: [('P1', 'Old Town Bridge Tower, Charles Bridge, Prague'), ('P2', 'Old Town Bridge Tower, Charles Bridge'), ('P3', 'Old Town Bridge Tower, Charles Bridge, Prague'), ('P4', 'เธชเธฐเธเธฒเธเธเธฒเธฅเธชเน เนเธฅเธฐเธซเธญเธเธญเธขเธชเธฐเธเธฒเธเน€เธกเธทเธญเธเน€เธเนเธฒ (Charles Bridge & Old Town Bridge Tower), เธเธฃเธฒเธ'), ('P5', 'Charles Bridge (Old Town Bridge Tower)')]
+   Others P1: ['Old Town Bridge Tower, Charles Bridge', 'Old Town Bridge Tower, Charles Bridge, Prague', 'Charles Bridge, Old Town Bridge Tower', 'Charles Bridge', 'Charles Bridge']
+
+[tier2_longtail] images18.1.jpg:
+   Gemini P1: Amer Fort | P4: เธเนเธญเธกเธญเธฒเน€เธกเธฃเน (Amber Fort)
+   Gemini all variants: [('P1', 'Amer Fort'), ('P2', 'Amer Fort'), ('P3', 'Amer Fort'), ('P4', 'เธเนเธญเธกเธญเธฒเน€เธกเธฃเน (Amber Fort)'), ('P5', 'Amber Fort')]
+   Others P1: ['Amber Fort', 'Amer Fort', 'Amber Fort', 'Amber Fort', 'Amer Fort']
+
+[tier2_longtail] images21.1.jpg:
+   Gemini P1: Great Mosque of Djennรฉ | P4: เธกเธฑเธชเธขเธดเธ”เนเธซเธเนเนเธซเนเธเน€เธเธเธเธต (Great Mosque of Djennรฉ)
+   Gemini all variants: [('P1', 'Great Mosque of Djennรฉ'), ('P2', 'Grand Mosque of Djennรฉ'), ('P3', 'Great Mosque of Djennรฉ'), ('P4', 'เธกเธฑเธชเธขเธดเธ”เนเธซเธเนเนเธซเนเธเน€เธเธเธเธต (Great Mosque of Djennรฉ)'), ('P5', 'Great Mosque of Djennรฉ')]
+   Others P1: ['Great Mosque of Djennรฉ', 'Great Mosque of Djennรฉ', 'Great Mosque of Djennรฉ', 'Djinguereber Mosque', 'Djenne Mosque']
+
+[tier2_longtail] images22.1.jpg:
+   Gemini P1: Dubrovnik Old Town | P4: เน€เธกเธทเธญเธเน€เธเนเธฒเธ”เธนเธเธฃเธญเธเธเธดเธ (Dubrovnik Old Town)
+   Gemini all variants: [('P1', 'Dubrovnik Old Town'), ('P2', 'Dubrovnik Old Town'), ('P3', 'Dubrovnik Old Town'), ('P4', 'เน€เธกเธทเธญเธเน€เธเนเธฒเธ”เธนเธเธฃเธญเธเธเธดเธ (Dubrovnik Old Town)'), ('P5', 'Dubrovnik Old Town')]
+   Others P1: ['Dubrovnik Old Town', 'Old City of Dubrovnik', 'Dubrovnik Old Town', 'Dubrovnik', 'Dubrovnik Old Town']
+
+[tier2_longtail] images25.1.jpg:
+   Gemini P1: Wat Rong Khun (White Temple) | P4: เธงเธฑเธ”เธฃเนเธญเธเธเธธเนเธ (Wat Rong Khun / White Temple)
+   Gemini all variants: [('P1', 'Wat Rong Khun (White Temple)'), ('P2', 'Wat Rong Khun (White Temple)'), ('P3', 'Wat Rong Khun (White Temple)'), ('P4', 'เธงเธฑเธ”เธฃเนเธญเธเธเธธเนเธ (Wat Rong Khun / White Temple)'), ('P5', 'Wat Rong Khun (White Temple)')]
+   Others P1: ['Wat Rong Khun (White Temple)', 'Wat Rong Khun (White Temple), Chiang Rai', 'Wat Rong Khun (White Temple)', 'Wat Rong Khun', 'Wat Rong Khun']
+
+[tier3_nature] images01.1.jpg:
+   Gemini P1: Love Valley, Cappadocia | P4: เธเธฑเธเธเธฒเนเธ”เน€เธเธตเธข (Cappadocia)
+   Gemini all variants: [('P1', 'Love Valley, Cappadocia'), ('P2', 'Cappadocia'), ('P3', 'Cappadocia (Love Valley / Gรถreme)'), ('P4', 'เธเธฑเธเธเธฒเนเธ”เน€เธเธตเธข (Cappadocia)'), ('P5', 'Cappadocia')]
+   Others P1: ['Cappadocia', 'Cappadocia', 'Cappadocia', 'Cappadocia', 'Cappadocia']
+
+[tier3_nature] images05.1.jpg:
+   Gemini P1: Plitvice Lakes National Park | P4: เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธ—เธฐเน€เธฅเธชเธฒเธเธเธฅเธดเธ—เธงเธดเน€เธ (Plitvice Lakes National Park)
+   Gemini all variants: [('P1', 'Plitvice Lakes National Park'), ('P2', 'Plitvice Lakes National Park'), ('P3', 'Plitvice Lakes National Park'), ('P4', 'เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธ—เธฐเน€เธฅเธชเธฒเธเธเธฅเธดเธ—เธงเธดเน€เธ (Plitvice Lakes National Park)'), ('P5', 'Plitvice Lakes National Park')]
+   Others P1: ['Plitvice Lakes National Park', 'Plitvice Lakes National Park', 'Plitvice Lakes National Park', 'Plitvice Lakes', 'Plitvice Lakes National Park']
+
+[tier3_nature] images08.1.jpg:
+   Gemini P1: Torres del Paine National Park | P4: เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธ•เธญเธฃเนเน€เธฃเธชเน€เธ”เธฅเนเธเน€เธ (Torres del Paine)
+   Gemini all variants: [('P1', 'Torres del Paine National Park'), ('P2', 'Mirador Las Torres, Torres del Paine National Park'), ('P3', 'Torres del Paine (Mirador Las Torres)'), ('P4', 'เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธ•เธญเธฃเนเน€เธฃเธชเน€เธ”เธฅเนเธเน€เธ (Torres del Paine)'), ('P5', 'Torres del Paine (Mirador Las Torres)')]
+   Others P1: ['Torres del Paine (Base of the Towers)', 'Torres del Paine (Cuernos/Las Torres area)', 'Torres del Paine National Park (Los Cuernos / Paine Grande area)', 'Torres del Paine', 'Torres del Paine']
+
+[tier3_nature] images12.1.jpg:
+   Gemini P1: Avatar Hallelujah Mountain (Southern Sky Column), Zhangjiajie National Forest Park | P4: เน€เธเธฒเธญเธงเธ•เธฒเธฃเธฎเธฑเธฅเน€เธฅเธฅเธนเธขเธฒเธซเน (เน€เธชเธฒเธซเธดเธเน€เธเธตเธขเธเธเธธเธ) เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธเธฒเธเน€เธเธตเธขเน€เธเธตเนเธข
+   Gemini all variants: [('P1', 'Avatar Hallelujah Mountain (Southern Sky Column), Zhangjiajie National Forest Park'), ('P2', 'Avatar Hallelujah Mountain (Qiankun Column), Zhangjiajie National Forest Park'), ('P3', 'Avatar Hallelujah Mountain (Southern Sky Column), Zhangjiajie National Forest Park'), ('P4', 'เน€เธเธฒเธญเธงเธ•เธฒเธฃเธฎเธฑเธฅเน€เธฅเธฅเธนเธขเธฒเธซเน (เน€เธชเธฒเธซเธดเธเน€เธเธตเธขเธเธเธธเธ) เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธเธฒเธเน€เธเธตเธขเน€เธเธตเนเธข'), ('P5', 'Avatar Hallelujah Mountain (Zhangjiajie National Forest Park)')]
+   Others P1: ['Zhangjiajie National Forest Park (Avatar Hallelujah Mountain)', 'Zhangjiajie National Forest Park', 'Wulingyuan Scenic Area (Zhangjiajie National Forest Park)', 'Zhangjiajie National Forest Park', 'Zhangjiajie National Forest Park']
+
+[tier3_nature] images13.1.jpg:
+   Gemini P1: Moraine Lake | P4: เธ—เธฐเน€เธฅเธชเธฒเธเธกเธญเน€เธฃเธ (Moraine Lake), เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเนเธเธกเธเน
+   Gemini all variants: [('P1', 'Moraine Lake'), ('P2', 'Moraine Lake, Banff National Park'), ('P3', 'Moraine Lake'), ('P4', 'เธ—เธฐเน€เธฅเธชเธฒเธเธกเธญเน€เธฃเธ (Moraine Lake), เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเนเธเธกเธเน'), ('P5', 'Moraine Lake')]
+   Others P1: ['Moraine Lake', 'Moraine Lake, Banff National Park', 'Moraine Lake', 'Moraine Lake', 'Moraine Lake']
+
+[tier3_nature] images17.1.jpg:
+   Gemini P1: Mount Batok | P4: เธ เธนเน€เธเธฒเนเธเธเธฒเธ•เธญเธ (Gunung Batok) / เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเนเธเธฃเนเธกเน€เธ•เธดเธเน€เธเธญเธฃเนเน€เธเน€เธกเธฃเธน
+   Gemini all variants: [('P1', 'Mount Batok'), ('P2', 'Mount Batok, Bromo Tengger Semeru National Park'), ('P3', 'Mount Batok, Bromo Tengger Semeru National Park'), ('P4', 'เธ เธนเน€เธเธฒเนเธเธเธฒเธ•เธญเธ (Gunung Batok) / เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเนเธเธฃเนเธกเน€เธ•เธดเธเน€เธเธญเธฃเนเน€เธเน€เธกเธฃเธน'), ('P5', 'Mount Batok (Bromo Tengger Semeru National Park)')]
+   Others P1: ['Mount Bromo (Bromo Tengger Semeru National Park)', 'Mount Batok, Bromo Tengger Semeru National Park', 'Mount Bromo', 'Mount Batok', 'Mount Bromo']
+
+[tier3_nature] images19.1.jpg:
+   Gemini P1: Cheow Lan Lake (Khao Sok National Park) | P4: เน€เธเธทเนเธญเธเน€เธเธตเนเธขเธงเธซเธฅเธฒเธ (เน€เธเธทเนเธญเธเธฃเธฑเธเธเธเธฃเธฐเธ เธฒ) เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเน€เธเธฒเธชเธ
+   Gemini all variants: [('P1', 'Cheow Lan Lake (Khao Sok National Park)'), ('P2', 'Cheow Lan Lake (Khao Sok National Park)'), ('P3', 'Cheow Lan Lake, Khao Sok National Park'), ('P4', 'เน€เธเธทเนเธญเธเน€เธเธตเนเธขเธงเธซเธฅเธฒเธ (เน€เธเธทเนเธญเธเธฃเธฑเธเธเธเธฃเธฐเธ เธฒ) เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเน€เธเธฒเธชเธ'), ('P5', 'Cheow Lan Lake (Khao Sok National Park)')]
+   Others P1: ['Cheow Lan Lake (Khao Sok National Park)', 'Khao Sok National Park', 'Phi Phi Leh', 'Cheow Lan Lake', 'Khao Sok National Park (Cheow Lan Lake)']
+
+[tier3_nature] images20.1.jpg:
+   Gemini P1: Kew Mae Pan Nature Trail, Doi Inthanon National Park | P4: เธเธดเนเธงเนเธกเนเธเธฒเธ (เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธ”เธญเธขเธญเธดเธเธ—เธเธเธ—เน)
+   Gemini all variants: [('P1', 'Kew Mae Pan Nature Trail, Doi Inthanon National Park'), ('P2', 'Kew Mae Pan Nature Trail, Doi Inthanon National Park'), ('P3', 'Kew Mae Pan Nature Trail, Doi Inthanon National Park'), ('P4', 'เธเธดเนเธงเนเธกเนเธเธฒเธ (เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธ”เธญเธขเธญเธดเธเธ—เธเธเธ—เน)'), ('P5', 'Kew Mae Pan Nature Trail, Doi Inthanon')]
+   Others P1: ['Doi Mon Jong Viewpoint, near Chiang Mai', 'Doi Inthanon National Park', 'Doi Inthanon', 'Phu Chi Fa', 'Doi Ang Khang']
+
+[tier3_nature] images24.1.jpg:
+   Gemini P1: Uluru | P4: เธญเธธเธฅเธนเธฃเธน (Uluru / Ayers Rock)
+   Gemini all variants: [('P1', 'Uluru'), ('P2', 'Uluru (Ayers Rock)'), ('P3', 'Uluru (Ayers Rock)'), ('P4', 'เธญเธธเธฅเธนเธฃเธน (Uluru / Ayers Rock)'), ('P5', 'Uluru')]
+   Others P1: ['Uluru (Ayers Rock)', 'Uluru (Ayers Rock)', 'Uluru (Ayers Rock)', 'Uluru', 'Uluru']
+
+[tier3_nature] images25.1.jpg:
+   Gemini P1: Ulsanbawi Rock, Seoraksan National Park | P4: เนเธเธ”เธซเธดเธเธญเธธเธฅเธเธฒเธเธเธฒเธญเธงเธต เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธเธญเธฃเธฑเธเธเธฒเธ (Ulsanbawi, Seoraksan National Park)
+   Gemini all variants: [('P1', 'Ulsanbawi Rock, Seoraksan National Park'), ('P2', 'Ulsanbawi Rock, Seoraksan National Park'), ('P3', 'Ulsanbawi Rock, Seoraksan National Park'), ('P4', 'เนเธเธ”เธซเธดเธเธญเธธเธฅเธเธฒเธเธเธฒเธญเธงเธต เธญเธธเธ—เธขเธฒเธเนเธซเนเธเธเธฒเธ•เธดเธเธญเธฃเธฑเธเธเธฒเธ (Ulsanbawi, Seoraksan National Park)'), ('P5', 'Ulsanbawi Rock, Seoraksan National Park')]
+   Others P1: ['Ulsanbawi Rock, Seoraksan National Park', 'Bukhansan National Park', 'Seoraksan National Park', 'Seoraksan National Park', 'Ulsanbawi']
+
+[tier4_ugc] 2.PNG:
+   Gemini P1: Pike Place Fish Market | P4: เธ•เธฅเธฒเธ”เธเธฒเธขเธเนเน€เธเธฅเธ (Pike Place Market)
+   Gemini all variants: [('P1', 'Pike Place Fish Market'), ('P2', 'Pike Place Market'), ('P3', 'Pike Place Fish Market, Seattle'), ('P4', 'เธ•เธฅเธฒเธ”เธเธฒเธขเธเนเน€เธเธฅเธ (Pike Place Market)'), ('P5', 'Pike Place Fish Market')]
+   Others P1: ['Pike Place Market', 'Pike Place Market, Seattle', 'Pike Place Market', 'Pike Place Market', 'Pike Place Market']
+
+[tier4_ugc] 3.PNG:
+   Gemini P1: Calle Varisco, Venice | P4: เน€เธงเธเธดเธช (Venice)
+   Gemini all variants: [('P1', 'Calle Varisco, Venice'), ('P2', 'Venice Canals (Calle Varisco view)'), ('P3', 'Calle Varisco, Venice'), ('P4', 'เน€เธงเธเธดเธช (Venice)'), ('P5', 'Venice Canals')]
+   Others P1: ['Venice Canal', 'Venice', 'Venice canal', 'Venice', 'Venice']
+
+[tier4_ugc] 7.PNG:
+   Gemini P1: Palacio de Bellas Artes | P4: Palacio de Bellas Artes (เธเธฃเธฐเธฃเธฒเธเธงเธฑเธเธงเธดเธเธดเธ•เธฃเธจเธดเธฅเธเน)
+   Gemini all variants: [('P1', 'Palacio de Bellas Artes'), ('P2', 'Palacio de Bellas Artes'), ('P3', 'Palacio de Bellas Artes (Metro Bellas Artes)'), ('P4', 'Palacio de Bellas Artes (เธเธฃเธฐเธฃเธฒเธเธงเธฑเธเธงเธดเธเธดเธ•เธฃเธจเธดเธฅเธเน)'), ('P5', 'Palacio de Bellas Artes')]
+   Others P1: ['Palacio de Bellas Artes', 'Palacio de Bellas Artes / Bellas Artes Metro entrance, Mexico City', 'Palacio de Bellas Artes', 'Palacio de Bellas Artes', 'Palacio de Bellas Artes']
+
+[tier4_ugc] 10.PNG:
+   Gemini P1: Yaowarat Road (Bangkok Chinatown) | P4: เธ–เธเธเน€เธขเธฒเธงเธฃเธฒเธ (Yaowarat Road)
+   Gemini all variants: [('P1', 'Yaowarat Road (Bangkok Chinatown)'), ('P2', 'Yaowarat Road (Chinatown, Bangkok)'), ('P3', 'Yaowarat Road (Chinatown, Bangkok)'), ('P4', 'เธ–เธเธเน€เธขเธฒเธงเธฃเธฒเธ (Yaowarat Road)'), ('P5', 'Yaowarat Road (Chinatown, Bangkok)')]
+   Others P1: ["Yaowarat (Bangkok's Chinatown)", 'Yaowarat Road, Bangkok Chinatown', 'Yaowarat (Bangkok Chinatown)', 'Yaowarat Road', 'Yaowarat']
+
+[tier4_ugc] 11.jpg:
+   Gemini P1: 57th Streetโ€“Seventh Avenue subway station | P4: 57th Streetโ€“Seventh Avenue subway station
+   Gemini all variants: [('P1', '57th Streetโ€“Seventh Avenue subway station'), ('P2', '57th Street - Seventh Avenue subway station'), ('P3', '57th Streetโ€“Seventh Avenue subway station, Manhattan, New York City'), ('P4', '57th Streetโ€“Seventh Avenue subway station'), ('P5', '57th Streetโ€“Seventh Avenue Subway Station')]
+   Others P1: ['57th Street & 7th Avenue Subway Station', '57 Streetโ€“7 Avenue Subway Station, New York City', '145 Street Subway Station', '55th Street & 7th Avenue Subway Station', '55 Street & 7 Avenue Subway Station']
+
+[tier4_ugc] 14.PNG:
+   Gemini P1: Cafรฉ de Flore | P4: Cafรฉ de Flore
+   Gemini all variants: [('P1', 'Cafรฉ de Flore'), ('P2', 'Cafรฉ de Flore'), ('P3', 'Cafรฉ de Flore'), ('P4', 'Cafรฉ de Flore'), ('P5', 'Cafรฉ de Flore')]
+   Others P1: ['Cafรฉ de Flore', 'Cafรฉ de Flore, Paris', 'Cafรฉ de Flore', 'Cafe de Flore', 'Cafรฉ de Flore']
+
+[tier4_ugc] 18.PNG:
+   Gemini P1: East Side Gallery | P4: เธญเธตเธชเธ•เนเนเธเธ”เนเนเธเธฅเน€เธฅเธญเธฃเธต (เธเธณเนเธเธเน€เธเธญเธฃเนเธฅเธดเธ)
+   Gemini all variants: [('P1', 'East Side Gallery'), ('P2', 'East Side Gallery (Berlin Wall)'), ('P3', 'East Side Gallery (Berlin Wall)'), ('P4', 'เธญเธตเธชเธ•เนเนเธเธ”เนเนเธเธฅเน€เธฅเธญเธฃเธต (เธเธณเนเธเธเน€เธเธญเธฃเนเธฅเธดเธ)'), ('P5', 'East Side Gallery (Berlin Wall)')]
+   Others P1: ['East Side Gallery (Berlin Wall)', 'East Side Gallery, Berlin Wall', 'East Side Gallery', 'East Side Gallery', 'East Side Gallery']
+
+[tier4_ugc] 21.PNG:
+   Gemini P1: Alfama, Lisbon | P4: เธขเนเธฒเธเธญเธฑเธฅเธเธฒเธกเธฒ (Alfama), เธฅเธดเธชเธเธญเธ
+   Gemini all variants: [('P1', 'Alfama, Lisbon'), ('P2', 'Alfama, Lisbon'), ('P3', 'Alfama, Lisbon'), ('P4', 'เธขเนเธฒเธเธญเธฑเธฅเธเธฒเธกเธฒ (Alfama), เธฅเธดเธชเธเธญเธ'), ('P5', 'Alfama, Lisbon')]
+   Others P1: ['Alfama', 'Alfama, Lisbon', 'Alfama tram line', 'Alfama', 'Alfama']
+
+[tier4_ugc] 23.PNG:
+   Gemini P1: Myeongdong Shopping Street | P4: เธขเนเธฒเธเน€เธกเธตเธขเธเธ”เธ (Myeongdong), เนเธเธฅ
+   Gemini all variants: [('P1', 'Myeongdong Shopping Street'), ('P2', 'Myeongdong'), ('P3', 'Myeongdong Shopping Street, Seoul'), ('P4', 'เธขเนเธฒเธเน€เธกเธตเธขเธเธ”เธ (Myeongdong), เนเธเธฅ'), ('P5', 'Myeong-dong')]
+   Others P1: ['Myeongdong', 'Myeongdong, Seoul', 'Myeongdong', 'Myeongdong', 'Myeongdong']
+
+[tier4_ugc] 24.PNG:
+   Gemini P1: Degraves Street, Melbourne | P4: Degraves Street (เธ–เธเธเน€เธ”เน€เธเธฃเธเธชเน)
+   Gemini all variants: [('P1', 'Degraves Street, Melbourne'), ('P2', 'Degraves Street'), ('P3', 'Degraves Street, Melbourne'), ('P4', 'Degraves Street (เธ–เธเธเน€เธ”เน€เธเธฃเธเธชเน)'), ('P5', 'Degraves Street')]
+   Others P1: ['Degraves St Laneway', 'Degraves Street Laneway, Melbourne', 'Degraves Street Laneway', 'Degraves Street', 'Degraves Street']
+

@@ -1,7 +1,31 @@
-Timestamp,Image Name,Ground Truth,Model,Predicted Place,Confidence,Time MS,Is Correct,Recall Rank,Matched Alias,Prompt Tokens,Completion Tokens,Total Tokens,Cost USD,Tokens Per Sec
-2026-09-26 01:42:40,8-เยาวราช.jpg,8 เยาวราช,anthropic-claude-sonnet5,Yaowarat Road,0,5281,True,1,,893,310,1203,0.004886,58.7
-2026-09-26 01:42:40,8-เยาวราช.jpg,8 เยาวราช,openai-gpt-54,Yaowarat Road,0,3655,True,1,,725,186,911,0.0046025,50.89
-2026-09-26 01:42:40,8-เยาวราช.jpg,8 เยาวราช,openai-gpt-54-mini,เยาวราช (Yaowarat Road),0,2167,True,1,8 เยาวราช,738,114,852,0.0010665,52.6
-2026-09-26 01:42:40,8-เยาวราช.jpg,8 เยาวราช,google-gemini-38-flash,ถนนเยาวราช (Yaowarat Road),0,13504,True,1,8 เยาวราช,1311,323,1634,0.0021945,23.92
-2026-09-26 01:42:40,8-เยาวราช.jpg,8 เยาวราช,qwen-38-flash,ถนนเยาวราช (ไชน่าทาวน์ กรุงเทพฯ),0,3420,True,1,8 เยาวราช,2051,312,2363,0.0013953,91.24
-2026-09-26 01:42:40,8-เยาวราช.jpg,8 เยาวราช,meta-llama4,Yaowarat Road,0,2951,True,1,,1227,92,1319,0.000319,31.18
+Timestamp,Image Name,Ground Truth,Tier,Model,Predicted Place,Confidence,Time MS,Is Correct,Recall Rank,Matched Alias,Temperature,Failure Mode,Prompt Tokens,Completion Tokens,Total Tokens,Cost USD,Tokens Per Sec,Generation Time MS,Pure Tokens Per Sec,Provider Name,OpenRouter ID
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,anthropic-claude-sonnet5,Gyeongbokgung Palace,0.9,7417,True,1,images25 1,0.1,none,1220,215,1435,0.00459,28.99,,,,gen-1791191597-uh9q7vR4jhoeiHD4lEC6
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54,Gyeongbokgung Palace,0.84,4360,True,1,images25 1,0.1,none,1099,91,1190,0.0041125,20.87,,,,gen-1791191602-UJSPQZmR3uuJqeSdN8Um
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54-mini,Gyeongbokgung Palace,0.96,2326,True,1,images25 1,0.1,none,1099,84,1183,0.00120225,36.11,,,,gen-1791191606-LWJhGGUNR5fueef2mvHk
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,google-gemini-38-flash,Gyeongbokgung Palace,0.98,5495,True,1,images25 1,0.1,none,1187,425,1612,0.002484,77.35,,,,gen-1791191609-DYypm0dqOuQlPpZVLraR
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,qwen-25-vl-72b,Gyeongbokgung Palace,0.95,1752,True,1,images25 1,0.1,none,1129,51,1180,0.0009542,29.12,,,,gen-1791191614-iS3a2HV5qM57mXOAZJe3
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,meta-llama4,Gwanghwamun Gate,0.95,2210,True,1,images25 1,0.1,none,1988,49,2037,0.0007448,22.17,,,,gen-1791191616-qU9ZvjMJrHnST4Kp7dIB
+2026-10-05 16:15:08,images25.1.jpg,images25.1,tier1_iconic,anthropic-claude-sonnet5,Gyeongbokgung Palace,0.9,7417,True,1,images25 1,0.1,none,1220,215,1435,0.00459,28.99,,,,gen-1791191597-uh9q7vR4jhoeiHD4lEC6
+2026-10-05 16:15:08,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54,Gyeongbokgung Palace,0.84,4360,True,1,images25 1,0.1,none,1099,91,1190,0.0041125,20.87,,,,gen-1791191602-UJSPQZmR3uuJqeSdN8Um
+2026-10-05 16:15:08,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54-mini,Gyeongbokgung Palace,0.96,2326,True,1,images25 1,0.1,none,1099,84,1183,0.00120225,36.11,,,,gen-1791191606-LWJhGGUNR5fueef2mvHk
+2026-10-05 16:15:08,images25.1.jpg,images25.1,tier1_iconic,google-gemini-38-flash,Gyeongbokgung Palace,0.98,5495,True,1,images25 1,0.1,none,1187,425,1612,0.002484,77.35,,,,gen-1791191609-DYypm0dqOuQlPpZVLraR
+2026-10-05 16:15:08,images25.1.jpg,images25.1,tier1_iconic,qwen-25-vl-72b,Gyeongbokgung Palace,0.95,1752,True,1,images25 1,0.1,none,1129,51,1180,0.0009542,29.12,,,,gen-1791191614-iS3a2HV5qM57mXOAZJe3
+2026-10-05 16:15:08,images25.1.jpg,images25.1,tier1_iconic,meta-llama4,Gwanghwamun Gate,0.95,2210,True,1,images25 1,0.1,none,1988,49,2037,0.0007448,22.17,,,,gen-1791191616-qU9ZvjMJrHnST4Kp7dIB
+2026-10-05 16:15:10,images25.1.jpg,images25.1,tier1_iconic,anthropic-claude-sonnet5,Gyeongbokgung Palace,0.9,7417,True,1,images25 1,0.1,none,1220,215,1435,0.00459,28.99,,,,gen-1791191597-uh9q7vR4jhoeiHD4lEC6
+2026-10-05 16:15:10,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54,Gyeongbokgung Palace,0.84,4360,True,1,images25 1,0.1,none,1099,91,1190,0.0041125,20.87,,,,gen-1791191602-UJSPQZmR3uuJqeSdN8Um
+2026-10-05 16:15:10,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54-mini,Gyeongbokgung Palace,0.96,2326,True,1,images25 1,0.1,none,1099,84,1183,0.00120225,36.11,,,,gen-1791191606-LWJhGGUNR5fueef2mvHk
+2026-10-05 16:15:10,images25.1.jpg,images25.1,tier1_iconic,google-gemini-38-flash,Gyeongbokgung Palace,0.98,5495,True,1,images25 1,0.1,none,1187,425,1612,0.002484,77.35,,,,gen-1791191609-DYypm0dqOuQlPpZVLraR
+2026-10-05 16:15:10,images25.1.jpg,images25.1,tier1_iconic,qwen-25-vl-72b,Gyeongbokgung Palace,0.95,1752,True,1,images25 1,0.1,none,1129,51,1180,0.0009542,29.12,,,,gen-1791191614-iS3a2HV5qM57mXOAZJe3
+2026-10-05 16:15:10,images25.1.jpg,images25.1,tier1_iconic,meta-llama4,Gwanghwamun Gate,0.95,2210,True,1,images25 1,0.1,none,1988,49,2037,0.0007448,22.17,,,,gen-1791191616-qU9ZvjMJrHnST4Kp7dIB
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,anthropic-claude-sonnet5,Gyeongbokgung Palace,0.9,7417,True,1,images25 1,0.1,none,1220,215,1435,0.00459,28.99,,,,gen-1791191597-uh9q7vR4jhoeiHD4lEC6
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54,Gyeongbokgung Palace,0.84,4360,True,1,images25 1,0.1,none,1099,91,1190,0.0041125,20.87,,,,gen-1791191602-UJSPQZmR3uuJqeSdN8Um
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54-mini,Gyeongbokgung Palace,0.96,2326,True,1,images25 1,0.1,none,1099,84,1183,0.00120225,36.11,,,,gen-1791191606-LWJhGGUNR5fueef2mvHk
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,google-gemini-38-flash,Gyeongbokgung Palace,0.98,5495,True,1,images25 1,0.1,none,1187,425,1612,0.002484,77.35,,,,gen-1791191609-DYypm0dqOuQlPpZVLraR
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,qwen-25-vl-72b,Gyeongbokgung Palace,0.95,1752,True,1,images25 1,0.1,none,1129,51,1180,0.0009542,29.12,,,,gen-1791191614-iS3a2HV5qM57mXOAZJe3
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,meta-llama4,Gwanghwamun Gate,0.95,2210,True,1,images25 1,0.1,none,1988,49,2037,0.0007448,22.17,,,,gen-1791191616-qU9ZvjMJrHnST4Kp7dIB
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,anthropic-claude-sonnet5,Gyeongbokgung Palace,0.9,7417,True,1,images25 1,0.1,none,1220,215,1435,0.00459,28.99,,,,gen-1791191597-uh9q7vR4jhoeiHD4lEC6
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54,Gyeongbokgung Palace,0.84,4360,True,1,images25 1,0.1,none,1099,91,1190,0.0041125,20.87,,,,gen-1791191602-UJSPQZmR3uuJqeSdN8Um
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,openai-gpt-54-mini,Gyeongbokgung Palace,0.96,2326,True,1,images25 1,0.1,none,1099,84,1183,0.00120225,36.11,,,,gen-1791191606-LWJhGGUNR5fueef2mvHk
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,google-gemini-38-flash,Gyeongbokgung Palace,0.98,5495,True,1,images25 1,0.1,none,1187,425,1612,0.002484,77.35,,,,gen-1791191609-DYypm0dqOuQlPpZVLraR
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,qwen-25-vl-72b,Gyeongbokgung Palace,0.95,1752,True,1,images25 1,0.1,none,1129,51,1180,0.0009542,29.12,,,,gen-1791191614-iS3a2HV5qM57mXOAZJe3
+2026-10-05 16:15:11,images25.1.jpg,images25.1,tier1_iconic,meta-llama4,Gwanghwamun Gate,0.95,2210,True,1,images25 1,0.1,none,1988,49,2037,0.0007448,22.17,,,,gen-1791191616-qU9ZvjMJrHnST4Kp7dIB
