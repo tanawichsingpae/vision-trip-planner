@@ -634,6 +634,167 @@ def foursquare_photos(place_id):
         return jsonify([]), 200
 
 
+# --------------------
+# Google Maps Link Resolver
+# --------------------
+
+@app.route("/resolve_maps_url", methods=["GET", "POST"])
+def resolve_maps_url():
+    """
+    Expands short Google Maps links (e.g. maps.app.goo.gl, goo.gl/maps)
+    and extracts accommodation/place name, coordinates (lat, lng), and static photo.
+    """
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        raw_input = data.get("url") or data.get("query") or ""
+    else:
+        raw_input = request.args.get("url") or request.args.get("query") or ""
+
+    if not raw_input or not isinstance(raw_input, str):
+        return jsonify({"error": "No URL provided", "success": False}), 400
+
+    raw_input = raw_input.strip()
+
+    # Extract URL if surrounded by extra text (e.g. copied from mobile share sheet)
+    url_match = re.search(r"https?://[^\s]+", raw_input)
+    if not url_match:
+        return jsonify({"error": "No valid URL found in input", "success": False}), 400
+
+    url = url_match.group(0).rstrip(".,;)>]")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9,th;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+    }
+
+    try:
+        session = requests.Session()
+        resp = session.get(url, headers=headers, allow_redirects=True, timeout=12)
+        final_url = resp.url
+        text = resp.text
+    except Exception as e:
+        print("[resolve_maps_url] Error fetching URL:", e)
+        return jsonify({"error": f"Failed to follow URL redirect: {str(e)}", "success": False, "original_url": url}), 502
+
+    name = None
+    lat = None
+    lng = None
+    photo_url = None
+    address = None
+
+    # 1. Coordinates extraction:
+    # A) Exact pin coordinates in protobuf data (!3d<lat>!4d<lng>)
+    pin_m = re.search(r"!3d(-?\d+(?:\.\d+)?)[!&/]4d(-?\d+(?:\.\d+)?)", final_url)
+    if pin_m:
+        try:
+            lat = float(pin_m.group(1))
+            lng = float(pin_m.group(2))
+        except (ValueError, TypeError):
+            pass
+
+    # B) Viewport center coordinates (@<lat>,<lng>)
+    if lat is None or lng is None:
+        view_m = re.search(r"@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)", final_url)
+        if view_m:
+            try:
+                lat = float(view_m.group(1))
+                lng = float(view_m.group(2))
+            except (ValueError, TypeError):
+                pass
+
+    # C) Coordinates from static map image center in HTML
+    if lat is None or lng is None:
+        center_m = re.search(r"center=(-?\d+(?:\.\d+)?)(?:%2C|,)(-?\d+(?:\.\d+)?)", text)
+        if center_m:
+            try:
+                lat = float(center_m.group(1))
+                lng = float(center_m.group(2))
+            except (ValueError, TypeError):
+                pass
+
+    # D) Coordinates from query params (q=lat,lng or ll=lat,lng)
+    if lat is None or lng is None:
+        q_coords = re.search(r"[?&](?:q|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)", final_url)
+        if q_coords:
+            try:
+                lat = float(q_coords.group(1))
+                lng = float(q_coords.group(2))
+            except (ValueError, TypeError):
+                pass
+
+    # 2. Place Name extraction:
+    # A) From URL path: /maps/place/<name>/
+    place_m = re.search(r"/maps/place/([^/@?]+)", final_url)
+    if place_m:
+        raw_name = place_m.group(1)
+        decoded = urllib.parse.unquote_plus(raw_name).strip()
+        if not re.match(r"^-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$", decoded):
+            name = decoded
+
+    # B) From preview link query tag: href="...q=<name>"
+    if not name:
+        prev_m = re.search(r'href="[^"]*q=([^&"]+)', text)
+        if prev_m:
+            decoded = urllib.parse.unquote_plus(prev_m.group(1)).strip()
+            if not re.match(r"^-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$", decoded):
+                name = decoded
+
+    # C) From URL search param query or q
+    if not name:
+        parsed_q = urllib.parse.urlparse(final_url)
+        qs = urllib.parse.parse_qs(parsed_q.query)
+        q_val = (qs.get("query") or qs.get("q") or [None])[0]
+        if q_val:
+            decoded_q = urllib.parse.unquote_plus(q_val).strip()
+            if not re.match(r"^-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$", decoded_q):
+                name = decoded_q
+
+    # D) From HTML <title> tag
+    if not name:
+        title_m = re.search(r"<title>(.*?)</title>", text, re.IGNORECASE)
+        if title_m:
+            t = title_m.group(1)
+            t = re.sub(r"\s*[-–]\s*Google Maps.*$", "", t, flags=re.IGNORECASE).strip()
+            if t and t.lower() != "google maps":
+                name = t
+
+    # 3. Photo extraction:
+    img_m = re.search(r'property="og:image"\s+content="([^"]+)"|content="([^"]+)"\s+property="og:image"', text)
+    if img_m:
+        photo_url = html.unescape(img_m.group(1) or img_m.group(2))
+
+    # 4. Description/Address extraction:
+    desc_m = re.search(r'property="og:description"\s+content="([^"]+)"|content="([^"]+)"\s+property="og:description"', text)
+    if desc_m:
+        desc_val = html.unescape(desc_m.group(1) or desc_m.group(2))
+        if desc_val and not desc_val.lower().startswith("find local businesses"):
+            address = desc_val
+
+    # Clean name if needed
+    clean_name = name
+    if clean_name:
+        if " · " in clean_name:
+            parts = clean_name.split(" · ")
+            clean_name = parts[0].strip()
+            if not address and len(parts) > 1:
+                address = parts[1].strip()
+
+    is_success = bool(clean_name or (lat is not None and lng is not None))
+
+    return jsonify({
+        "success": is_success,
+        "name": clean_name or (f"Accommodation ({lat:.4f}, {lng:.4f})" if lat and lng else "Selected Accommodation"),
+        "lat": lat,
+        "lng": lng,
+        "photo_url": photo_url,
+        "address": address,
+        "final_url": final_url,
+        "original_url": url
+    }), (200 if is_success else 404)
+
+
+
 import html
 
 import re

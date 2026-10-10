@@ -42,6 +42,10 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        "/resolve_maps_url": {
+          target: "http://127.0.0.1:8080",
+          changeOrigin: true,
+        },
       },
     },
     envPrefix: ["VITE_", "NEXT_PUBLIC_"],

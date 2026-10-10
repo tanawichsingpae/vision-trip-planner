@@ -374,6 +374,11 @@ const AIAccommodations = ({
   const [searchHotelLng, setSearchHotelLng] = useState<number | null>(null);
   const [searchHotelPhotoUrl, setSearchHotelPhotoUrl] = useState<string | undefined>(undefined);
   const [searchHotelPlaceId, setSearchHotelPlaceId] = useState<string | undefined>(undefined);
+  const [searchHotelRating, setSearchHotelRating] = useState<number | undefined>(undefined);
+  const [searchHotelRatingsTotal, setSearchHotelRatingsTotal] = useState<number | undefined>(undefined);
+  const [searchHotelAddress, setSearchHotelAddress] = useState<string | undefined>(undefined);
+  const [searchHotelWebsite, setSearchHotelWebsite] = useState<string | undefined>(undefined);
+  const [searchHotelPhone, setSearchHotelPhone] = useState<string | undefined>(undefined);
 
   const [searchCheckInDay, setSearchCheckInDay] = useState<string>("0");
   const [searchCheckInTime, setSearchCheckInTime] = useState<string>("15:00");
@@ -396,6 +401,11 @@ const AIAccommodations = ({
       setSearchHotelLng(null);
       setSearchHotelPhotoUrl(undefined);
       setSearchHotelPlaceId(undefined);
+      setSearchHotelRating(undefined);
+      setSearchHotelRatingsTotal(undefined);
+      setSearchHotelAddress(undefined);
+      setSearchHotelWebsite(undefined);
+      setSearchHotelPhone(undefined);
     },
     [onAddToItinerary],
   );
@@ -416,12 +426,16 @@ const AIAccommodations = ({
     id: `custom-hotel-${searchHotelPlaceId || "manual"}`,
     name: searchHotelName,
     category: "hotel",
-    description: "Your custom selected accommodation",
+    description: searchHotelAddress ? `ที่พัก: ${searchHotelAddress}` : "Your custom selected accommodation",
     lat: searchHotelLat ?? 0,
     lng: searchHotelLng ?? 0,
     photo_url: searchHotelPhotoUrl,
     image_url: searchHotelPhotoUrl,
-    image: searchHotelPhotoUrl,
+    image: searchHotelPhotoUrl || "",
+    rating: searchHotelRating ?? null,
+    userRatingsTotal: searchHotelRatingsTotal ?? null,
+    website: searchHotelWebsite ?? null,
+    phoneNumber: searchHotelPhone ?? null,
   } : null;
 
   const hasHotel = hasHotelFromPreferences || !!selectedHotelName;
@@ -432,21 +446,26 @@ const AIAccommodations = ({
       <div className="space-y-1.5">
         <Label htmlFor="custom-hotel-search" className="text-sm font-semibold flex items-center gap-1.5 text-foreground">
           <BedDouble className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-          {language === "th" ? "ค้นหาชื่อโรงแรม / ที่พักที่ต้องการ" : "Search accommodation / hotel name"}
+          {language === "th" ? "ค้นหาที่พัก (จากชื่อโรงแรม หรือ ลิงก์ Google Maps)" : "Search accommodation (by name or Google Maps link)"}
         </Label>
         <HotelSelectCombobox
           id="custom-hotel-search"
           value={searchHotelName}
           onChange={(name, lat, lng, details) => {
             setSearchHotelName(name);
-            setSearchHotelLat(lat);
-            setSearchHotelLng(lng);
+            setSearchHotelLat(lat ?? null);
+            setSearchHotelLng(lng ?? null);
             setSearchHotelPhotoUrl(details?.photoUrl || undefined);
             setSearchHotelPlaceId(details?.placeId || undefined);
+            setSearchHotelRating(details?.rating);
+            setSearchHotelRatingsTotal(details?.userRatingsTotal);
+            setSearchHotelAddress(details?.address);
+            setSearchHotelWebsite(details?.website);
+            setSearchHotelPhone(details?.phone);
           }}
           destinationName={locationName}
           destinationCoords={destinationCoords}
-          placeholder={language === "th" ? "พิมพ์ชื่อโรงแรม เช่น Hilton, Marriott, โรงแรมใกล้สถานี..." : "Type hotel name e.g. Hilton, Marriott, hotel near station..."}
+          placeholder={language === "th" ? "พิมพ์ชื่อโรงแรม หรือสลับไปแท็บลิงก์ Google Maps..." : "Type hotel name or switch to Google Maps link..."}
         />
       </div>
 
@@ -520,6 +539,11 @@ const AIAccommodations = ({
                 setSearchHotelLng(null);
                 setSearchHotelPhotoUrl(undefined);
                 setSearchHotelPlaceId(undefined);
+                setSearchHotelRating(undefined);
+                setSearchHotelRatingsTotal(undefined);
+                setSearchHotelAddress(undefined);
+                setSearchHotelWebsite(undefined);
+                setSearchHotelPhone(undefined);
               }}
               className="text-muted-foreground hover:text-foreground text-xs px-3 h-8"
             >
@@ -705,10 +729,10 @@ const AIAccommodations = ({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground leading-none mb-0.5">
-                  {language === "th" ? "ค้นหาที่พักเอง" : "Search hotel manually"}
+                  {language === "th" ? "ค้นหาที่พักเอง (พิมพ์ชื่อ หรือ วางลิงก์ Google Maps)" : "Search hotel manually (by Name or Google Maps link)"}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">
-                  {language === "th" ? "Hilton, Marriott, หรือโรงแรมที่คุณจอง..." : "Hilton, Marriott, or your booked hotel..."}
+                  {language === "th" ? "ค้นหาชื่อโรงแรม หรือวางลิงก์ Google Maps เพื่อระบุที่พักและนำทางอัตโนมัติ..." : "Search hotel name or paste Google Maps link to schedule..."}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">

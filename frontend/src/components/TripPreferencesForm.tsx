@@ -882,11 +882,11 @@ const TripPreferencesForm = ({
 
         {hasHotel === "yes" && (
           <div className="space-y-4 animate-slide-up p-4 rounded-xl bg-primary/5 border border-primary/20">
-            {/* Hotel Name */}
+            {/* Hotel Name / Google Maps Link */}
             <div className="space-y-1.5">
               <Label htmlFor="hotel-name" className="text-sm font-medium flex items-center gap-1.5">
                 <BedDouble className="w-3.5 h-3.5 text-primary" />
-                Hotel name
+                {isTh ? "ค้นหาที่พัก (จากชื่อโรงแรม หรือ ลิงก์ Google Maps)" : "Hotel / Accommodation (by Name or Google Maps link)"}
               </Label>
               <HotelSelectCombobox
                 id="hotel-name"
@@ -900,7 +900,7 @@ const TripPreferencesForm = ({
                 }}
                 destinationName={destinationName}
                 destinationCoords={destinationCoords}
-                placeholder="Search for your hotel..."
+                placeholder={isTh ? "พิมพ์ชื่อโรงแรม หรือสลับไปแท็บลิงก์ Google Maps..." : "Search hotel name or switch to Google Maps link..."}
               />
             </div>
 
