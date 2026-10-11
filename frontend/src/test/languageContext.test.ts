@@ -73,11 +73,44 @@ describe("LanguageContext & Localization Helpers", () => {
 
     it("falls back to english_name or title when localized field is absent", () => {
       const legacyItem: LocalizablePlace = {
-        title: "Senso-ji Temple",
-        english_name: "Senso-ji Temple",
+        title: "Crystal Hidden Valley 404",
+        english_name: "Crystal Hidden Valley 404",
       };
-      expect(getLocalizedPlace(legacyItem, "th")).toBe("Senso-ji Temple");
-      expect(getLocalizedPlace(legacyItem, "en")).toBe("Senso-ji Temple");
+      expect(getLocalizedPlace(legacyItem, "th")).toBe("Crystal Hidden Valley 404");
+      expect(getLocalizedPlace(legacyItem, "en")).toBe("Crystal Hidden Valley 404");
+    });
+
+    it("localizes Japanese, Chinese, and Korean landmark names accurately into both Thai and English", () => {
+      // Japanese landmarks
+      const sensoji: LocalizablePlace = { title: "浅草寺" };
+      expect(getLocalizedPlace(sensoji, "th")).toBe("วัดเซ็นโซจิ (อาซากุสะ)");
+      expect(getLocalizedPlace(sensoji, "en")).toBe("Senso-ji Temple");
+
+      const fushimi: LocalizablePlace = { title: "伏見稲荷大社" };
+      expect(getLocalizedPlace(fushimi, "th")).toBe("ศาลเจ้าฟูชิมิอินาริ");
+      expect(getLocalizedPlace(fushimi, "en")).toBe("Fushimi Inari Taisha");
+
+      const kinkakuji: LocalizablePlace = { title: "金閣寺" };
+      expect(getLocalizedPlace(kinkakuji, "th")).toBe("วัดคินคะคุจิ (วัดทอง)");
+      expect(getLocalizedPlace(kinkakuji, "en")).toBe("Kinkaku-ji (Golden Pavilion)");
+
+      // Chinese landmarks
+      const forbiddenCity: LocalizablePlace = { title: "故宫" };
+      expect(getLocalizedPlace(forbiddenCity, "th")).toBe("พระราชวังต้องห้าม");
+      expect(getLocalizedPlace(forbiddenCity, "en")).toBe("The Forbidden City");
+
+      const jiufen: LocalizablePlace = { title: "九份" };
+      expect(getLocalizedPlace(jiufen, "th")).toBe("จิ่วเฟิ่น (ไต้หวัน)");
+      expect(getLocalizedPlace(jiufen, "en")).toBe("Jiufen");
+
+      // Korean landmarks
+      const gyeongbokgung: LocalizablePlace = { title: "경복궁" };
+      expect(getLocalizedPlace(gyeongbokgung, "th")).toBe("พระราชวังเคียงบก");
+      expect(getLocalizedPlace(gyeongbokgung, "en")).toBe("Gyeongbokgung Palace");
+
+      const nSeoulTower: LocalizablePlace = { title: "N서울타워" };
+      expect(getLocalizedPlace(nSeoulTower, "th")).toBe("เอ็นโซลทาวเวอร์");
+      expect(getLocalizedPlace(nSeoulTower, "en")).toBe("N Seoul Tower");
     });
 
     it("handles compound bilingual place names cleanly", () => {
@@ -145,8 +178,21 @@ describe("LanguageContext & Localization Helpers", () => {
       const yaowaratDinner: LocalizablePlace = {
         title: "Dinner & Street Food near Yaowarat",
       };
-      expect(getLocalizedPlace(yaowaratDinner, "en")).toBe("Dinner & Street Food near Yaowarat");
-      expect(getLocalizedPlace(yaowaratDinner, "th")).toContain("มื้อค่ำและสตรีทฟู้ดแถว");
+      expect(getLocalizedPlace(yaowaratDinner, "en")).toBe("Street Food, Dinner near Yaowarat");
+      expect(getLocalizedPlace(yaowaratDinner, "th")).toContain("สตรีทฟู้ด มื้อค่ำรอบ");
+
+      const ampersandStreetFood: LocalizablePlace = {
+        title: "& Street Food",
+      };
+      expect(getLocalizedPlace(ampersandStreetFood, "en")).toBe("Street Food");
+      expect(getLocalizedPlace(ampersandStreetFood, "th")).toBe("สตรีทฟู้ด");
+
+      const ampersandNearLandmark: LocalizablePlace = {
+        title: "& Street Food near Wat Phra Kaew",
+      };
+      expect(getLocalizedPlace(ampersandNearLandmark, "en")).toBe("Street Food near Wat Phra Kaew");
+      expect(getLocalizedPlace(ampersandNearLandmark, "th")).toContain("สตรีทฟู้ดรอบ");
+      expect(getLocalizedPlace(ampersandNearLandmark, "th")).toContain("วัดพระแก้ว");
 
       // Thai -> English
       const thaiBacc: LocalizablePlace = {

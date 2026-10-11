@@ -933,7 +933,9 @@ def search_web_duckduckgo(query: str, max_results: int = 4):
 
 LEGACY_MODEL_MAP = {
     "gemini-2.5-flash": "google/gemini-2.5-flash",
-    "gemini-3.8-flash": "google/gemini-2.5-flash",
+    "gemini-3.8-flash": "google/gemini-3.8-flash",
+    "google-gemini-38-flash": "google/gemini-3.8-flash",
+    "google-gemini-25-flash": "google/gemini-2.5-flash",
     "gemini-1.5-pro": "google/gemini-2.5-flash",
     "gpt-4o-mini": "openai/gpt-4o-mini",
     "gpt-4o": "openai/gpt-4o",
@@ -1183,16 +1185,59 @@ def call_ai():
             if not has_system:
                 formatted_messages.insert(0, {"role": "system", "content": date_anchor})
 
-            # 4-Tier Online Strategy:
-            # 1. google/gemini-2.5-flash:online (Primary)
-            # 2. google/gemini-2.0-flash-001:online (Secondary)
-            # 3. openai/gpt-4o-mini:online (Tertiary)
-            # 4. search_web_duckduckgo + base model (Fallback 4)
-            online_models_to_try = [
+            # Ingest real-time news & disaster feeds from Google News RSS for destination city (Pixo Buddy parity)
+            target_city = ""
+            sys_text = ""
+            for msg in formatted_messages:
+                if msg.get("role") == "system":
+                    sys_text = str(msg.get("content", ""))
+                    break
+
+            city_match = re.search(r"จุดหมายปลายทางของทริป:\s*([^\n\r]+)", sys_text)
+            if not city_match:
+                city_match = re.search(r"Trip Destination:\s*([^\n\r]+)", sys_text)
+            if city_match:
+                target_city = city_match.group(1).strip()
+
+            if not target_city or target_city in ["Destination", "ยังไม่ได้ระบุ"]:
+                for p in ["กรุงเทพมหานคร", "กรุงเทพ", "เชียงใหม่", "ภูเก็ต", "ชลบุรี", "พัทยา", "กระบี่", "หัวหิน", "อยุธยา", "น่าน", "Tokyo", "Osaka", "Kyoto", "Seoul", "Singapore", "Bangkok"]:
+                    if p.lower() in user_text.lower():
+                        target_city = p
+                        break
+
+            if target_city and target_city not in ["Destination", "ยังไม่ได้ระบุ"]:
+                try:
+                    country_ctx = resolve_destination_context(target_city, [])
+                    disaster_news = fetch_targeted_disaster_news(target_city, country_ctx, True, datetime.date.today())
+                    if disaster_news:
+                        news_context_block = (
+                            f"\n=== รายงานข่าวสด & เหตุการณ์ฉุกเฉินล่าสุดประจำเมือง {target_city} (Google News / Real-Time Live Feeds จาก Pixo Buddy) ===\n"
+                            + "\n".join([f"- {item}" for item in disaster_news[:6]])
+                            + "\n========================================================================================\n"
+                            "- นำข้อมูลข่าวด่วนและสถานการณ์ล่าสุดนี้ไปใช้ตอบคำถามหรือให้คำแนะนำผู้ใช้อย่างถูกต้อง แม่นยำ และทันเหตุการณ์เสมอ\n"
+                        )
+                        for msg in formatted_messages:
+                            if msg.get("role") == "system":
+                                msg["content"] = str(msg.get("content", "")) + "\n" + news_context_block
+                                break
+                except Exception as news_err:
+                    print("[ChatBot Live News Ingestion Warning]:", news_err)
+
+            # 4-Tier Online Strategy (prioritize user-selected model with :online if supported):
+            candidate_online = []
+            if model_name:
+                cleaned_base = model_name.split(":")[0]
+                candidate_online.append(f"{cleaned_base}:online")
+
+            for m in [
                 "google/gemini-2.5-flash:online",
                 "google/gemini-2.0-flash-001:online",
                 "openai/gpt-4o-mini:online",
-            ]
+            ]:
+                if m not in candidate_online:
+                    candidate_online.append(m)
+
+            online_models_to_try = candidate_online
 
             cleaned_content = None
             last_error = None
@@ -1308,7 +1353,7 @@ def call_ai():
             for attempt in range(max_attempts):
                 try:
                     print(f"[AI] Requesting model: {current_model} (attempt {attempt+1}/{max_attempts}, expect_json={expect_json}, allow_fallback={allow_fallback}, temp={temperature})")
-                    max_tokens_val = int(data.get("max_tokens") or 1024)
+                    max_tokens_val = int(data.get("max_tokens") or 4096)
                     create_kwargs = {
                         "model": current_model,
                         "messages": formatted_messages,
@@ -1483,6 +1528,90 @@ def get_ai_generation_stats():
     if not stats:
         stats = fetch_openrouter_generation_stats(gen_id, max_retries=2, initial_delay=0.6)
     return jsonify({"stats": stats or {}})
+
+
+# --------------------
+# AI Image Generation (OpenRouter / Gemini Image API)
+# --------------------
+@app.route("/ai/generate-image", methods=["POST"])
+def generate_ai_image():
+    """
+    Generates an AI image (e.g. Infographic travel poster) using OpenRouter Image API.
+    Supports google/gemini-3-pro-image and other vision generative models.
+    """
+    api_key = OPENROUTER_API_KEY
+    if not api_key:
+        return jsonify({"error": "OpenRouter API key not configured", "success": False}), 500
+
+    data = request.get_json(silent=True) or {}
+    prompt = data.get("prompt", "").strip()
+    if not prompt:
+        return jsonify({"error": "Missing prompt parameter", "success": False}), 400
+
+    model = data.get("model", "google/gemini-3-pro-image")
+    aspect_ratio = data.get("aspect_ratio", "16:9")
+    resolution = data.get("resolution", "2K")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://vision-trip-planner.vercel.app",
+        "X-Title": "Pixinerary",
+    }
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "aspect_ratio": aspect_ratio,
+    }
+    if resolution:
+        payload["resolution"] = resolution
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/images",
+            headers=headers,
+            json=payload,
+            timeout=90
+        )
+
+        try:
+            res_data = response.json()
+        except Exception:
+            res_data = {"error": {"message": response.text}}
+
+        if response.status_code == 200:
+            items = res_data.get("data", [])
+            images = []
+            for item in items:
+                if "url" in item and item["url"]:
+                    images.append(item["url"])
+                elif "b64_json" in item and item["b64_json"]:
+                    images.append(f"data:image/png;base64,{item['b64_json']}")
+
+            return jsonify({
+                "success": True,
+                "images": images,
+                "model": model,
+                "aspect_ratio": aspect_ratio,
+                "raw": res_data
+            }), 200
+
+        # Handle upstream error (e.g. 402 insufficient credits, 429 rate limit)
+        err_msg = res_data.get("error", {}).get("message") or f"OpenRouter returned status {response.status_code}"
+        return jsonify({
+            "success": False,
+            "error": err_msg,
+            "status_code": response.status_code,
+            "details": res_data
+        }), response.status_code
+
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Image generation timed out (90s limit)", "success": False}), 504
+    except Exception as e:
+        print("[generate_ai_image Error]:", e)
+        return jsonify({"error": str(e), "success": False}), 500
+
 
 
 

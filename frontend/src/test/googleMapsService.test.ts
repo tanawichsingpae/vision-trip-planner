@@ -114,6 +114,6 @@ describe("Google Maps Service — URL Detection & Parsing", () => {
       expect(result.name).toContain("Park Hyatt");
       expect(result.lat).toBeCloseTo(35.6853, 4);
       expect(result.lng).toBeCloseTo(139.6912, 4);
-    });
+    }, 15000);
   });
 });

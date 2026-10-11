@@ -126,7 +126,7 @@ describe("Geocoding Landmark Disambiguation & Precision", () => {
     });
     expect(decodeURIComponent(unverifiedDirectionsUrl)).toContain("destination=Wat Phra Kaew, Bangkok");
 
-    // 5. Search mode with coordinates: PRIORITY 1 ALWAYS pins directly to exact coordinates
+    // 5. Search mode with coordinates and genuine Google placeId: pins directly to exact coordinates with verified placeId
     const searchWithCoords = buildGoogleMapsUrl({
       lat: 13.7441,
       lng: 100.5222,
@@ -135,6 +135,30 @@ describe("Geocoding Landmark Disambiguation & Precision", () => {
       mode: "search",
     });
     expect(searchWithCoords).toBe("https://www.google.com/maps/search/?api=1&query=13.7441,100.5222&query_place_id=ChIJ_BAN_THAT_THONG");
+
+    // 6. Non-Google Place IDs (Foursquare fsq..., OSM numbers, disambig-...) are stripped to prevent broken Google Maps lookups
+    const nonGoogleDirectionsUrl = buildGoogleMapsUrl({
+      lat: 13.7515,
+      lng: 100.4927,
+      englishName: "Wat Phra Kaew",
+      isCoordsVerified: true,
+      placeId: "4b658d34f964a5200ff42be3", // Foursquare hex ID
+      mode: "directions",
+    });
+    expect(nonGoogleDirectionsUrl).toBe("https://www.google.com/maps/dir/?api=1&destination=13.7515,100.4927");
+    expect(nonGoogleDirectionsUrl).not.toContain("destination_place_id");
+
+    // 7. Search mode with non-Google placeId uses venue name with city context for authentic business card
+    const nonGoogleSearchUrl = buildGoogleMapsUrl({
+      lat: 13.7527,
+      lng: 100.5048,
+      englishName: "Thip Samai Pad Thai",
+      cityName: "Bangkok",
+      placeId: "disambig-thip%20samai",
+      mode: "search",
+    });
+    expect(decodeURIComponent(nonGoogleSearchUrl)).toContain("Thip Samai Pad Thai, Bangkok");
+    expect(nonGoogleSearchUrl).not.toContain("query_place_id");
   });
 
   describe("sanitizePlaceTitle() pure POI name cleaning", () => {
@@ -219,11 +243,19 @@ describe("Geocoding Landmark Disambiguation & Precision", () => {
       expect(sanitizePlaceTitle("ร้านเจ๊โอว (อาหารค่ำ)")).toBe("ร้านเจ๊โอว");
       expect(sanitizePlaceTitle("Thipsamai (Lunch)")).toBe("Thipsamai");
 
-      // Case 2: Preserves descriptive zone dining titles
+      // Case 2: Preserves descriptive zone dining titles and removes unwanted & symbols
       expect(sanitizePlaceTitle("Street Food, Lunch near Bangkok Cultural Center")).toBe("Street Food, Lunch near Bangkok Cultural Center");
       expect(sanitizePlaceTitle("สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ")).toBe("สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ");
       expect(sanitizePlaceTitle("Street Food near Wat Phra Kaew")).toBe("Street Food near Wat Phra Kaew");
       expect(sanitizePlaceTitle("สตรีทฟู้ดรอบวัดพระแก้ว")).toBe("สตรีทฟู้ดรอบวัดพระแก้ว");
+
+      // Case 2: & Street Food patterns cleaned to have NO & symbol
+      expect(sanitizePlaceTitle("& Street Food")).toBe("Street Food");
+      expect(sanitizePlaceTitle("& Street Food near Wat Phra Kaew")).toBe("Street Food near Wat Phra Kaew");
+      expect(sanitizePlaceTitle("Dinner & Street Food near Yaowarat")).toBe("Street Food, Dinner near Yaowarat");
+      expect(sanitizePlaceTitle("Dinner & Street Food")).toBe("Street Food, Dinner");
+      expect(sanitizePlaceTitle("Lunch & Street Food near Siam")).toBe("Street Food, Lunch near Siam");
+      expect(sanitizePlaceTitle("Local Eatery & Street Food")).toBe("Local Eatery, Street Food");
     });
 
     it("resolves Case 2 zone street food coordinates to anchor landmark location", async () => {

@@ -132,4 +132,36 @@ describe("AI Suggested Places - Minimum 10 Enforcement", () => {
     const result = initialList.length >= 10 ? initialList : [];
     expect(result.length).toBe(12);
   });
+
+  it("getFallbackSuggestions must use authentic real-world venue names, not generic zone descriptions", () => {
+    const bkk = getFallbackSuggestions("Bangkok");
+    const bkkNames = bkk.map(b => b.name);
+    expect(bkkNames).toContain("Mahanakhon SkyWalk");
+    expect(bkkNames).toContain("Wat Arun (Temple of Dawn)");
+    expect(bkkNames).toContain("Raan Jay Fai");
+    expect(bkkNames).toContain("Chatuchak Weekend Market");
+
+    const cnx = getFallbackSuggestions("Chiang Mai");
+    const cnxNames = cnx.map(c => c.name);
+    expect(cnxNames).toContain("Tha Phae Gate");
+    expect(cnxNames).toContain("Wat Phra That Doi Suthep");
+    expect(cnxNames).toContain("Khao Soi Mae Sai");
+
+    const tyo = getFallbackSuggestions("Tokyo");
+    const tyoNames = tyo.map(t => t.name);
+    expect(tyoNames).toContain("Shibuya Sky Observation Deck");
+    expect(tyoNames).toContain("Senso-ji Temple (Asakusa)");
+    expect(tyoNames).toContain("Tsukiji Outer Market");
+
+    // Strictly ensure no generic descriptive templates or zone wrappers exist in any of them
+    const allTested = [...bkk, ...cnx, ...tyo];
+    for (const place of allTested) {
+      expect(place.name).not.toMatch(/^Scenic SkyWalk & Photo Landmark/i);
+      expect(place.name).not.toMatch(/^Historic Landmark & Temple/i);
+      expect(place.name).not.toMatch(/^Famous Local Restaurant/i);
+      expect(place.name).not.toMatch(/^Street Food near/i);
+      expect(place.name).not.toMatch(/^Lunch near/i);
+      expect(place.name).not.toMatch(/^Dining Zone/i);
+    }
+  });
 });

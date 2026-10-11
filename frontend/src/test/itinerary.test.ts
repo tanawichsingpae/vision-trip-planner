@@ -16,6 +16,10 @@ import {
   optimizeDayActivities,
   isEveningActivity,
   isZoneOrArea,
+  auditItineraryIssues,
+  roundTimeToCleanMinutes,
+  roundMinutesToClean,
+  formatMinutesToTime,
   type POICandidate,
   type DayCluster,
 } from "@/api/spatialPlanner";
@@ -808,6 +812,83 @@ describe("Single-Day Optimization & Monotony Prevention", () => {
 
     // 3. No intersecting edges
     expect(countIntersectingEdges(optimized)).toBe(0);
+  });
+});
+
+describe("Clean Rounded Schedule Times & AI Review Quality Gate", () => {
+  it("should flag awkward odd minute fractions like 11:36 in auditItineraryIssues", () => {
+    const unroundedItinerary = [
+      {
+        day: 1,
+        activities: [
+          { id: "1", title: "Morning Temple", type: "culture" as const, lat: 13.75, lng: 100.50, time: "09:00" },
+          { id: "2", title: "Midday Stop", type: "culture" as const, lat: 13.752, lng: 100.502, time: "11:36" },
+          { id: "3", title: "Lunch", type: "food" as const, lat: 13.753, lng: 100.503, time: "12:00" },
+        ],
+      },
+    ];
+
+    const audit = auditItineraryIssues(unroundedItinerary as any);
+    expect(audit.warnings.some(w => w.includes("[Unrounded Time Slot]") && w.includes("11:36"))).toBe(true);
+  });
+
+  it("should not flag clean rounded times (e.g. 11:30, 11:45, 12:00)", () => {
+    const roundedItinerary = [
+      {
+        day: 1,
+        activities: [
+          { id: "1", title: "Morning Temple", type: "culture" as const, lat: 13.75, lng: 100.50, time: "09:00" },
+          { id: "2", title: "Midday Stop", type: "culture" as const, lat: 13.752, lng: 100.502, time: "11:30" },
+          { id: "3", title: "Lunch", type: "food" as const, lat: 13.753, lng: 100.503, time: "12:00" },
+        ],
+      },
+    ];
+
+    const audit = auditItineraryIssues(roundedItinerary as any);
+    expect(audit.warnings.some(w => w.includes("[Unrounded Time Slot]"))).toBe(false);
+  });
+
+  it("should round awkward times like 11:36 to clean round figures in roundTimeToCleanMinutes", () => {
+    expect(roundTimeToCleanMinutes("11:36", 15)).toBe("11:30");
+    expect(roundTimeToCleanMinutes("11:36", 5)).toBe("11:35");
+    expect(roundTimeToCleanMinutes("13:23", 15)).toBe("13:30");
+    expect(roundTimeToCleanMinutes("18:08", 15)).toBe("18:15");
+    expect(roundTimeToCleanMinutes("18:07", 15)).toBe("18:00");
+    expect(roundTimeToCleanMinutes("09:00", 15)).toBe("09:00");
+  });
+
+  it("should format minutes to clean 15-minute intervals in formatMinutesToTime", () => {
+    expect(formatMinutesToTime(11 * 60 + 36, 15)).toBe("11:30");
+    expect(formatMinutesToTime(11 * 60 + 36, 5)).toBe("11:35");
+    expect(formatMinutesToTime(9 * 60, 15)).toBe("09:00");
+    expect(formatMinutesToTime(12 * 60, 15)).toBe("12:00");
+  });
+
+  it("should guarantee that assignDeterministicTimeSlots produces only clean round numbers (:00, :15, :30, :45)", () => {
+    const mixedActivities: Activity[] = [
+      { id: "1", title: "Museum", type: "culture", lat: 13.750, lng: 100.490, description: "" },
+      { id: "2", title: "Palace", type: "culture", lat: 13.752, lng: 100.492, description: "" },
+      { id: "3", title: "Lunch Spot", type: "food", lat: 13.753, lng: 100.494, description: "" },
+      { id: "4", title: "Market", type: "shopping", lat: 13.758, lng: 100.500, description: "" },
+      { id: "5", title: "Dinner", type: "food", lat: 13.765, lng: 100.510, description: "" },
+    ];
+
+    const scheduled = assignDeterministicTimeSlots(mixedActivities, "Moderate");
+    expect(scheduled.length).toBe(5);
+
+    for (const act of scheduled) {
+      expect(act.time).toBeDefined();
+      const match = act.time!.match(/^(\d{2}):(\d{2})$/);
+      expect(match).not.toBeNull();
+      const minutes = parseInt(match![2], 10);
+      // Minutes must be clean 15-minute multiples (00, 15, 30, 45)
+      expect([0, 15, 30, 45]).toContain(minutes);
+    }
+
+    // Verify strictly increasing
+    for (let i = 0; i < scheduled.length - 1; i++) {
+      expect(scheduled[i].time!.localeCompare(scheduled[i + 1].time!)).toBeLessThan(0);
+    }
   });
 });
 

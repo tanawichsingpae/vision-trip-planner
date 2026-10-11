@@ -9,6 +9,7 @@ import { type DayPlan, type Activity } from "@/components/TravelItinerary";
 import { fetchPlaceDetails } from "@/api/places";
 import { hasThaiScript, translateTextSync } from "@/services/translatorService";
 import { PixoMascotPeek } from "@/components/PixoMascotPeek";
+import { type EnvironmentData } from "@/services/environmentService";
 
 export interface Message {
   id: string;
@@ -364,6 +365,7 @@ interface ChatBotProps {
   onUpdateFlight?: (flightCode: string) => void;
   messages?: Message[];
   onUpdateMessages?: (messages: Message[]) => void;
+  environmentData?: EnvironmentData | null;
 }
 
 const ChatBot = ({
@@ -377,6 +379,7 @@ const ChatBot = ({
   onUpdateFlight,
   messages: externalMessages,
   onUpdateMessages,
+  environmentData,
 }: ChatBotProps) => {
   const { model } = useAI();
   const { language } = useLanguage();
@@ -641,7 +644,7 @@ const ChatBot = ({
           content: m.content.replace(/```(?:json)?[\s\S]*?```/gi, "").trim(),
         }));
 
-      let rawResponse = await chatWithAssistant(text, locationName, model, itinerary, preferences, historyPayload, language);
+      let rawResponse = await chatWithAssistant(text, locationName, model, itinerary, preferences, historyPayload, language, environmentData);
       let actionSummaryText = "";
 
       const { actionData, cleanText } = parseActionJson(rawResponse);

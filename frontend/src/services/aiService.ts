@@ -4,10 +4,11 @@ import { type AIModelType, type AIProviderType, MODEL_ID_MAP, getAIModelInfo } f
 import { safeFetch, validateApiKey, fileToBase64Optimized } from "@/utils/apiUtils";
 import { safeParseJson } from "@/utils/jsonRepair";
 import { fetchPlaceDetails } from "@/api/places";
-import { fetchWikimediaPhoto, sanitizePlaceTitle } from "@/api/geocode";
+import { fetchWikimediaPhoto, sanitizePlaceTitle, cleanSuggestedPlaceName, isZoneDining, extractZoneAnchorVenue } from "@/api/geocode";
 import { fetchSmartPhoto, getCuratedFallbackPhoto } from "@/services/photoService";
-import { type DayCluster } from "@/api/spatialPlanner";
+import { type DayCluster, roundTimeToCleanMinutes, formatMinutesToTime, parseTimeToMinutes } from "@/api/spatialPlanner";
 import { hasThaiScript, translateTextSync } from "@/services/translatorService";
+import { type EnvironmentData } from "@/services/environmentService";
 
 const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY;
 validateApiKey(GEOAPIFY_API_KEY, "Geoapify");
@@ -140,6 +141,7 @@ export async function refineItineraryWithAI(
       type: a.type,
       lat: a.lat,
       lng: a.lng,
+      isUserPhoto: Boolean(a.isUserPhoto),
       openingHours: a.openingHours,
       priceLevel: a.priceLevel,
       rating: a.rating,
@@ -159,7 +161,7 @@ export async function refineItineraryWithAI(
 We analyzed the following draft travel itinerary and detected several planning flaws & rule violations:
 
 DETECTED AUDIT ISSUES TO REPAIR (CRITICAL):
-${auditIssues.length > 0 ? auditIssues.map((issue, idx) => `${idx + 1}. ${issue}`).join("\n") : "1. Review overall daily geographic flow and ensure perfectly timed meal slots (lunch 11:30-13:30, dinner 18:00-20:00)."}
+${auditIssues.length > 0 ? auditIssues.map((issue, idx) => `${idx + 1}. ${issue}`).join("\n") : "1. Review overall daily geographic flow, ensure perfectly timed meal slots (lunch 11:30-13:30, dinner 18:00-20:00), and round all activity times to clean, round numbers (no odd minute fractions like 11:36)."}
 
 CURRENT ITINERARY:
 ${JSON.stringify(simplifiedItinerary, null, 2)}
@@ -208,7 +210,7 @@ ACADEMIC OPTIMIZATION & TRIP OVERVIEW REVIEW (TTDP & OPTW STANDARDS):
        For sit-down dining at an established, real restaurant (e.g. "ร้านเจ๊โอว", "ทิพย์สมัย ผัดไทยประตูผี", "Thipsamai", "ครัวอัปษร"), use the exact authentic restaurant name and real restaurant coordinates (lat, lng). STRICTLY NO "(อาหารเย็น)", "(อาหารกลางวัน)", "(Lunch)", or "(Dinner)" in the title!
      * Case 2: Street Food / Area Free Dining near Landmark (Street Food หรือ ให้หากินเองรอบย่าน/สถานที่หลัก):
        For lively street food stalls, food vendors, or open-ended dining around a key landmark, use the zone coordinates (lat, lng) of that anchor landmark and name the activity to indicate street food exploration nearby:
-       - English: "Street Food, Lunch near [Landmark]" or "Street Food, Dinner near [Landmark]" (e.g. "Street Food, Lunch near Bangkok Cultural Center", "Street Food near Wat Phra Kaew", "Dinner & Street Food near Yaowarat")
+       - English: "Street Food, Lunch near [Landmark]" or "Street Food, Dinner near [Landmark]" (e.g. "Street Food, Lunch near Bangkok Cultural Center", "Street Food near Wat Phra Kaew", "Street Food, Dinner near Yaowarat")
        - Thai: "สตรีทฟู้ด มื้อกลางวันรอบ[ชื่อสถานที่]" or "สตรีทฟู้ด มื้อค่ำรอบ[ชื่อสถานที่]" (e.g. "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ", "สตรีทฟู้ดรอบวัดพระแก้ว")
 5. OPERATING HOURS, DWELL TIME BUFFER & MORNING START (MANDATORY):
    - ALL DAYS (INCLUDING DAY 1) MUST START IN THE MORNING (08:30 - 09:30 AM). If Day 1 starts late in the evening (e.g., 17:00), you MUST reschedule and expand it into a full morning start with morning sightseeing and midday lunch!
@@ -233,14 +235,21 @@ ACADEMIC OPTIMIZATION & TRIP OVERVIEW REVIEW (TTDP & OPTW STANDARDS):
    - All activities corresponding to user-uploaded photos MUST BE STRICTLY PRESERVED AND CANNOT BE REMOVED, DROPPED, OR REPLACED WITH OTHER VENUES.
    - Even if a user-uploaded place is flagged with an outlier or pacing warning, KEEP IT firmly scheduled in the itinerary and optimize or substitute surrounding secondary stops around it instead.
 12. CATEGORY TYPE ACCURACY: Each activity "type" MUST accurately reflect its true category: "culture", "food", "nature", "adventure", "shopping", "nightlife", "relax", "landmark", "entertainment", "spiritual", or "hotel". DO NOT label everything as "attraction".
-13. PRESERVE EXACT TRIP DURATION (MANDATORY): The input itinerary has EXACTLY ${currentItinerary.length} days. You MUST output EXACTLY ${currentItinerary.length} days (Day 1 through Day ${currentItinerary.length}) in the "itinerary" array. NEVER drop, merge, or collapse days!
+13. PRESERVE EXACT TRIP DURATION & STRICTLY NEVER LEAVE ANY DAY EMPTY (MANDATORY & STRICT):
+   - The input itinerary has EXACTLY ${currentItinerary.length} days. You MUST output EXACTLY ${currentItinerary.length} days (Day 1 through Day ${currentItinerary.length}) in the "itinerary" array. NEVER drop, merge, or collapse days!
+   - EVERY SINGLE DAY (Day 1 to Day ${currentItinerary.length}) MUST HAVE AT LEAST 3 TO 5 ACTIVITIES SCHEDULED. STRICTLY NEVER OUTPUT AN EMPTY DAY ("activities": []) OR 0 ACTIVITIES!
+   - Each day must include a complete daily plan: morning sightseeing (09:00 - 09:30 start), midday lunch (11:30 - 13:00), afternoon activities (14:00 - 16:30), and dinner/evening spots (18:30 - 21:00).
 14. ELIMINATE SPATIAL OUTLIERS & LONG HOPS (MANDATORY):
    - If any secondary activity is flagged with [Spatial Outlier Alert], [Intra-Day Hop Alert], or [Trip Overview: Scattered Day] (located > 4.0 km away from adjacent stops or cluster center), you MUST IMMEDIATELY REPLACE IT with a top-rated, popular attraction situated in the SAME district as the other activities of that day (within 1.5-3.0 km). NEVER drop or replace a user-uploaded primary landmark; replace surrounding secondary venues instead. NEVER allow an intra-day hop between consecutive places to exceed 3.5 km.
 15. PURE REAL POI NAME & CLEAN TITLES (MANDATORY & STRICT):
    - For regular attractions and Case 1 restaurants: Use ONLY authentic, geocodable, specific POI names for "title" (e.g. "ถนนบรรทัดทอง", "ร้านเจ๊โอว", "Wat Phra Kaew", "Thipsamai Pad Thai").
-   - For Case 2 street food exploration: Use clean descriptive format like "Street Food, Lunch near [Landmark]" / "สตรีทฟู้ด มื้อกลางวันรอบ[ชื่อสถานที่]".
+   - For Case 2 street food exploration: Use clean descriptive format like "Street Food, Lunch near [Landmark]" / "Street Food, Dinner near [Landmark]" / "สตรีทฟู้ด มื้อกลางวันรอบ[ชื่อสถานที่]" / "สตรีทฟู้ด มื้อค่ำรอบ[ชื่อสถานที่]". STRICTLY DO NOT use "&" or "& Street Food" (e.g. NEVER write "& Street Food", "Dinner & Street Food", or "Lunch & Street Food").
    - NEVER append meal or time parentheticals like "(Lunch)", "(Dinner)", "(อาหารกลางวัน)", "(อาหารเย็น)", "(มื้อค่ำ)", "(อาหารค่ำ)", or "[Lunch]" in the title!
    - Put dining details and recommendations in the "description" field only.
+16. CLEAN ROUNDED SCHEDULING TIMES (ตัวเลขเวลากลมๆ - CRITICAL & MANDATORY):
+   - All activity start times MUST be clean, round numbers (e.g. "09:00", "09:30", "10:00", "10:15", "10:30", "11:00", "11:30", "12:00", "13:30", "14:00", "14:30", "15:00", "16:30", "17:00", "18:00", "18:30", "19:00", "20:00", or clean 15-minute intervals ending in :00, :15, :30, :45).
+   - STRICTLY NEVER output awkward odd minute fractions such as "11:36", "10:17", "13:23", "14:41", "16:38", "18:08"!
+   - If any activity in the current itinerary has unrounded times or odd minutes (like 11:36), AI Review MUST round and adjust all activity times into clean, round figures while maintaining non-decreasing chronological order and comfortable visit dwell times.
 
 Return ONLY the refined itinerary strictly in this JSON format:
 {
@@ -270,13 +279,14 @@ ${currentItinerary.map((d, idx) => `    {
         model: modelId,
         messages: [{ role: "user", content: prompt }],
         expect_json: true,
+        max_tokens: 4096,
       }),
     });
 
     const text = data.text?.trim() ?? "";
     const parsed = safeParseJson<any>(text);
 
-    if (parsed && Array.isArray(parsed.itinerary) && parsed.itinerary.length >= currentItinerary.length) {
+    if (parsed && Array.isArray(parsed.itinerary) && parsed.itinerary.length > 0) {
       // Map original details (photos, ratings, etc.) onto the refined itinerary
       const originalActivityMap = new Map<string, Activity>();
       currentItinerary.forEach(d => {
@@ -286,13 +296,36 @@ ${currentItinerary.map((d, idx) => `    {
         });
       });
 
-      const refinedDays: DayPlan[] = parsed.itinerary.map((day: any, dIdx: number) => {
+      const totalDays = currentItinerary.length;
+      const refinedDays: DayPlan[] = [];
+
+      for (let dIdx = 0; dIdx < totalDays; dIdx++) {
         const originalDay = currentItinerary[dIdx];
-        const activities: Activity[] = (day.activities || []).map((act: any, aIdx: number) => {
+        const dayFromAI = parsed.itinerary[dIdx];
+
+        if (!dayFromAI || !Array.isArray(dayFromAI.activities) || dayFromAI.activities.length === 0) {
+          // Preserve original day if AI omitted it
+          if (originalDay) refinedDays.push(originalDay);
+          continue;
+        }
+
+        const rawActivities = dayFromAI.activities;
+        let prevM = -1;
+        const activities: Activity[] = rawActivities.map((act: any, aIdx: number) => {
           const matched = originalActivityMap.get(act.title?.toLowerCase().trim()) || (act.id ? originalActivityMap.get(act.id) : null);
           const accurateType = inferActivityType(act.title, act.description, act.type || matched?.type, []);
+
+          let cleanTime = roundTimeToCleanMinutes(act.time || matched?.time || "09:00", 15);
+          let m = parseTimeToMinutes(cleanTime) ?? (9 * 60);
+          if (prevM !== -1 && m <= prevM) {
+            m = prevM + 15;
+            cleanTime = formatMinutesToTime(m, 15);
+          }
+          prevM = m;
+
           return {
             ...act,
+            time: cleanTime,
             type: accurateType,
             id: matched?.id || act.id || `refine-${dIdx}-${aIdx}-${Date.now()}`,
             image_url: matched?.image_url || null,
@@ -313,12 +346,35 @@ ${currentItinerary.map((d, idx) => `    {
           };
         });
 
-        return {
-          day: day.day || dIdx + 1,
-          date: day.date || originalDay?.date || `Day ${dIdx + 1}`,
+        refinedDays.push({
+          day: dayFromAI.day || dIdx + 1,
+          date: dayFromAI.date || originalDay?.date || `Day ${dIdx + 1}`,
           activities,
-        };
-      });
+        });
+      }
+
+      // Guarantee that all primary user-uploaded photo activities are strictly preserved
+      const userPhotoActs = currentItinerary.flatMap(d => d.activities.filter(a => a.isUserPhoto));
+      for (const uAct of userPhotoActs) {
+        const stillPresent = refinedDays.some(d => d.activities.some(a =>
+          a.id === uAct.id ||
+          a.title.toLowerCase().trim() === uAct.title.toLowerCase().trim() ||
+          (a.isUserPhoto && a.image_url === uAct.image_url)
+        ));
+        if (!stillPresent && refinedDays.length > 0) {
+          const origDayIdx = currentItinerary.findIndex(d => d.activities.some(a => a.id === uAct.id));
+          const targetDay = refinedDays[origDayIdx >= 0 ? origDayIdx : 0];
+          targetDay.activities.splice(1, 0, uAct);
+        }
+      }
+
+      // Fail-Safe: Ensure NO day in refinedDays is left with 0 activities
+      for (let dIdx = 0; dIdx < refinedDays.length; dIdx++) {
+        const d = refinedDays[dIdx];
+        if (d.activities.length === 0 && currentItinerary[dIdx]?.activities?.length) {
+          d.activities = [...currentItinerary[dIdx].activities];
+        }
+      }
 
       return refinedDays;
     } else if (parsed && Array.isArray(parsed.itinerary)) {
@@ -344,6 +400,9 @@ export async function generateMoreSuggestions(
   - MANDATORY COUNT: You MUST return AT LEAST 10 to 12 distinct suggestions. Never return fewer than 10.
   - DO NOT include these places: ${existingPlaces.length > 0 ? existingPlaces.join(", ") : "none"}.
   - Ensure the suggestions cover diverse categories: attraction, food, nature, culture, activity, shopping, nightlife, relax, landmark, spiritual, entertainment.
+  - STRICT REAL VENUE & LANDMARK NAMES ONLY (ชื่อสถานที่จริงเท่านั้น - ห้ามใช้ชื่อโซนหรือคำอธิบาย):
+    Every suggestion MUST be an authentic, specific real-world venue, established cafe/restaurant, shop, historic temple, museum, or landmark with a proper noun name (e.g. "Mahanakhon SkyWalk", "Wat Pho", "Raan Jay Fai", "Shibuya Sky", "Tsukiji Outer Market", "Chatuchak Weekend Market").
+  - STRICTLY FORBIDDEN: NEVER output generic zone descriptions, activity phrases, or area summaries (e.g. NEVER output "Street Food near...", "Lunch near...", "Dining Zone in...", "Scenic SkyWalk & Photo Landmark in...", "Shopping district in...").
   - BILINGUAL RULE (MANDATORY): For every place, provide BOTH Thai ("name_th", "description_th") AND English ("name_en", "description_en") fields with natural, high quality translations.
   - COORDINATES RULE: Provide real, accurate latitude and longitude ("lat" and "lng") for every suggestion based on real Google Maps data. DO NOT return 0 or fictional coordinates.
   - Use ONLY real, geocodable place names.
@@ -365,7 +424,7 @@ export async function generateMoreSuggestions(
     ]
   }`;
 
-  return callOpenRouterMoreSuggestions(prompt, modelId);
+  return callOpenRouterMoreSuggestions(prompt, modelId, locationName);
 }
 
 export async function generateMoreAccommodations(
@@ -402,7 +461,7 @@ export async function generateMoreAccommodations(
     ]
   }`;
 
-  return callOpenRouterMoreAccommodations(prompt, modelId);
+  return callOpenRouterMoreAccommodations(prompt, modelId, locationName);
 }
 
 export interface VisionAnalysisOptions {
@@ -820,7 +879,8 @@ export async function chatWithAssistant(
   itinerary: DayPlan[],
   preferences: TripPreferences | null,
   history: Array<{ role: "user" | "assistant"; content: string }> = [],
-  language: "th" | "en" = "th"
+  language: "th" | "en" = "th",
+  environmentData?: EnvironmentData | null
 ): Promise<string> {
   const modelId = MODEL_ID_MAP[model];
 
@@ -865,6 +925,10 @@ export async function chatWithAssistant(
 บริบททริปปัจจุบันของผู้ใช้:
 Preferences: ${preferences ? JSON.stringify(preferences) : "ยังไม่ได้ระบุ"}
 Current Itinerary: ${JSON.stringify(itinerary)}
+${environmentData?.current ? `สภาพอากาศปัจจุบัน: อุณหภูมิ ${environmentData.current.temperatureC}°C, สภาพอากาศ: ${environmentData.current.condition?.description || "ปกติ"}, ความชื้น ${environmentData.current.humidity}%
+คุณภาพอากาศ: ${environmentData.airQuality?.category || "ดี"} (AQI: ${environmentData.airQuality?.aqi ?? "-"})` : ""}
+${environmentData?.forecast && environmentData.forecast.length > 0 ? `พยากรณ์อากาศของทริป:
+${environmentData.forecast.map(f => `- ${f.date}: ${f.condition?.description || ""} (อุณหภูมิ ${f.minTempC}°C - ${f.maxTempC}°C)`).join("\n")}` : ""}
 
 🎯 [CRITICAL: Decision-Making & Action Execution Protocol] (กฎเหล็กในการตัดสินใจและแก้ไขข้อมูล):
 
@@ -968,6 +1032,10 @@ Pixo specializes in recognizing destinations from photos and analyzing travel si
 Current Trip Context:
 Preferences: ${preferences ? JSON.stringify(preferences) : "Not specified"}
 Current Itinerary: ${JSON.stringify(itinerary)}
+${environmentData?.current ? `Current Weather: Temperature ${environmentData.current.temperatureC}°C, Condition: ${environmentData.current.condition?.description || "Normal"}, Humidity ${environmentData.current.humidity}%
+Air Quality: ${environmentData.airQuality?.category || "Good"} (AQI: ${environmentData.airQuality?.aqi ?? "-"})` : ""}
+${environmentData?.forecast && environmentData.forecast.length > 0 ? `Trip Forecast:
+${environmentData.forecast.map(f => `- ${f.date}: ${f.condition?.description || ""} (Temp ${f.minTempC}°C - ${f.maxTempC}°C)`).join("\n")}` : ""}
 
 🎯 [CRITICAL: Decision-Making & Action Execution Protocol]:
 Pixo is a thoughtful travel companion and NEVER modifies the itinerary rashly when requests are vague or lack key details.
@@ -1105,14 +1173,16 @@ ${places.map((p, idx) => `     * Place ${idx + 1}: "${p}"`).join("\n")}
      - SCHEDULING GUIDELINES:
        * If 1 place is provided: Schedule it prominently on Day 1 (or Day 2) during a prime visiting slot (Morning 09:30-11:30 or Afternoon 14:00-16:00). Build the day's other activities around this primary anchor.
        * If multiple places are provided: Distribute each user-uploaded place across the days according to geographic proximity (e.g. 1 user landmark per day as that day's main anchor, or grouped if in the same neighborhood).
-  0b. MANDATORY TRIP DURATION & MULTI-DAY EXPANSION (CRITICAL):
+  0b. MANDATORY TRIP DURATION & STRICT NON-EMPTY DAYS (CRITICAL & STRICT):
      - The user explicitly requested a ${totalDays}-DAY itinerary.
      - You MUST generate an "itinerary" array containing EXACTLY ${totalDays} separate day objects (from Day 1 up to Day ${totalDays}).
      - NEVER return fewer than ${totalDays} days!
-     - MULTI-DAY EXPANSION: Even if the user provided only 1 or 2 initial locations (${places.join(", ")}), do NOT bunch everything onto Day 1!
-       * Schedule the user's uploaded location(s) in Day 1 (and/or Day 2) anchored in its natural local zone.
-       * For all other days (Day 2, Day 3, up to Day ${totalDays}), YOU MUST ACTIVELY EXPAND and introduce the best complementary attractions in DIFFERENT, NON-OVERLAPPING geographic districts radiating outward from the center.
-       * Each day must be a full, engaging schedule with 3 to 5 realistic activities (Morning Sightseeing, Midday Lunch, Afternoon Attraction, Dinner/Nightlife).
+     - STRICTLY NEVER LEAVE ANY DAY EMPTY: EVERY SINGLE DAY (from Day 1 up to Day ${totalDays}) MUST HAVE AT LEAST 3 TO 5 ACTIVITIES SCHEDULED!
+     - IT IS STRICTLY FORBIDDEN FOR ANY DAY TO HAVE AN EMPTY ACTIVITIES LIST ("activities": []) OR 0 ACTIVITIES OR ONLY 1 ACTIVITY!
+     - MULTI-DAY EXPANSION & PACING:
+       * Day 1 MUST have 3 to 5 full activities starting in the morning (09:00 - 09:30 AM). If user provided 1 or 2 locations, schedule them on Day 1 along with complementary nearby spots.
+       * For all other days (Day 2, Day 3, up to Day ${totalDays}), YOU MUST ACTIVELY EXPAND and introduce 3 to 5 complementary attractions in DIFFERENT, NON-OVERLAPPING geographic districts radiating outward from the center.
+       * NEVER bunch all activities onto one day while leaving another day empty! Both Day 1 and Day 2 (and all days) must be fully packed with 3-5 activities per day (Morning Sightseeing, Midday Lunch, Afternoon Attraction, Dinner/Nightlife).
   0c. DAY 1 FULL DAY START & MORNING SIGHTSEEING (MANDATORY - NO LATE ARRIVAL STARTS):
      - Day 1 is a FULL TRAVEL DAY starting promptly in the morning between 09:00 - 09:30 AM.
      - DO NOT generate Day 1 as an arrival-only evening schedule (e.g., NEVER start Day 1 at 16:00, 17:00, or 18:00)!
@@ -1141,7 +1211,7 @@ ${places.map((p, idx) => `     * Place ${idx + 1}: "${p}"`).join("\n")}
        * Case 2: Street Food / Area Free Dining near Landmark (Street Food หรือ ให้หากินเองรอบย่าน/สถานที่หลัก):
          When the area has popular street food stalls, food vendors, or open-ended dining around a key landmark (e.g. around Bangkok Art and Culture Centre, Siam Square, Yaowarat, or near a famous temple), use the zone coordinates ("lat", "lng") of that anchor landmark.
          Format the title cleanly to guide travelers to try street food around that spot:
-         - English: "Street Food, Lunch near [Landmark]" or "Street Food, Dinner near [Landmark]" (e.g. "Street Food, Lunch near Bangkok Cultural Center", "Street Food near Wat Phra Kaew", "Dinner & Street Food near Yaowarat")
+         - English: "Street Food, Lunch near [Landmark]" or "Street Food, Dinner near [Landmark]" (e.g. "Street Food, Lunch near Bangkok Cultural Center", "Street Food near Wat Phra Kaew", "Street Food, Dinner near Yaowarat")
          - Thai: "สตรีทฟู้ด มื้อกลางวันรอบ[ชื่อสถานที่]" or "สตรีทฟู้ด มื้อค่ำรอบ[ชื่อสถานที่]" (e.g. "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ", "สตรีทฟู้ดรอบวัดพระแก้ว")
      - Dynamically select between Case 1 and Case 2 based on what fits each location best!
   4. STRICTLY NO CONSECUTIVE RESTAURANTS:
@@ -1160,7 +1230,7 @@ ${places.map((p, idx) => `     * Place ${idx + 1}: "${p}"`).join("\n")}
      - Provide real, accurate latitude and longitude ("lat" and "lng") for every activity, suggestion, and accommodation based on real Google Maps data. DO NOT return 0 or fictional coordinates.
   9. PURE REAL POI NAME & CLEAN TITLES (MANDATORY & STRICT):
      - For regular attractions and Case 1 restaurants: Use ONLY real, authentic, geocodable, specific POI names for activity "title", "title_th", "title_en", and "english_name" (e.g., "ถนนบรรทัดทอง", "ร้านเจ๊โอว", "Wat Phra Kaew", "Thipsamai Pad Thai").
-     - For Case 2 street food exploration: Follow the clean zone format (e.g. "Street Food, Lunch near Bangkok Cultural Center" / "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ").
+     - For Case 2 street food exploration: Follow the clean zone format (e.g. "Street Food, Lunch near Bangkok Cultural Center" / "Street Food, Dinner near Yaowarat" / "สตรีทฟู้ด มื้อกลางวันรอบหอศิลปวัฒนธรรมแห่งกรุงเทพฯ"). STRICTLY DO NOT use "&" or "& Street Food" in titles.
      - NEVER append or include meal or time labels such as "(Lunch)", "(Dinner)", "(อาหารกลางวัน)", "(อาหารเย็น)", "(มื้อค่ำ)", "(อาหารค่ำ)", "(Sunset)", or "- Dinner" in the title!
      - DO NOT include verbs (e.g., "Explore", "Visit", "Eat at", "Stroll", "เที่ยวชม", "กินข้าวที่") in the "title". DO NOT invent generic places or duplicate sibling park numbers.
      - Place all dining info, meal details, and descriptions in the "description", "description_th", and "description_en" fields only.
@@ -1186,14 +1256,20 @@ ${places.map((p, idx) => `     * Place ${idx + 1}: "${p}"`).join("\n")}
   13. BILINGUAL TRANSLATION (MANDATORY):
       - Every activity, every suggestion, and every accommodation MUST include both Thai ("title_th"/"name_th", "description_th") AND English ("title_en"/"name_en", "description_en") fields.
       - Provide natural, accurate translations in both Thai and English.
-  14. AI SUGGESTED PLACES (MANDATORY - AT LEAST 10 TO 12 SUGGESTIONS):
+  14. AI SUGGESTED PLACES (MANDATORY - AT LEAST 10 TO 12 SUGGESTIONS - STRICT REAL PLACE NAMES ONLY):
       - You MUST return AT LEAST 10 to 12 distinct, exciting, and diverse suggested places in the "suggestions" array for visitors exploring ${promptTargetCity}.
+      - STRICT REAL VENUE & LANDMARK NAMES (ชื่อสถานที่จริงเท่านั้น - ห้ามใช้ชื่อโซนหรือคำอธิบาย):
+        Every suggested place MUST BE A SPECIFIC, AUTHENTIC REAL-WORLD VENUE, ESTABLISHED RESTAURANT/CAFE, HISTORIC TEMPLE, OFFICIAL LANDMARK, OR MUSEUM WITH A PROPER NOUN NAME (e.g. "Wat Arun", "Raan Jay Fai", "Mahanakhon SkyWalk", "Chatuchak Weekend Market", "Shibuya Sky", "Sensō-ji Temple", "Tsukiji Outer Market").
+      - STRICTLY FORBIDDEN: NEVER use generic zone titles, meal descriptions, or activity phrases as the suggestion name (e.g. STRICTLY NEVER output "Street Food near...", "Lunch near...", "Dining Zone in...", "Scenic SkyWalk & Photo Landmark in...", "Shopping district in...", "Historic Temple & Landmark in..."). Always output the exact real place name!
       - Cover diverse categories: culture, food, nature, adventure, activity, shopping, nightlife, relax, landmark, spiritual, entertainment.
       - Never return fewer than 10 suggestions.
   15. NO SPATIAL OUTLIERS (STRICT 4.0 KM TOTAL DAY SPAN LIMIT):
       - All activities scheduled in a single day MUST be clustered within the same local district (<= 4.0 km total radius from cluster center).
       - NEVER schedule a single rogue outlier place in a distant province or outer suburb (e.g. do NOT include Chon Buri, Pattaya, Rayong, or distant suburbs in an urban Bangkok trip).
       - Every consecutive pair on Day D must be strictly within 3.5 km. Any hop > 3.5 km is STRICTLY FORBIDDEN.
+  16. CLEAN ROUNDED SCHEDULING TIMES (ตัวเลขเวลากลมๆ - CRITICAL & MANDATORY):
+      - All activity start times MUST be clean, round numbers (e.g. 09:00, 09:30, 10:00, 10:15, 10:30, 11:00, 11:30, 12:00, 13:30, 14:00, 14:30, 15:00, 16:30, 17:00, 18:00, 18:30, 19:00, 20:00, or clean 15-minute intervals ending in :00, :15, :30, :45).
+      - STRICTLY NEVER output awkward odd minute fractions such as 11:36, 10:17, 13:23, 14:41, 16:38, 18:08!
 
 
   Return the response strictly in JSON format matching this schema:
@@ -1258,6 +1334,7 @@ ${daySchemaExamples}
       model: modelId,
       messages: [{ role: "user", content: prompt }],
       expect_json: true,
+      max_tokens: 4096,
     }),
   });
 
@@ -1268,8 +1345,8 @@ ${daySchemaExamples}
   const destinationCity = isPlaceLandmark ? (parsed.destination_city || "Bangkok") : rawCity;
   const destinationCountry = parsed.destination_country || "Thailand";
 
-  // FAIL-SAFE DAY EXPANSION GUARD:
-  // If the AI returned fewer days than totalDays, expand to exactly totalDays!
+  // FAIL-SAFE DAY EXPANSION & NON-EMPTY DAY ENFORCEMENT GUARD:
+  // Strictly enforce that parsed.itinerary has exactly totalDays entries AND every day has >= 3 activities!
   if (Array.isArray(parsed.itinerary)) {
     // If Day 1 has too many activities (e.g. >= 6) and subsequent days are missing, distribute them!
     if (parsed.itinerary.length === 1 && totalDays > 1 && parsed.itinerary[0]?.activities?.length >= 6) {
@@ -1287,44 +1364,96 @@ ${daySchemaExamples}
       parsed.itinerary = repartitionedDays;
     }
 
-    // If still fewer days than totalDays, populate missing days from suggestions or destination highlights
+    // Ensure day count matches totalDays
     while (parsed.itinerary.length < totalDays) {
       const nextDayNum = parsed.itinerary.length + 1;
-      const suggestionsPool = Array.isArray(parsed.suggestions) ? [...parsed.suggestions] : [];
-      
-      const dayActivities: any[] = [];
-      const times = ["09:30", "12:30", "15:00", "18:30"];
-      for (let tIdx = 0; tIdx < 4; tIdx++) {
+      parsed.itinerary.push({
+        day: nextDayNum,
+        date: `Day ${nextDayNum} - Discovering ${destinationCity}`,
+        activities: [],
+      });
+    }
+
+    // Phase 1: Rebalance activities across days if any day has 0 or fewer than 2 activities
+    for (let dIdx = 0; dIdx < parsed.itinerary.length; dIdx++) {
+      const currentDay = parsed.itinerary[dIdx];
+      currentDay.day = dIdx + 1;
+      if (!Array.isArray(currentDay.activities)) {
+        currentDay.activities = [];
+      }
+
+      if (currentDay.activities.length < 2) {
+        let donorIdx = -1;
+        let maxActs = 0;
+        for (let j = 0; j < parsed.itinerary.length; j++) {
+          if (j === dIdx) continue;
+          const acts = parsed.itinerary[j]?.activities;
+          if (Array.isArray(acts) && acts.length > maxActs) {
+            maxActs = acts.length;
+            donorIdx = j;
+          }
+        }
+
+        if (donorIdx !== -1 && maxActs >= 4) {
+          const donorActs = parsed.itinerary[donorIdx].activities;
+          const transferCount = Math.min(Math.floor(maxActs / 2), 4 - currentDay.activities.length);
+          const moved = donorActs.splice(donorActs.length - transferCount, transferCount);
+          currentDay.activities.push(...moved);
+        }
+      }
+    }
+
+    // Phase 2: Backfill any day that still has fewer than 3 activities using suggestions or curated anchors
+    const defaultTimes = ["09:30", "12:00", "14:30", "18:30", "20:00"];
+    const suggestionsPool = Array.isArray(parsed.suggestions) ? [...parsed.suggestions] : [];
+    const curatedAnchors = [
+      { title: `${destinationCity} Cultural Center & Heritage`, type: "culture", desc: `Visit iconic cultural landmarks and historic sites in ${destinationCity}` },
+      { title: `Street Food, Lunch near ${destinationCity} Center`, type: "food", desc: `Savor famous local delicacies and authentic street food specialties in ${destinationCity}` },
+      { title: `${destinationCity} City Landmark & Park`, type: "landmark", desc: `Relax and take photos at famous local landmarks in ${destinationCity}` },
+      { title: `${destinationCity} Night Market & Evening Dining`, type: "nightlife", desc: `Explore vibrant night market and evening street food in ${destinationCity}` }
+    ];
+
+    for (let dIdx = 0; dIdx < parsed.itinerary.length; dIdx++) {
+      const day = parsed.itinerary[dIdx];
+      let tOffset = day.activities.length;
+
+      while (day.activities.length < 3) {
+        let newAct: any = null;
         const sug = suggestionsPool.shift();
         if (sug) {
-          dayActivities.push({
-            time: times[tIdx],
+          newAct = {
+            time: defaultTimes[tOffset % defaultTimes.length],
             title: sug.name,
             english_name: sug.english_name || sug.name,
             wiki_title: sug.wiki_title,
             image_keyword: sug.image_keyword || sug.name,
             description: sug.description || `Explore ${sug.name} in ${destinationCity}`,
-            type: sug.category || (tIdx === 1 ? "food" : tIdx === 3 ? "nightlife" : "landmark"),
+            type: sug.category || (tOffset === 1 ? "food" : tOffset === 3 ? "nightlife" : "landmark"),
             lat: sug.lat || 0,
             lng: sug.lng || 0,
             openingHours: sug.openingHours || null,
-          });
+          };
+        } else {
+          const anchor = curatedAnchors[tOffset % curatedAnchors.length];
+          newAct = {
+            time: defaultTimes[tOffset % defaultTimes.length],
+            title: anchor.title,
+            english_name: anchor.title,
+            description: anchor.desc,
+            type: anchor.type,
+            lat: 0,
+            lng: 0,
+          };
         }
+        day.activities.push(newAct);
+        tOffset++;
       }
 
-      if (dayActivities.length === 0) {
-        dayActivities.push(
-          { time: "09:30", title: `${destinationCity} Cultural Center`, description: `Visit iconic cultural sights in ${destinationCity}`, type: "culture", lat: 0, lng: 0 },
-          { time: "12:00", title: `Local Eatery & Street Food (${destinationCity})`, description: `Enjoy traditional lunch specialties`, type: "food", lat: 0, lng: 0 },
-          { time: "14:30", title: `${destinationCity} City Landmark & Park`, description: `Relax and take photos at famous local landmark`, type: "landmark", lat: 0, lng: 0 },
-          { time: "18:30", title: `${destinationCity} Night Market & Dining`, description: `Explore vibrant night market and evening street food`, type: "nightlife", lat: 0, lng: 0 }
-        );
-      }
-
-      parsed.itinerary.push({
-        day: nextDayNum,
-        date: `Day ${nextDayNum} - Discovering ${destinationCity}`,
-        activities: dayActivities,
+      // Re-sequence times cleanly if missing or awkward
+      day.activities.forEach((act: any, aIdx: number) => {
+        if (!act.time || act.time === "00:00") {
+          act.time = defaultTimes[Math.min(aIdx, defaultTimes.length - 1)];
+        }
       });
     }
   }
@@ -1424,7 +1553,7 @@ async function chatOpenRouter(
   return data.text;
 }
 
-async function callOpenRouterMoreSuggestions(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
+async function callOpenRouterMoreSuggestions(prompt: string, modelId: string, cityName?: string): Promise<SuggestedPlace[]> {
   const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1432,16 +1561,17 @@ async function callOpenRouterMoreSuggestions(prompt: string, modelId: string): P
       model: modelId,
       messages: [{ role: "user", content: prompt }],
       expect_json: true,
+      max_tokens: 2048,
     }),
   });
 
   const text = data.text;
   const result = safeParseJson<any>(text, { suggestions: [] });
-  const response = await formatResponse({ itinerary: [], suggestions: result.suggestions || [] });
+  const response = await formatResponse({ itinerary: [], suggestions: result.suggestions || [] }, cityName);
   return response.suggestions;
 }
 
-async function callOpenRouterMoreAccommodations(prompt: string, modelId: string): Promise<SuggestedPlace[]> {
+async function callOpenRouterMoreAccommodations(prompt: string, modelId: string, cityName?: string): Promise<SuggestedPlace[]> {
   const data = await safeFetch<any>(`${BACKEND_URL}/ai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1449,12 +1579,13 @@ async function callOpenRouterMoreAccommodations(prompt: string, modelId: string)
       model: modelId,
       messages: [{ role: "user", content: prompt }],
       expect_json: true,
+      max_tokens: 2048,
     }),
   });
 
   const text = data.text;
   const result = safeParseJson<any>(text, { accommodations: [] });
-  const response = await formatResponse({ itinerary: [], suggestions: [], accommodations: result.accommodations || [] });
+  const response = await formatResponse({ itinerary: [], suggestions: [], accommodations: result.accommodations || [] }, cityName);
   return response.accommodations;
 }
 
@@ -2043,8 +2174,9 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
   })));
 
   const suggestions: SuggestedPlace[] = await Promise.all((result.suggestions || []).map(async (sug: any, sugIdx: number) => {
-    const cleanName = sanitizePlaceTitle(sug.name);
-    const cleanEnglish = sug.english_name ? sanitizePlaceTitle(sug.english_name) : undefined;
+    // 1. Sanitize & extract authentic real place name (stripping zone descriptions e.g. "Street Food near...")
+    const cleanName = cleanSuggestedPlaceName(sug.name, cityName);
+    const cleanEnglish = sug.english_name ? cleanSuggestedPlaceName(sug.english_name, cityName) : undefined;
     const searchKeyword = sug.image_keyword || cleanEnglish || cleanName;
     const indexOffset = 100 + sugIdx;
     const details = await fetchPlaceDetails(
@@ -2059,13 +2191,28 @@ async function formatResponse(result: any, cityName?: string, countryName?: stri
     const resolvedPhoto = details.photo_url || getCuratedFallbackPhoto(accurateCategory, searchKeyword || cleanName, { cityName, countryName, indexOffset });
     const resolvedLat = (details.lat != null && details.lat !== 0) ? details.lat : ((sug.lat && sug.lat !== 0) ? sug.lat : 0);
     const resolvedLng = (details.lng != null && details.lng !== 0) ? details.lng : ((sug.lng && sug.lng !== 0) ? sug.lng : 0);
-    const name_th = (sug.name_th && hasThaiScript(sug.name_th)) ? sanitizePlaceTitle(sug.name_th) : (hasThaiScript(cleanName) ? cleanName : translateTextSync(cleanName, "th"));
-    const name_en = (sug.name_en && !hasThaiScript(sug.name_en)) ? sanitizePlaceTitle(sug.name_en) : (cleanEnglish || (!hasThaiScript(cleanName) ? cleanName : translateTextSync(cleanName, "en")));
+
+    // Prefer verified canonical venue name from Places / Landmark Disambiguation if not a zone
+    const finalRealName = (details.canonicalName && !isZoneDining(details.canonicalName))
+      ? details.canonicalName
+      : cleanName;
+
+    const rawNameTh = sug.name_th ? cleanSuggestedPlaceName(sug.name_th, cityName) : "";
+    const rawNameEn = sug.name_en ? cleanSuggestedPlaceName(sug.name_en, cityName) : "";
+
+    const name_th = (rawNameTh && hasThaiScript(rawNameTh))
+      ? sanitizePlaceTitle(rawNameTh)
+      : (hasThaiScript(finalRealName) ? finalRealName : translateTextSync(finalRealName, "th"));
+
+    const name_en = (rawNameEn && !hasThaiScript(rawNameEn))
+      ? sanitizePlaceTitle(rawNameEn)
+      : (cleanEnglish || (!hasThaiScript(finalRealName) ? finalRealName : translateTextSync(finalRealName, "en")));
+
     const desc_th = (sug.description_th && hasThaiScript(sug.description_th)) ? sug.description_th : (hasThaiScript(sug.description) ? sug.description : "");
     const desc_en = (sug.description_en && !hasThaiScript(sug.description_en)) ? sug.description_en : (!hasThaiScript(sug.description) ? sug.description : "");
     return {
       ...sug,
-      name: cleanName,
+      name: finalRealName,
       placeId: details.placeId || sug.placeId || null,
       category: (accurateCategory === "transport" ? "attraction" : accurateCategory) as any,
       id: `sug-${Math.random().toString(36).substr(2, 9)}`,

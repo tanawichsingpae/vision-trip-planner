@@ -1553,7 +1553,22 @@ const TravelItinerary = ({
   onSwapActivities,
   onSubstituteActivity,
 }: TravelItineraryProps) => {
-  const { language, t } = useLanguage();
+  const { language, t, batchResolvePlaces } = useLanguage();
+
+  useEffect(() => {
+    if (itinerary && itinerary.length > 0) {
+      const allActivities = itinerary.flatMap((d) => d.activities || []);
+      if (allActivities.length > 0) {
+        batchResolvePlaces(allActivities);
+      }
+    }
+  }, [itinerary, batchResolvePlaces]);
+
+  useEffect(() => {
+    if (suggestions && suggestions.length > 0) {
+      batchResolvePlaces(suggestions);
+    }
+  }, [suggestions, batchResolvePlaces]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");

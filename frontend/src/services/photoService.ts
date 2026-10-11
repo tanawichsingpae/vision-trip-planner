@@ -17,9 +17,17 @@ export interface PhotoSearchOptions {
   searchKeyword?: string;
   wikiTitle?: string;
   indexOffset?: number;
+  englishName?: string;
 }
 
 import { foursquareSearch, foursquareGetPhotos, isFoursquareRateLimited } from "@/api/foursquareClient";
+import {
+  getPlaceImageFromCache,
+  setPlaceImageInCache,
+  fetchTopGoogleImage,
+  searchGoogleImagesViaSerper,
+  isSerperConfigured,
+} from "./serperClient";
 
 export interface PhotoSearchResult {
   url: string;
@@ -78,9 +86,9 @@ export function isWikiTitleRelevant(wikiTitle: string, query: string, placeName:
 
   const normalizeTokens = (str: string) =>
     str
-      .replace(/[^a-z0-9\u0E00-\u0E7F]/g, " ")
+      .replace(/[^a-z0-9\u0E00-\u0E7F\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/g, " ")
       .split(/\s+/)
-      .filter((t) => t.length > 1);
+      .filter((t) => t.length >= 1);
 
   const stopWords = new Set([
     "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of", "with", "by", "near"
@@ -162,6 +170,10 @@ export function extractPlaceSearchQueries(rawTitle: string, cityName?: string): 
 
     // Remove trailing location noise (e.g. " - Day 1", " - Tokyo", " | Bangkok")
     s = s.replace(/\s*[-–—|]\s*(Day\s*\d+|Morning|Afternoon|Evening|Night).*$/i, "").trim();
+
+    // Strip leading & and clean & Street Food
+    s = s.replace(/^(&\s*)+/, "").trim();
+    s = s.replace(/(?:^|\b)(?:&|\+)\s*Street Food\b/gi, "Street Food").trim();
 
     return s;
   };
@@ -785,86 +797,110 @@ export async function fetchSmartPhoto(
   const category = options?.category || "";
   const directKeyword = options?.searchKeyword?.trim() || "";
   const wikiTitle = options?.wikiTitle?.trim() || "";
+  const enName = options?.englishName?.trim() || "";
 
-  const cacheKey = `${wikiTitle}_${directKeyword || placeName}_${city}_${category}`.toLowerCase();
+  // 0. Persistent Multi-Tier Cache check (L1 memory map -> L2 localStorage)
+  const cachedFromStorage =
+    getPlaceImageFromCache(placeName) ||
+    (enName ? getPlaceImageFromCache(enName) : null) ||
+    (directKeyword ? getPlaceImageFromCache(directKeyword) : null) ||
+    (wikiTitle ? getPlaceImageFromCache(wikiTitle) : null);
+  if (cachedFromStorage) {
+    return cachedFromStorage;
+  }
+
+  const cacheKey = `${wikiTitle}_${directKeyword || enName || placeName}_${city}_${category}`.toLowerCase();
   if (photoCache.has(cacheKey)) {
     return photoCache.get(cacheKey)!;
   }
 
-  // 1. Tier 1A: Direct Wikipedia Title Match (if AI supplied an exact wiki_title)
+  const allAliases = [directKeyword, wikiTitle, enName].filter(Boolean) as string[];
+
+  // Helper to commit to both in-memory cache and persistent L2 storage with all aliases
+  const commitPhoto = (url: string) => {
+    photoCache.set(cacheKey, url);
+    setPlaceImageInCache(placeName, url, allAliases);
+    return url;
+  };
+
+  // 1. Google Images via Serper.dev (Top Tier precision for any spot, cafe, restaurant, or landmark)
+  if (isSerperConfigured()) {
+    try {
+      const serperUrl = await fetchTopGoogleImage(placeName, city, allAliases);
+      if (serperUrl) {
+        return commitPhoto(serperUrl);
+      }
+    } catch (e) {
+      console.warn("[photoService] Serper Google Image fetch failed, cascading to Wikipedia:", e);
+    }
+  }
+
+  // 2. Tier 1A: Direct Wikipedia Title Match (if AI supplied an exact wiki_title)
   if (wikiTitle) {
     const exactEn = await fetchFromWikipediaExactTitle(wikiTitle, "en");
     if (exactEn) {
-      photoCache.set(cacheKey, exactEn);
-      return exactEn;
+      return commitPhoto(exactEn);
     }
     const exactTh = await fetchFromWikipediaExactTitle(wikiTitle, "th");
     if (exactTh) {
-      photoCache.set(cacheKey, exactTh);
-      return exactTh;
+      return commitPhoto(exactTh);
     }
   }
 
-  // 2. Direct exact title lookup with cleaned placeName
+  // 3. Direct exact title lookup with cleaned placeName
   const cleanedTitle = cleanPlaceQuery(placeName);
   const exactDirect = await fetchFromWikipediaExactTitle(cleanedTitle, "en");
   if (exactDirect) {
-    photoCache.set(cacheKey, exactDirect);
-    return exactDirect;
+    return commitPhoto(exactDirect);
   }
 
-  // 3. Generate ranked search candidate queries
+  // 4. Generate ranked search candidate queries
   const queries = extractPlaceSearchQueries(directKeyword || placeName, city);
 
-  // 4. Try Wikipedia Search API with Relevance Guard (EN first)
+  // 5. Try Wikipedia Search API with Relevance Guard (EN first)
   for (const q of queries) {
     const wikiMatch = await fetchFromWikipediaSearch(q, "en", placeName);
     if (wikiMatch) {
-      photoCache.set(cacheKey, wikiMatch);
-      return wikiMatch;
+      return commitPhoto(wikiMatch);
     }
   }
 
-  // 5. If query contains Thai characters, try Thai Wikipedia
+  // 6. If query contains Thai characters, try Thai Wikipedia
   const hasThai = queries.some((q) => /[\u0E00-\u0E7F]/.test(q));
   if (hasThai) {
     for (const q of queries) {
       const thMatch = await fetchFromWikipediaSearch(q, "th", placeName);
       if (thMatch) {
-        photoCache.set(cacheKey, thMatch);
-        return thMatch;
+        return commitPhoto(thMatch);
       }
     }
   }
 
-  // 6. Try Wikidata Official Entity Image
+  // 7. Try Wikidata Official Entity Image
   for (const q of queries) {
     const wikidataMatch = await fetchFromWikidata(q, placeName);
     if (wikidataMatch) {
-      photoCache.set(cacheKey, wikidataMatch);
-      return wikidataMatch;
+      return commitPhoto(wikidataMatch);
     }
   }
 
-  // 7. Try Wikimedia Commons MediaSearch
+  // 8. Try Wikimedia Commons MediaSearch
   for (const q of queries) {
     const commonsMatch = await fetchFromWikimediaCommons(q, placeName);
     if (commonsMatch) {
-      photoCache.set(cacheKey, commonsMatch);
-      return commonsMatch;
+      return commitPhoto(commonsMatch);
     }
   }
 
-  // 8. Try Foursquare Places Real Photo (ideal for venues, eateries, modern spots)
+  // 9. Try Foursquare Places Real Photo (ideal for venues, eateries, modern spots)
   if (FOURSQUARE_API_KEY && FOURSQUARE_API_KEY.trim().length > 5 && !isFoursquareRateLimited()) {
     const fsqPhoto = await fetchFromFoursquarePhoto(placeName, city);
     if (fsqPhoto) {
-      photoCache.set(cacheKey, fsqPhoto);
-      return fsqPhoto;
+      return commitPhoto(fsqPhoto);
     }
   }
 
-  // 9. Fallback: Contextual High-Aesthetic Photo (Region & Category tailored)
+  // 10. Fallback: Contextual High-Aesthetic Photo (Region & Category tailored)
   const fallback = getCuratedFallbackPhoto(category, `${placeName} ${city}`, {
     cityName: city,
     countryName: country,
@@ -932,7 +968,23 @@ export async function searchPhotosOnline(
   const queries = extractPlaceSearchQueries(query, cityName);
 
   try {
-    // 0. Fetch authentic photos from Foursquare (via CORS-safe proxy)
+    // 0A. Fetch authentic Google Images via Serper.dev
+    if (isSerperConfigured()) {
+      try {
+        const serperItems = await searchGoogleImagesViaSerper(query, { cityName, num: 6 });
+        for (const item of serperItems) {
+          addResult({
+            url: item.imageUrl,
+            title: `${item.title} (Google Images)`,
+            source: "google",
+          });
+        }
+      } catch (err) {
+        console.warn("[searchPhotosOnline] Serper Google Images search failed:", err);
+      }
+    }
+
+    // 0B. Fetch authentic photos from Foursquare (via CORS-safe proxy)
     if (!isFoursquareRateLimited() && FOURSQUARE_API_KEY && FOURSQUARE_API_KEY.trim().length > 5) {
       try {
         const q = cityName ? `${query} ${cityName}` : query;

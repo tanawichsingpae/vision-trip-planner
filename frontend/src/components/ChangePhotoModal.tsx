@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, Upload, Loader2, Check, Sparkles, Image as ImageIcon, ExternalLink, Link2, AlertCircle } from "lucide-react";
 import { searchPhotosOnline, type PhotoSearchResult } from "@/services/photoService";
+import { setPlaceImageInCache } from "@/services/serperClient";
 import { toast } from "sonner";
 
 interface ChangePhotoModalProps {
@@ -80,6 +81,8 @@ export function ChangePhotoModal({
 
   const handleSelect = (url: string, isUser: boolean = false) => {
     setSelectedUrl(url);
+    const aliases = [englishName, imageKeyword].filter(Boolean) as string[];
+    setPlaceImageInCache(activityTitle, url, aliases);
     onSelectPhoto(url, isUser);
     toast.success("อัปเดตรูปภาพของสถานที่เรียบร้อยแล้ว");
     onClose();
@@ -314,7 +317,7 @@ export function ChangePhotoModal({
           {isLoading ? (
             <div className="h-64 flex flex-col items-center justify-center gap-3 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <p className="text-sm">กำลังค้นหารูปภาพจาก Foursquare, Wikimedia และคลังภาพ...</p>
+              <p className="text-sm">กำลังค้นหารูปภาพจาก Google Images, Wikimedia และคลังภาพ...</p>
             </div>
           ) : results.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">

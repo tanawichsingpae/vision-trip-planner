@@ -15,6 +15,7 @@ import {
   assignDeterministicTimeSlots,
   optimizeDayActivities,
   scrubAndRelocateDayOutliers,
+  rebalanceCrossDayPOIs,
   enforceMaxHopDistance,
   scorePOIs,
   selectDiversePOIs,
@@ -618,6 +619,55 @@ describe("Spatial Optimization & 2-Opt Algorithm (Academic Verification)", () =>
       console.log("Crossings count:", crossings);
 
       expect(crossings).toBe(0);
+    });
+
+    it("should audit and flag [Empty Day Alert] when any day has 0 visit activities", () => {
+      const emptyDayItinerary = [
+        {
+          day: 1,
+          date: "Day 1",
+          activities: []
+        },
+        {
+          day: 2,
+          date: "Day 2",
+          activities: [
+            { id: "1", time: "09:30", title: "Wat Phra Kaew", type: "culture" as const, lat: 13.7516, lng: 100.4927 },
+            { id: "2", time: "12:00", title: "Street Food near Wat Pho", type: "food" as const, lat: 13.7465, lng: 100.4933 },
+            { id: "3", time: "14:30", title: "Museum Siam", type: "culture" as const, lat: 13.7441, lng: 100.4950 },
+            { id: "4", time: "18:30", title: "Asiatique The Riverfront", type: "nightlife" as const, lat: 13.7047, lng: 100.5032 }
+          ]
+        }
+      ];
+
+      const audit = auditItineraryIssues(emptyDayItinerary as any);
+      expect(audit.warnings.some(w => w.includes("[Empty Day Alert]") && w.includes("Day 1"))).toBe(true);
+      expect(audit.score).toBeLessThan(75);
+    });
+
+    it("should automatically redistribute activities to empty Day 1 in rebalanceCrossDayPOIs", () => {
+      const unbalancedDays = [
+        {
+          day: 1,
+          activities: []
+        },
+        {
+          day: 2,
+          activities: [
+            { id: "1", time: "09:30", title: "Wat Phra Kaew", type: "culture" as const, lat: 13.7516, lng: 100.4927 },
+            { id: "2", time: "11:30", title: "Wat Pho", type: "culture" as const, lat: 13.7465, lng: 100.4933 },
+            { id: "3", time: "13:00", title: "Street Food Lunch", type: "food" as const, lat: 13.7450, lng: 100.4940 },
+            { id: "4", time: "15:00", title: "Museum Siam", type: "culture" as const, lat: 13.7441, lng: 100.4950 },
+            { id: "5", time: "17:30", title: "Wat Arun Sunset", type: "landmark" as const, lat: 13.7438, lng: 100.4885 },
+            { id: "6", time: "19:30", title: "Khaosan Road Nightlife", type: "nightlife" as const, lat: 13.7589, lng: 100.4974 }
+          ]
+        }
+      ];
+
+      const rebalanced = rebalanceCrossDayPOIs(unbalancedDays as any);
+      expect(rebalanced[0].activities.length).toBeGreaterThan(0);
+      expect(rebalanced[1].activities.length).toBeGreaterThan(0);
+      expect(rebalanced[0].activities.length + rebalanced[1].activities.length).toBe(6);
     });
   });
 });

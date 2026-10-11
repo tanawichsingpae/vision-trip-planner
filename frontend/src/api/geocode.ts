@@ -64,9 +64,10 @@ export function distanceMetres(a: Coordinates, b: Coordinates): number {
  */
 export function isZoneDining(title?: string | null): boolean {
   if (!title) return false;
-  const t = title.trim();
+  let t = title.trim();
+  t = t.replace(/^(&\s*)+/, "").trim();
   return (
-    /^(?:Street Food|Local Food|Street Food,\s*Lunch|Street Food,\s*Dinner|Lunch\s*near|Dinner\s*near|Dinner\s*&\s*Street Food|Lunch\s*&\s*Street Food|Food\s*Tour\s*around)\b/i.test(t) ||
+    /^(?:Street Food|Local Food|Street Food,\s*Lunch|Street Food,\s*Dinner|Lunch\s*near|Dinner\s*near|Dinner\s*&\s*Street Food|Lunch\s*&\s*Street Food|Dinner\s*,\s*Street Food|Lunch\s*,\s*Street Food|Food\s*Tour\s*around)\b/i.test(t) ||
     /^(?:สตรีทฟู้ด|ร้านอาหารและสตรีทฟู้ด|สตรีทฟู้ด\s*มื้อกลางวัน|สตรีทฟู้ด\s*มื้อค่ำ|มื้อกลางวันแถว|มื้อค่ำแถว|มื้อค่ำและสตรีทฟู้ด|มื้อกลางวันและสตรีทฟู้ด|ของกินแถว|หาของกินรอบ|เดินกินสตรีทฟู้ด)/i.test(t)
   );
 }
@@ -84,18 +85,20 @@ export function extractZoneAnchorVenue(title?: string | null): string {
   let t = title.trim();
   // Strip parentheticals first
   t = t.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+  t = t.replace(/^(&\s*)+/, "").trim();
+  t = t.replace(/&\s*Street Food/gi, "Street Food").trim();
 
   const prefixes = [
     /^(?:สตรีทฟู้ด\s*มื้อกลางวันรอบ|สตรีทฟู้ด\s*มื้อกลางวันแถว|สตรีทฟู้ด\s*มื้อค่ำรอบ|สตรีทฟู้ด\s*มื้อค่ำแถว)\s*/i,
-    /^(?:มื้อค่ำและสตรีทฟู้ดแถว|มื้อค่ำและสตรีทฟู้ดรอบ|มื้อกลางวันและสตรีทฟู้ดแถว|มื้อกลางวันและสตรีทฟู้ดรอบ)\s*/i,
-    /^(?:ร้านอาหารและสตรีทฟู้ดรอบ|ร้านอาหารและสตรีทฟู้ดแถว|ร้านอาหารรอบ|ร้านอาหารแถว)\s*/i,
-    /^(?:สตรีทฟู้ดรอบ|สตรีทฟู้ดแถว|สตรีทฟู้ดบริเวณ|สตรีทฟู้ดย่าน)\s*/i,
+    /^(?:มื้อค่ำ(?:และ)?สตรีทฟู้ดแถว|มื้อค่ำ(?:และ)?สตรีทฟู้ดรอบ|มื้อกลางวัน(?:และ)?สตรีทฟู้ดแถว|มื้อกลางวัน(?:และ)?สตรีทฟู้ดรอบ)\s*/i,
+    /^(?:ร้านอาหาร(?:และ)?สตรีทฟู้ดรอบ|ร้านอาหาร(?:และ)?สตรีทฟู้ดแถว|ร้านอาหารรอบ|ร้านอาหารแถว)\s*/i,
+    /^(?:สตรีทฟู้ดรอบ|สตรีทฟู้ดแถว|สตรีทฟู้ดบริเวณ|สตรีทฟู้ดย่าน|และสตรีทฟู้ดรอบ|และสตรีทฟู้ดแถว)\s*/i,
     /^(?:มื้อกลางวันแถว|มื้อกลางวันรอบ|มื้อเที่ยงแถว|มื้อค่ำแถว|มื้อค่ำรอบ|มื้อเย็นแถว|มื้อเย็นรอบ)\s*/i,
     /^(?:ของกินแถว|หาของกินรอบ|เดินกินสตรีทฟู้ดรอบ|เดินกินสตรีทฟู้ดแถว)\s*/i,
     /^(?:Street Food,?\s*(?:Lunch|Dinner)?\s*(?:near|around|in|by|along|at)?)\s+/i,
     /^(?:Local Food,?\s*(?:Lunch|Dinner)?\s*(?:near|around|in|by|along|at)?)\s+/i,
-    /^(?:Dinner\s*&\s*Street Food\s+(?:near|around|in|by|along|at)?)\s+/i,
-    /^(?:Lunch\s*&\s*Street Food\s+(?:near|around|in|by|along|at)?)\s+/i,
+    /^(?:Dinner\s*(?:&|,)?\s*Street Food\s+(?:near|around|in|by|along|at)?)\s+/i,
+    /^(?:Lunch\s*(?:&|,)?\s*Street Food\s+(?:near|around|in|by|along|at)?)\s+/i,
     /^(?:Street Food\s+(?:near|around|in|by|along|at))\s+/i,
     /^(?:Lunch\s+(?:near|around|in|by|along|at))\s+/i,
     /^(?:Dinner\s+(?:near|around|in|by|along|at))\s+/i,
@@ -135,14 +138,28 @@ export function sanitizePlaceTitle(title?: string | null): string {
   const mealDashes = /\s*[-–—]\s*(?:อาหารเย็น|อาหารกลางวัน|อาหารค่ำ|อาหารเช้า|มื้อเย็น|มื้อค่ำ|มื้อเที่ยง|มื้อกลางวัน|มื้อเช้า|lunch|dinner|breakfast|brunch|supper)\s*$/gi;
   cleaned = cleaned.replace(mealDashes, "");
 
+  // 4. Clean up any leading & or "& Street Food" to eliminate ampersand
+  cleaned = cleaned.replace(/^(&\s*)+/, "").trim();
+  cleaned = cleaned.replace(/(?:Dinner)\s*&\s*Street Food/gi, "Street Food, Dinner");
+  cleaned = cleaned.replace(/(?:Lunch)\s*&\s*Street Food/gi, "Street Food, Lunch");
+  cleaned = cleaned.replace(/(?:Breakfast)\s*&\s*Street Food/gi, "Street Food, Breakfast");
+  cleaned = cleaned.replace(/(?:^|\b)(?:&|\+)\s*Street Food\b/gi, "Street Food");
+  cleaned = cleaned.replace(/,\s*&/g, ",");
+  cleaned = cleaned.replace(/(\w+)\s*&\s*Street Food\b/gi, "$1, Street Food");
+
+  // Thai Street Food normalization without & / และ
+  cleaned = cleaned.replace(/มื้อค่ำและสตรีทฟู้ด/g, "สตรีทฟู้ด มื้อค่ำ");
+  cleaned = cleaned.replace(/มื้อกลางวันและสตรีทฟู้ด/g, "สตรีทฟู้ด มื้อกลางวัน");
+  cleaned = cleaned.replace(/และสตรีทฟู้ด/g, "สตรีทฟู้ด");
+
   // If this is a zone-based street food or free dining exploration title
   // (e.g. "Street Food, Lunch near Bangkok Cultural Center" or "สตรีทฟู้ดรอบวัดพระแก้ว"),
   // preserve the descriptive zone title!
   if (isZoneDining(cleaned)) {
-    return cleaned.replace(/\s{2,}/g, " ").trim();
+    return cleaned.replace(/^(&\s*)+/, "").replace(/\s{2,}/g, " ").trim();
   }
 
-  // 4. Remove action verb prefixes (Thai and English)
+  // 5. Remove action verb prefixes (Thai and English)
   const prefixPatterns = [
     /^(Explore|Visit|See|Tour|Check out|Discover|Experience|Enjoy|Attend|Watch|Ride|Take a|Catch a|Walk around|Walk through|Walk in|Walk to|Walk|Stroll around|Stroll through|Stroll|Hike up|Hike|Climb|Swim at|Snorkel at|Dive at|Relax at|Relax in|Chill at|Rest at|Wander around|Wander through|Shopping at|Shopping in|Head to|Go to|Travel to|Arrive at|Check in|Check out)\s+/i,
     /^(Breakfast|Lunch|Dinner|Brunch|Supper|Snack|Coffee|Tea|Drink|Cocktail)\s+(at|in|near|by|around|along|by the)\s+/i,
@@ -160,7 +177,8 @@ export function sanitizePlaceTitle(title?: string | null): string {
     for (const p of prefixPatterns) cleaned = cleaned.replace(p, "").trim();
   }
 
-  // 5. Clean up duplicate spaces
+  // 6. Clean up duplicate spaces and leading ampersands
+  cleaned = cleaned.replace(/^(&\s*)+/, "").trim();
   cleaned = cleaned.replace(/\s{2,}/g, " ").trim();
 
   return cleaned || (title ? title.trim() : "");
@@ -181,6 +199,95 @@ function cleanPlaceName(title: string): string {
   return cleaned.length > 0
     ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
     : title.trim();
+}
+
+/**
+ * Ensures AI Suggested Place names are authentic, specific real-world venues/landmarks
+ * rather than generic zone descriptions or area phrases (e.g. "Street Food near Wat Phra Kaew" -> "Wat Phra Kaew").
+ */
+export function cleanSuggestedPlaceName(rawName?: string | null, cityName?: string): string {
+  if (!rawName) return "";
+  let name = rawName.trim();
+
+  // 1. If zone dining, extract anchor venue
+  if (isZoneDining(name)) {
+    name = extractZoneAnchorVenue(name);
+  }
+
+  // 2. Sanitize place title
+  name = sanitizePlaceTitle(name);
+
+  // 3. Strip generic placeholder prefixes
+  const genericPrefixes = [
+    /^(?:Scenic SkyWalk & Photo Landmark(?: in)?)\s*/i,
+    /^(?:Historic Landmark & Temple(?: in)?)\s*/i,
+    /^(?:Famous Local Restaurant(?: in)?)\s*/i,
+    /^(?:Sacred Shrine & Spiritual Blessing Spot(?: in)?)\s*/i,
+    /^(?:Exciting Theme Park & Entertainment Complex(?: in)?)\s*/i,
+    /^(?:Scenic Viewpoint & Central Park(?: in)?)\s*/i,
+    /^(?:Popular Night Market & Evening District(?: in)?)\s*/i,
+    /^(?:Central Shopping Arcade(?: in)?)\s*/i,
+    /^(?:Relaxing Spa & Wellness Center(?: in)?)\s*/i,
+    /^(?:Outdoor Adventure Trail & Nature Walk(?: in)?)\s*/i,
+    /^(?:Iconic Local Cafe & Dessert Spot(?: in)?)\s*/i,
+    /^(?:Interactive Cultural Museum & Art Gallery(?: in)?)\s*/i,
+    /^(?:Waterfront Marina & Scenic Boat Pier(?: in)?)\s*/i,
+    /^(?:Boutique Handicraft & Artisan Mall(?: in)?)\s*/i,
+    /^(?:Food Tour (?:near|around|in))\s+/i,
+    /^(?:Dining (?:zone|area|district) (?:in|near|around))\s+/i,
+    /^(?:Food (?:street|zone|area) (?:in|near|around))\s+/i,
+    /^(?:Shopping (?:district|zone|area|street) (?:in|near|around))\s+/i,
+    /^(?:Nightlife (?:district|zone|area) (?:in|near|around))\s+/i,
+    /^(?:Walking street (?:around|near|in))\s+/i,
+    /^(?:Cafe hopping (?:in|around|near))\s+/i,
+    /^(?:จุดชมวิวสกายวอล์ก & แลนด์มาร์กถ่ายรูป(?:ใน)?)\s*/,
+    /^(?:วัดและโบราณสถานสำคัญทางประวัติศาสตร์(?:ใน)?)\s*/,
+    /^(?:ร้านอาหารท้องถิ่นชื่อดัง(?:ใน)?)\s*/,
+    /^(?:ศาลเจ้าศักดิ์สิทธิ์ & จุดสักการะขอพรเสริมสิริมงคล(?:ใน)?)\s*/,
+    /^(?:สวนสนุกและศูนย์รวมความบันเทิงสุดตื่นเต้น(?:ใน)?)\s*/,
+    /^(?:จุดชมวิวธรรมชาติ & สวนสาธารณะใจกลางเมือง(?:ใน)?)\s*/,
+    /^(?:ตลาดนัดกลางคืนยอดนิยม & ย่านสตรีทฟู้ดยามเย็น(?:ใน)?)\s*/,
+    /^(?:ศูนย์การค้าและแหล่งช้อปปิ้งของฝาก(?:ใน)?)\s*/,
+    /^(?:สปาและศูนย์ดูแลสุขภาพเพื่อการผ่อนคลาย(?:ใน)?)\s*/,
+    /^(?:เส้นทางผจญภัยศึกษาธรรมชาติ & กิจกรรมกลางแจ้ง(?:ใน)?)\s*/,
+    /^(?:คาเฟ่และร้านขนมหวานยอดนิยม(?:ใน)?)\s*/,
+    /^(?:พิพิธภัณฑ์ศิลปวัฒนธรรม & แกลเลอรีสร้างสรรค์(?:ใน)?)\s*/,
+    /^(?:ท่าเรือท่องเที่ยวริมน้ำ & จุดชมทัศนียภาพริมสายน้ำ(?:ใน)?)\s*/,
+    /^(?:คอมมูนิตี้มอลล์งานคราฟต์ & แหล่งช้อปปิ้งของทำมือ(?:ใน)?)\s*/,
+    /^(?:ย่านร้านอาหาร(?:แถว|รอบ|ใน)?)\s*/,
+    /^(?:ย่านของกิน(?:แถว|รอบ|ใน)?)\s*/,
+    /^(?:ย่านช้อปปิ้ง(?:แถว|รอบ|ใน)?)\s*/,
+    /^(?:ย่านสถานบันเทิง(?:แถว|รอบ|ใน)?)\s*/,
+    /^(?:ถนนคนเดิน(?:แถว|รอบ)?)\s*/,
+    /^(?:จุดเช็คอิน(?:แถว|รอบ)?)\s*/,
+    /^(?:แหล่งช้อปปิ้ง(?:แถว|รอบ|ใน)?)\s*/,
+    /^(?:คาเฟ่ฮอปปิ้งแถว|ทัวร์ของกินรอบ)\s*/,
+  ];
+
+  for (const gp of genericPrefixes) {
+    if (gp.test(name)) {
+      name = name.replace(gp, "").trim();
+    }
+  }
+
+  // 4. Strip trailing "in [City]" e.g. "Wat Arun in Bangkok" -> "Wat Arun"
+  if (cityName && cityName.trim()) {
+    const city = cityName.trim();
+    const cityPattern = new RegExp(`\\s+(?:in|,)\\s+${city}$`, "i");
+    name = name.replace(cityPattern, "").trim();
+    const thaiCityPattern = new RegExp(`\\s+(?:ใน|ที่|,)\\s*${city}$`, "i");
+    name = name.replace(thaiCityPattern, "").trim();
+  }
+
+  name = name.replace(/\s+in\s+(?:the\s+city|downtown|town)$/i, "").trim();
+  name = name.replace(/\s+ใน(?:เมือง|ตัวเมือง)$/i, "").trim();
+
+  // If stripping left only the city name or empty string, preserve rawName
+  if (!name || (cityName && name.toLowerCase() === cityName.trim().toLowerCase())) {
+    return rawName ? rawName.trim() : "";
+  }
+
+  return name || (rawName ? rawName.trim() : "");
 }
 
 /** Extract the longest sequence of capitalised words (likely a proper noun) */
@@ -789,10 +896,20 @@ export function buildGoogleMapsUrl(options: {
     }
   }
 
+  // Check if placeId is a genuine Google Maps Place ID.
+  // Google Place IDs begin with "ChIJ" or "GhIJ" (27-30+ alphanumeric chars).
+  // Foursquare (fsq... or 24-char hex), Geoapify, OSM numeric IDs, or disambig strings
+  // must NEVER be passed to Google Maps parameters, as Google will fail to resolve them.
+  const isGooglePlaceId = Boolean(
+    placeId &&
+      !placeId.startsWith("disambig-") &&
+      (placeId.startsWith("ChIJ") || placeId.startsWith("GhIJ"))
+  );
+
   // 1. Directions mode: Navigation directly to destination
   if (mode === "directions") {
     if (hasCoords && isCoordsVerified) {
-      if (placeId && !placeId.startsWith("disambig-")) {
+      if (isGooglePlaceId) {
         return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${placeId}`;
       }
       return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
@@ -821,27 +938,24 @@ export function buildGoogleMapsUrl(options: {
   }
 
   // 3. Search mode ("View on Google Maps"):
-  // CRITICAL REQUIREMENT: "ขอให้พิกัดตรง ลิ้งค์ตรงเป็นอันดับ1"
-  // Prioritize exact GPS coordinates so Google Maps drops a pin directly at the real venue location,
-  // completely preventing inaccurate text search results!
-  if (hasCoords && isCoordsVerified) {
-    if (placeId && !placeId.startsWith("disambig-")) {
+  // If a genuine Google Place ID is present, pair coordinates with query_place_id for the verified card
+  if (isGooglePlaceId) {
+    if (hasCoords) {
       return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}&query_place_id=${placeId}`;
     }
-    return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery || "")}&query_place_id=${placeId}`;
   }
 
-  if (hasCoords && !searchQuery) {
-    return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-  }
-
-  // Fallback to text query if coordinates are unverified or absent
+  // If we have a clear venue name, query by venue name with city context so Google Maps
+  // opens the true business/attraction card (with photos, reviews, opening hours, and verified Google place pin)
   if (searchQuery) {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
   }
+
   if (hasCoords) {
     return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
   }
+
   return `https://www.google.com/maps`;
 }
 
@@ -857,12 +971,13 @@ const reverseGeocodeCache = new Map<string, boolean>();
  * using Nominatim reverse geocoding.
  *
  * Returns true if:
- *   - Nominatim finds a result tagged as amenity/tourism/leisure/historic/building, OR
+ *   - Nominatim finds a result tagged as amenity/tourism/leisure/historic/building within radiusM, OR
  *   - The result display_name contains the place name (fuzzy match)
  *
  * Returns false (hallucinated / wrong pin) if:
  *   - Nominatim only returns a generic road / suburb / city result with no POI tag
  *   - Nominatim returns an error / unable to geocode
+ *   - Matched POI is further than radiusM away
  *
  * Uses a simple in-memory cache so repeated renders don't hammer Nominatim.
  */
@@ -870,7 +985,7 @@ export async function verifyCoordinatesHaveNearbyPOI(
   lat: number,
   lng: number,
   placeName?: string,
-  radiusM: number = 200
+  radiusM: number = 50
 ): Promise<boolean> {
   if (!lat || !lng || lat === 0 || lng === 0) return false;
 
@@ -880,7 +995,7 @@ export async function verifyCoordinatesHaveNearbyPOI(
   }
 
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=17&accept-language=en`;
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&accept-language=en`;
     const res = await fetch(url, {
       headers: {
         "User-Agent": "PixineraryApp/1.0",
@@ -900,6 +1015,17 @@ export async function verifyCoordinatesHaveNearbyPOI(
     const osmClass: string = (data.class || "").toLowerCase();
     const displayName: string = (data.display_name || "").toLowerCase();
 
+    // Calculate actual distance between requested coordinate and returned POI
+    let isWithinRadius = true;
+    if (data.lat && data.lon) {
+      const matchLat = parseFloat(data.lat);
+      const matchLng = parseFloat(data.lon);
+      if (!isNaN(matchLat) && !isNaN(matchLng)) {
+        const distM = distanceMetres({ lat, lng }, { lat: matchLat, lng: matchLng });
+        isWithinRadius = distM <= radiusM;
+      }
+    }
+
     // Accept: amenity, tourism, leisure, historic, building, shop, office, natural, man_made
     const VALID_CLASSES = ["amenity", "tourism", "leisure", "historic", "building", "shop", "office", "natural", "man_made"];
     const isRealPOI = VALID_CLASSES.includes(osmClass);
@@ -909,11 +1035,14 @@ export async function verifyCoordinatesHaveNearbyPOI(
     const isGeneric = GENERIC_CLASSES.includes(osmClass);
 
     // Fuzzy name match: if the place name appears in the Nominatim display_name → valid
-    const nameMatches = placeName
-      ? displayName.includes(placeName.toLowerCase().trim().split(" ")[0])
-      : false;
+    const cleanName = (placeName || "").toLowerCase().trim();
+    const firstWord = cleanName.split(/\s+/)[0] || "";
+    const nameMatches = cleanName.length > 2 && (
+      displayName.includes(cleanName) ||
+      (firstWord.length > 3 && displayName.includes(firstWord))
+    );
 
-    const isValid = isRealPOI || nameMatches || (!isGeneric && Boolean(data.osm_id));
+    const isValid = nameMatches || (isWithinRadius && isRealPOI && !isGeneric);
     reverseGeocodeCache.set(cacheKey, isValid);
     return isValid;
   } catch {

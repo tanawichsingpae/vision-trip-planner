@@ -1,6 +1,7 @@
 import { validateApiKey } from "@/utils/apiUtils";
 import { fetchWikimediaPhoto, FAMOUS_LANDMARK_DISAMBIGUATION, distanceMetres, containsThaiScript, sanitizePlaceTitle, isZoneDining, extractZoneAnchorVenue } from "./geocode";
 import { getCuratedFallbackPhoto, fetchSmartPhoto } from "@/services/photoService";
+import { isSerperConfigured } from "@/services/serperClient";
 import { foursquareSearch, foursquareGetPhotos, isFoursquareRateLimited, setFoursquareRateLimited } from "./foursquareClient";
 
 const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY as string;
@@ -245,6 +246,7 @@ export async function fetchPlaceDetails(
       searchKeyword,
       wikiTitle: extraOptions?.wikiTitle,
       indexOffset: extraOptions?.indexOffset,
+      englishName: extraOptions?.englishName,
     });
 
     // 0. Check Famous Landmark Disambiguation first (Exact Pinpoint Match)
@@ -297,11 +299,14 @@ export async function fetchPlaceDetails(
           countryName: extraOptions?.countryName,
           indexOffset: extraOptions?.indexOffset,
         });
+        const chosenPhoto = (isSerperConfigured() && resolvedPhoto)
+          ? resolvedPhoto
+          : (fsqData.photo_url || resolvedPhoto || fallbackPhoto);
 
         return {
           ...fsqData,
           canonicalName: isZone ? sanitizePlaceTitle(placeName) : fsqData.canonicalName,
-          photo_url: fsqData.photo_url || resolvedPhoto || fallbackPhoto,
+          photo_url: chosenPhoto,
         };
       }
     }

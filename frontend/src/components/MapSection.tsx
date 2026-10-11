@@ -325,7 +325,7 @@ const MapSection = ({
           haversineDistance(
             { lat: first.activity.lat!, lng: first.activity.lng! },
             { lat: item.activity.lat!, lng: item.activity.lng! }
-          ) <= 0.05 // Group pins within 50 meters
+          ) <= 0.015 // Group only pins that strictly stack on each other (within 15 meters)
         );
       });
       if (match) {
@@ -345,10 +345,12 @@ const MapSection = ({
         let renderLat = origLat;
         let renderLng = origLng;
 
-        if (clusterSize > 1) {
-          const angle = (2 * Math.PI * i) / clusterSize;
-          // 80 to 120 meters visible spiderfy dispersal radius (prevents pin clumping)
-          const radiusKm = Math.min(0.12, 0.08 + (clusterSize - 2) * 0.015);
+        // When multiple pins share virtually identical coordinates (e.g. check-in/out, or activities in the same complex),
+        // keep the primary pin (i === 0) at its exact geocoded location, and apply a subtle 15-25m micro-offset
+        // only to overlapping secondary pins (i > 0) so all stop numbers remain visible without pin drift.
+        if (clusterSize > 1 && i > 0) {
+          const angle = (2 * Math.PI * (i - 1)) / (clusterSize - 1);
+          const radiusKm = Math.min(0.025, 0.015 + (clusterSize - 2) * 0.005);
           const latOffset = (radiusKm / 111) * Math.sin(angle);
           const lngOffset =
             (radiusKm / (111 * Math.cos((origLat * Math.PI) / 180))) * Math.cos(angle);
@@ -364,7 +366,7 @@ const MapSection = ({
           originalLng: origLng,
           renderLat,
           renderLng,
-          isOverlapping: clusterSize > 1,
+          isOverlapping: clusterSize > 1 && i > 0,
           color: item.isHotel ? "#4f46e5" : dayColors[item.dayIndex % dayColors.length],
         });
       });
@@ -377,7 +379,7 @@ const MapSection = ({
       latLngBounds.push([m.renderLat, m.renderLng]);
 
       // Connector line if spiderfied
-      if (m.isOverlapping) {
+      if (m.isOverlapping && (m.renderLat !== m.originalLat || m.renderLng !== m.originalLng)) {
         L.polyline(
           [
             [m.originalLat, m.originalLng],

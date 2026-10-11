@@ -146,6 +146,57 @@ export const DICTIONARY_EN_TO_TH: Record<string, string> = {
   "damnoen saduak floating market": "ตลาดน้ำดำเนินสะดวก",
   "amphawa floating market": "ตลาดน้ำอัมพวา",
   "jodd fairs": "จ๊อดแฟร์",
+
+  // Top Asian & International Landmarks
+  "senso-ji": "วัดเซ็นโซจิ (อาซากุสะ)",
+  "sensoji": "วัดเซ็นโซจิ (อาซากุสะ)",
+  "senso-ji temple": "วัดเซ็นโซจิ (อาซากุสะ)",
+  "sensoji temple": "วัดเซ็นโซจิ (อาซากุสะ)",
+  "fushimi inari": "ศาลเจ้าฟูชิมิอินาริ",
+  "fushimi inari taisha": "ศาลเจ้าฟูชิมิอินาริ",
+  "fushimi inari shrine": "ศาลเจ้าฟูชิมิอินาริ",
+  "kiyomizu-dera": "วัดคิโยมิซุ (วัดน้ำใส)",
+  "kiyomizudera": "วัดคิโยมิซุ (วัดน้ำใส)",
+  "kiyomizu-dera temple": "วัดคิโยมิซุ (วัดน้ำใส)",
+  "kinkaku-ji": "วัดคินคะคุจิ (วัดทอง)",
+  "kinkakuji": "วัดคินคะคุจิ (วัดทอง)",
+  "kinkaku-ji temple": "วัดคินคะคุจิ (วัดทอง)",
+  "tokyo tower": "โตเกียวทาวเวอร์",
+  "tokyo skytree": "โตเกียวสกายทรี",
+  "shibuya crossing": "ห้าแยกชิบูย่า",
+  "shibuya sky": "ชิบูย่า สกาย",
+  "dotonbori": "ย่านโดทงโบริ (โอซาก้า)",
+  "osaka castle": "ปราสาทโอซาก้า",
+  "meiji shrine": "ศาลเจ้าเมจิ",
+  "arashiyama": "ป่าไผ่อาราชิยามะ",
+  "arashiyama bamboo grove": "ป่าไผ่อาราชิยามะ",
+  "nara park": "สวนกวางนารา",
+  "universal studios japan": "ยูนิเวอร์แซล สตูดิโอส์ เจแปน",
+  "tokyo disneyland": "โตเกียวดิสนีย์แลนด์",
+  "tokyo disneysea": "โตเกียวดิสนีย์ซี",
+  "mount fuji": "ภูเขาไฟฟูจิ",
+  "mt fuji": "ภูเขาไฟฟูจิ",
+  "lake kawaguchiko": "ทะเลสาบคาวากุจิโกะ",
+  "forbidden city": "พระราชวังต้องห้าม (กู้กง)",
+  "great wall of china": "กำแพงเมืองจีน",
+  "mutianyu great wall": "กำแพงเมืองจีน ด่านมู่เถียนยวี่",
+  "summer palace": "พระราชวังฤดูร้อนอี๋เหอหยวน",
+  "terracotta army": "กองทัพทหารดินเผาซีอาน",
+  "taipei 101": "ตึกไทเป 101",
+  "victoria peak": "เดอะพีค (วิคตอเรียพีค)",
+  "n seoul tower": "หอคอยเอ็นโซล (หอคอยนัมซาน)",
+  "namsan tower": "หอคอยนัมซาน (เอ็นโซลทาวเวอร์)",
+  "gyeongbokgung": "พระราชวังเคียงบก",
+  "gyeongbokgung palace": "พระราชวังเคียงบก",
+  "bukchon hanok village": "หมู่บ้านบุกชอนฮันอก",
+  "myeongdong": "ย่านเมียงดง",
+  "eiffel tower": "หอไอเฟล",
+  "louvre museum": "พิพิธภัณฑ์ลูฟวร์",
+  "colosseum": "โคลอสเซียม",
+  "sagrada familia": "ซากราดา ฟามิเลีย",
+  "statue of liberty": "เทพีเสรีภาพ",
+  "times square": "ไทม์สแควร์",
+  "big ben": "หอนาฬิกาบิ๊กเบน",
 };
 
 export const DICTIONARY_TH_TO_EN: Record<string, string> = {
@@ -250,6 +301,106 @@ export const DICTIONARY_TH_TO_EN: Record<string, string> = {
   "หอศิลปวัฒนธรรมแห่งกรุงเทพ": "Bangkok Art and Culture Centre",
   "หอศิลป์กรุงเทพ": "Bangkok Art and Culture Centre",
   "หอศิลป์กทม": "Bangkok Art and Culture Centre",
+
+  // Top International Landmarks to English
+  "วัดเซ็นโซจิ": "Senso-ji Temple",
+  "วัดเซ็นโซจิ (อาซากุสะ)": "Senso-ji Temple (Asakusa)",
+  "ศาลเจ้าฟูชิมิอินาริ": "Fushimi Inari Taisha",
+  "วัดคิโยมิซุ": "Kiyomizu-dera Temple",
+  "วัดคิโยมิซุ (วัดน้ำใส)": "Kiyomizu-dera Temple",
+  "วัดคินคะคุจิ": "Kinkaku-ji (Golden Pavilion)",
+  "วัดคินคะคุจิ (วัดทอง)": "Kinkaku-ji (Golden Pavilion)",
+  "โตเกียวทาวเวอร์": "Tokyo Tower",
+  "โตเกียวสกายทรี": "Tokyo Skytree",
+  "ห้าแยกชิบูย่า": "Shibuya Crossing",
+  "ชิบูย่า สกาย": "Shibuya Sky",
+  "โดทงโบริ": "Dotonbori",
+  "ปราสาทโอซาก้า": "Osaka Castle",
+  "ศาลเจ้าเมจิ": "Meiji Shrine",
+  "ป่าไผ่อาราชิยามะ": "Arashiyama Bamboo Grove",
+  "สวนกวางนารา": "Nara Park",
+  "ภูเขาไฟฟูจิ": "Mount Fuji",
+  "ทะเลสาบคาวากุจิโกะ": "Lake Kawaguchiko",
+  "พระราชวังต้องห้าม": "The Forbidden City",
+  "กำแพงเมืองจีน": "Great Wall of China",
+  "หอคอยนัมซาน": "N Seoul Tower (Namsan Tower)",
+  "พระราชวังเคียงบก": "Gyeongbokgung Palace",
+  "หอไอเฟล": "Eiffel Tower",
+  "พิพิธภัณฑ์ลูฟวร์": "Louvre Museum",
+  "โคลอสเซียม": "Colosseum",
+};
+
+// CJK & East Asian (Chinese / Japanese / Korean) direct mappings for instant local resolution
+export const DICTIONARY_CJK_TO_TH: Record<string, string> = {
+  // Japanese
+  "浅草寺": "วัดเซ็นโซจิ (อาซากุสะ)",
+  "伏見稲荷大社": "ศาลเจ้าฟูชิมิอินาริ",
+  "清水寺": "วัดคิโยมิซุ (วัดน้ำใส)",
+  "金閣寺": "วัดคินคะคุจิ (วัดทอง)",
+  "東京タワー": "โตเกียวทาวเวอร์",
+  "大阪城": "ปราสาทโอซาก้า",
+  "富士山": "ภูเขาไฟฟูจิ",
+  "道頓堀": "โดทงโบริ",
+  "嵐山": "อาราชิยามะ",
+
+  // Chinese & Taiwanese
+  "故宫": "พระราชวังต้องห้าม",
+  "故宮": "พระราชวังต้องห้าม",
+  "万里长城": "กำแพงเมืองจีน",
+  "萬里長城": "กำแพงเมืองจีน",
+  "慕田峪长城": "กำแพงเมืองจีน ด่านมู่เถียนยวี่",
+  "颐和园": "พระราชวังฤดูร้อนอี๋เหอหยวน",
+  "九份": "จิ่วเฟิ่น (ไต้หวัน)",
+  "台北101": "ไทเป 101",
+  "士林夜市": "ตลาดกลางคืนซื่อหลิน",
+
+  // Korean
+  "경복궁": "พระราชวังเคียงบก",
+  "N서울타워": "เอ็นโซลทาวเวอร์",
+  "남산타워": "หอคอยนัมซาน",
+  "남이섬": "เกาะนามิ",
+  "명동": "เมียงดง",
+  "홍대": "ฮงแด",
+  "해운대": "หาดแฮอุนแด",
+  "북촌한옥마을": "หมู่บ้านบุกชอนฮันอก",
+  "감천문화마ล": "หมู่บ้านวัฒนธรรมคัมชอน",
+  "감천문화마을": "หมู่บ้านวัฒนธรรมคัมชอน",
+};
+
+export const DICTIONARY_CJK_TO_EN: Record<string, string> = {
+  // Japanese
+  "浅草寺": "Senso-ji Temple",
+  "伏見稲荷大社": "Fushimi Inari Taisha",
+  "清水寺": "Kiyomizu-dera Temple",
+  "金閣寺": "Kinkaku-ji (Golden Pavilion)",
+  "東京タワー": "Tokyo Tower",
+  "大阪城": "Osaka Castle",
+  "富士山": "Mount Fuji",
+  "道頓堀": "Dotonbori",
+  "嵐山": "Arashiyama",
+
+  // Chinese & Taiwanese
+  "故宫": "The Forbidden City",
+  "故宮": "The Forbidden City",
+  "万里长城": "Great Wall of China",
+  "萬里長城": "Great Wall of China",
+  "慕田峪长城": "Mutianyu Great Wall",
+  "颐和园": "Summer Palace",
+  "九份": "Jiufen",
+  "台北101": "Taipei 101",
+  "士林夜市": "Shilin Night Market",
+
+  // Korean
+  "경복궁": "Gyeongbokgung Palace",
+  "N서울타워": "N Seoul Tower",
+  "남산타워": "Namsan Tower",
+  "남이섬": "Nami Island",
+  "명동": "Myeongdong",
+  "홍대": "Hongdae",
+  "해운대": "Haeundae Beach",
+  "북촌한옥마을": "Bukchon Hanok Village",
+  "감천문화마ล": "Gamcheon Culture Village",
+  "감천문화마을": "Gamcheon Culture Village",
 };
 
 // In-memory translation cache to avoid repeated translations
@@ -264,10 +415,63 @@ export function hasThaiScript(text?: string | null): boolean {
 }
 
 /**
- * Detects and extracts dual-language (Thai and English) components from compound strings.
+ * Checks if a string contains Latin / English alphabet characters
+ */
+export function hasLatinScript(text?: string | null): boolean {
+  if (!text) return false;
+  return /[a-zA-Z]/.test(text);
+}
+
+/**
+ * Checks if a string contains CJK ideographs or Japanese Kana (Chinese / Japanese scripts)
+ */
+export function hasCJKScript(text?: string | null): boolean {
+  if (!text) return false;
+  return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF]/.test(text);
+}
+
+/**
+ * Checks if a string contains Korean Hangul characters
+ */
+export function hasHangulScript(text?: string | null): boolean {
+  if (!text) return false;
+  return /[\uAC00-\uD7AF\u1100-\u11FF]/.test(text);
+}
+
+/**
+ * Checks if a string is purely written in the target language's natural script.
+ * - 'th': contains Thai script, and contains NO Latin, CJK, or Hangul letters.
+ * - 'en': contains Latin script, and contains NO Thai, CJK, or Hangul letters.
+ */
+export function isPureTargetScript(text?: string | null, targetLang?: "th" | "en"): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (targetLang === "th") {
+    return hasThaiScript(trimmed) && !hasLatinScript(trimmed) && !hasCJKScript(trimmed) && !hasHangulScript(trimmed);
+  }
+  if (targetLang === "en") {
+    return hasLatinScript(trimmed) && !hasThaiScript(trimmed) && !hasCJKScript(trimmed) && !hasHangulScript(trimmed);
+  }
+  return false;
+}
+
+/**
+ * Checks if a text requires localization for the given target language.
+ */
+export function needsTranslation(text?: string | null, targetLang?: "th" | "en"): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return !isPureTargetScript(trimmed, targetLang);
+}
+
+/**
+ * Detects and extracts dual-language (Thai/English or CJK/English) components from compound strings.
  * Examples:
  * - "วัดพระแก้ว (Wat Phra Kaew)" -> { th: "วัดพระแก้ว", en: "Wat Phra Kaew" }
  * - "Wat Arun (วัดอรุณราชวราราม)" -> { th: "วัดอรุณราชวราราม", en: "Wat Arun" }
+ * - "浅草寺 (Senso-ji Temple)" -> { th: "วัดเซ็นโซจิ (อาซากุสะ)", en: "Senso-ji Temple" }
  * - "ตลาดน้ำดำเนินสะดวก / Damnoen Saduak Floating Market" -> { th: "ตลาดน้ำดำเนินสะดวก", en: "Damnoen Saduak Floating Market" }
  * - "Grand Palace - พระบรมมหาราชวัง" -> { th: "พระบรมมหาราชวัง", en: "Grand Palace" }
  */
@@ -277,10 +481,11 @@ export function extractBilingualText(text?: string | null): { th?: string; en?: 
   if (!trimmed) return null;
 
   const hasThai = hasThaiScript(trimmed);
-  const hasLatin = /[a-zA-Z]/.test(trimmed);
+  const hasLatin = hasLatinScript(trimmed);
+  const hasCJK = hasCJKScript(trimmed);
 
-  // If text does not contain both Thai and Latin scripts, no compound splitting is possible
-  if (!hasThai || !hasLatin) return null;
+  // If text does not contain multiple distinct scripts, compound splitting is not applicable
+  if (!((hasThai && hasLatin) || (hasCJK && hasLatin) || (hasThai && hasCJK))) return null;
 
   // 1. Parentheses format: "PartA (PartB)"
   const parenMatch = trimmed.match(/^([^(]+)\s*\(([^)]+)\)$/);
@@ -289,14 +494,24 @@ export function extractBilingualText(text?: string | null): { th?: string; en?: 
     const partB = parenMatch[2].trim();
     const aThai = hasThaiScript(partA);
     const bThai = hasThaiScript(partB);
-    const aLatin = /[a-zA-Z]/.test(partA);
-    const bLatin = /[a-zA-Z]/.test(partB);
+    const aLatin = hasLatinScript(partA);
+    const bLatin = hasLatinScript(partB);
+    const aCJK = hasCJKScript(partA);
+    const bCJK = hasCJKScript(partB);
 
     if (aThai && !aLatin && bLatin) {
       return { th: partA, en: partB };
     }
     if (aLatin && !aThai && bThai) {
       return { th: partB, en: partA };
+    }
+    if (aCJK && bLatin) {
+      const thMatch = DICTIONARY_CJK_TO_TH[partA] || DICTIONARY_EN_TO_TH[partB.toLowerCase()];
+      return { th: thMatch || undefined, en: partB };
+    }
+    if (aLatin && bCJK) {
+      const thMatch = DICTIONARY_CJK_TO_TH[partB] || DICTIONARY_EN_TO_TH[partA.toLowerCase()];
+      return { th: thMatch || undefined, en: partA };
     }
   }
 
@@ -310,14 +525,24 @@ export function extractBilingualText(text?: string | null): { th?: string; en?: 
         const partB = parts[1].trim();
         const aThai = hasThaiScript(partA);
         const bThai = hasThaiScript(partB);
-        const aLatin = /[a-zA-Z]/.test(partA);
-        const bLatin = /[a-zA-Z]/.test(partB);
+        const aLatin = hasLatinScript(partA);
+        const bLatin = hasLatinScript(partB);
+        const aCJK = hasCJKScript(partA);
+        const bCJK = hasCJKScript(partB);
 
         if (aThai && !aLatin && bLatin) {
           return { th: partA, en: partB };
         }
         if (aLatin && !aThai && bThai) {
           return { th: partB, en: partA };
+        }
+        if (aCJK && bLatin) {
+          const thMatch = DICTIONARY_CJK_TO_TH[partA] || DICTIONARY_EN_TO_TH[partB.toLowerCase()];
+          return { th: thMatch || undefined, en: partB };
+        }
+        if (aLatin && bCJK) {
+          const thMatch = DICTIONARY_CJK_TO_TH[partB] || DICTIONARY_EN_TO_TH[partA.toLowerCase()];
+          return { th: thMatch || undefined, en: partA };
         }
       }
     }
@@ -347,7 +572,7 @@ export function translateTextSync(text: string, targetLang: "th" | "en"): string
     return memoryTranslationCache.get(cacheKey)!;
   }
 
-  // 0. Dual language compound string check (e.g. "วัดพระแก้ว (Wat Phra Kaew)")
+  // 0. Dual language compound string check (e.g. "วัดพระแก้ว (Wat Phra Kaew)" or "浅草寺 (Senso-ji)")
   const bilingual = extractBilingualText(trimmed);
   if (bilingual) {
     if (targetLang === "th" && bilingual.th) {
@@ -360,18 +585,20 @@ export function translateTextSync(text: string, targetLang: "th" | "en"): string
     }
   }
 
-  // Already in target script check (purely in target script):
-  const isThai = hasThaiScript(trimmed);
-  if (targetLang === "th" && isThai && !/[a-zA-Z]/.test(trimmed)) return trimmed;
-  if (targetLang === "en" && !isThai) return trimmed;
+  // Already in pure target script check
+  if (isPureTargetScript(trimmed, targetLang)) return trimmed;
 
   let result = trimmed;
+  const lower = normalizeKey(trimmed);
 
   if (targetLang === "th") {
-    // 1. Direct dictionary match
-    const lower = normalizeKey(trimmed);
+    // 1. Direct dictionary match (English -> Thai or CJK -> Thai)
     if (DICTIONARY_EN_TO_TH[lower]) {
       result = DICTIONARY_EN_TO_TH[lower];
+    } else if (DICTIONARY_CJK_TO_TH[trimmed]) {
+      result = DICTIONARY_CJK_TO_TH[trimmed];
+    } else if (DICTIONARY_CJK_TO_TH[lower]) {
+      result = DICTIONARY_CJK_TO_TH[lower];
     }
     // 2. Hotel Check-in / Check-out patterns
     else if (/^check\s*in:?\s*(.*)$/i.test(trimmed)) {
@@ -400,10 +627,15 @@ export function translateTextSync(text: string, targetLang: "th" | "en"): string
     }
   } else {
     // Target is English
-    // 1. Direct dictionary match
-    const lower = normalizeKey(trimmed);
+    // 1. Direct dictionary match (Thai -> English or CJK -> English)
     if (DICTIONARY_TH_TO_EN[lower]) {
       result = DICTIONARY_TH_TO_EN[lower];
+    } else if (DICTIONARY_TH_TO_EN[trimmed]) {
+      result = DICTIONARY_TH_TO_EN[trimmed];
+    } else if (DICTIONARY_CJK_TO_EN[trimmed]) {
+      result = DICTIONARY_CJK_TO_EN[trimmed];
+    } else if (DICTIONARY_CJK_TO_EN[lower]) {
+      result = DICTIONARY_CJK_TO_EN[lower];
     }
     // 2. Thai Check-in / Check-out patterns
     else if (/^(เช็คอิน|เช็คอินเข้าที่พัก):?\s*(.*)$/i.test(trimmed)) {
@@ -442,9 +674,7 @@ export async function translateWithAI(text: string, targetLang: "th" | "en"): Pr
   const trimmed = text.trim();
   if (!trimmed) return "";
 
-  const isThai = hasThaiScript(trimmed);
-  if (targetLang === "th" && isThai && !/[a-zA-Z]/.test(trimmed)) return trimmed;
-  if (targetLang === "en" && !isThai) return trimmed;
+  if (isPureTargetScript(trimmed, targetLang)) return trimmed;
 
   const cacheKey = `${targetLang}:${trimmed}`;
   if (memoryTranslationCache.has(cacheKey)) {
@@ -527,8 +757,7 @@ export async function batchTranslateWithAI(
   for (const item of items) {
     const trimmed = (item.text || "").trim();
     if (!trimmed) continue;
-    const isThai = hasThaiScript(trimmed);
-    if ((targetLang === "th" && isThai && !/[a-zA-Z]/.test(trimmed)) || (targetLang === "en" && !isThai)) {
+    if (isPureTargetScript(trimmed, targetLang)) {
       results[item.id] = trimmed;
       continue;
     }
@@ -617,6 +846,128 @@ ${JSON.stringify(toTranslate, null, 2)}`;
 }
 
 /**
+ * Result structure for bilingual place resolution
+ */
+export interface BilingualPlaceResult {
+  th: string;
+  en: string;
+}
+
+/**
+ * Batch resolve travel places into BOTH Thai and English in a single AI round trip.
+ * Automatically saves both results to localStorage and in-memory caches so switching
+ * languages in the UI happens instantly (0ms) without delay.
+ */
+export async function batchResolveBilingualPlacesAI(
+  places: Array<{ id: string; name: string }>
+): Promise<Record<string, BilingualPlaceResult>> {
+  if (!places || places.length === 0) return {};
+
+  const results: Record<string, BilingualPlaceResult> = {};
+  const toQuery: Array<{ id: string; name: string }> = [];
+
+  for (const item of places) {
+    const raw = (item.name || "").trim();
+    if (!raw) continue;
+
+    // Fast check: Look in memory or localStorage cache for both languages
+    const cachedTh = memoryTranslationCache.get(`th:${raw}`) || (typeof window !== "undefined" ? localStorage.getItem(`trans_th:${raw}`) : null);
+    const cachedEn = memoryTranslationCache.get(`en:${raw}`) || (typeof window !== "undefined" ? localStorage.getItem(`trans_en:${raw}`) : null);
+
+    const syncTh = (cachedTh && isPureTargetScript(cachedTh, "th")) ? cachedTh : translateTextSync(raw, "th");
+    const syncEn = (cachedEn && isPureTargetScript(cachedEn, "en")) ? cachedEn : translateTextSync(raw, "en");
+
+    const hasValidTh = isPureTargetScript(syncTh, "th") || (hasThaiScript(syncTh) && !hasCJKScript(syncTh));
+    const hasValidEn = isPureTargetScript(syncEn, "en") || (hasLatinScript(syncEn) && !hasCJKScript(syncEn) && !hasThaiScript(syncEn));
+
+    if (hasValidTh && hasValidEn) {
+      results[item.id] = { th: syncTh, en: syncEn };
+      memoryTranslationCache.set(`th:${raw}`, syncTh);
+      memoryTranslationCache.set(`en:${raw}`, syncEn);
+      continue;
+    }
+
+    toQuery.push({ id: item.id, name: raw });
+  }
+
+  if (toQuery.length === 0) {
+    return results;
+  }
+
+  const prompt = `You are an expert multilingual travel translator.
+For each travel place name (which may be in Japanese, Chinese, Korean, Thai, English, or other local scripts), provide BOTH an authentic, natural Thai name (th) and a clean, recognizable English name (en).
+Keep well-known landmark names authentic and widely used in travel guides.
+Do NOT add extra explanation or markdown formatting.
+Respond ONLY with a valid JSON object matching this schema:
+{
+  "places": {
+    "<id>": {
+      "th": "ชื่อสถานที่ภาษาไทย",
+      "en": "Place Name in English"
+    }
+  }
+}
+
+Places:
+${JSON.stringify(toQuery, null, 2)}`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch(`${BACKEND_URL}/ai`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "user", content: prompt }],
+        expect_json: true,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      const rawText = data?.text || "";
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        const placesMap = parsed.places || {};
+        for (const it of toQuery) {
+          const itemRes = placesMap[it.id];
+          if (itemRes && typeof itemRes === "object") {
+            const cleanTh = (itemRes.th || "").trim();
+            const cleanEn = (itemRes.en || "").trim();
+            if (cleanTh && cleanEn) {
+              results[it.id] = { th: cleanTh, en: cleanEn };
+              memoryTranslationCache.set(`th:${it.name}`, cleanTh);
+              memoryTranslationCache.set(`en:${it.name}`, cleanEn);
+              try {
+                localStorage.setItem(`trans_th:${it.name}`, cleanTh);
+                localStorage.setItem(`trans_en:${it.name}`, cleanEn);
+              } catch {}
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[translatorService] batchResolveBilingualPlacesAI error:", err);
+  }
+
+  // Fallback for any unfulfilled items
+  for (const it of toQuery) {
+    if (!results[it.id]) {
+      const fallbackTh = translateTextSync(it.name, "th");
+      const fallbackEn = translateTextSync(it.name, "en");
+      results[it.id] = { th: fallbackTh, en: fallbackEn };
+    }
+  }
+
+  return results;
+}
+
+/**
  * Asynchronous translation with AI & offline dictionary fallback.
  */
 export async function translateTextAsync(text: string, targetLang: "th" | "en"): Promise<string> {
@@ -624,9 +975,7 @@ export async function translateTextAsync(text: string, targetLang: "th" | "en"):
   const trimmed = text.trim();
   if (!trimmed) return "";
 
-  const isThai = hasThaiScript(trimmed);
-  if (targetLang === "th" && isThai && !/[a-zA-Z]/.test(trimmed)) return trimmed;
-  if (targetLang === "en" && !isThai) return trimmed;
+  if (isPureTargetScript(trimmed, targetLang)) return trimmed;
 
   const cacheKey = `${targetLang}:${trimmed}`;
   if (memoryTranslationCache.has(cacheKey)) {
@@ -644,15 +993,29 @@ export async function translateTextAsync(text: string, targetLang: "th" | "en"):
 
   // Fast path: Exact dictionary sync first
   const lower = normalizeKey(trimmed);
-  if (targetLang === "th" && DICTIONARY_EN_TO_TH[lower]) {
-    const res = DICTIONARY_EN_TO_TH[lower];
-    memoryTranslationCache.set(cacheKey, res);
-    return res;
+  if (targetLang === "th") {
+    if (DICTIONARY_EN_TO_TH[lower]) {
+      const res = DICTIONARY_EN_TO_TH[lower];
+      memoryTranslationCache.set(cacheKey, res);
+      return res;
+    }
+    if (DICTIONARY_CJK_TO_TH[trimmed]) {
+      const res = DICTIONARY_CJK_TO_TH[trimmed];
+      memoryTranslationCache.set(cacheKey, res);
+      return res;
+    }
   }
-  if (targetLang === "en" && DICTIONARY_TH_TO_EN[lower]) {
-    const res = DICTIONARY_TH_TO_EN[lower];
-    memoryTranslationCache.set(cacheKey, res);
-    return res;
+  if (targetLang === "en") {
+    if (DICTIONARY_TH_TO_EN[lower]) {
+      const res = DICTIONARY_TH_TO_EN[lower];
+      memoryTranslationCache.set(cacheKey, res);
+      return res;
+    }
+    if (DICTIONARY_CJK_TO_EN[trimmed]) {
+      const res = DICTIONARY_CJK_TO_EN[trimmed];
+      memoryTranslationCache.set(cacheKey, res);
+      return res;
+    }
   }
 
   // Primary: Use AI translation

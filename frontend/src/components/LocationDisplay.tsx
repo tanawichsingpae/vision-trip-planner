@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   MapPin,
   X,
@@ -73,8 +73,14 @@ const LocationDisplay = ({
   onUploadNewPhotos,
   onFilesUploaded,
 }: LocationDisplayProps) => {
-  const { language, locPlace, t } = useLanguage();
+  const { language, locPlace, t, batchResolvePlaces } = useLanguage();
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (locations && locations.length > 0) {
+      batchResolvePlaces(locations);
+    }
+  }, [locations, batchResolvePlaces]);
 
   const effectiveOutlierCount = outliers.length > 0 ? outliers.length : outliersCount;
   const nonTravelCount = outliers.filter((o) => o.category === "NON_TRAVEL").length;
@@ -400,7 +406,7 @@ const LocationDisplay = ({
                         }}
                         className="flex items-center justify-between p-1.5 rounded-lg text-xs bg-secondary/70 hover:bg-secondary transition-colors text-left"
                       >
-                        <span className="truncate font-medium">{cand.name}</span>
+                        <span className="truncate font-medium">{locPlace({ name: cand.name })}</span>
                         <ArrowRightLeft className="size-3 text-sky-500 shrink-0 ml-1" />
                       </button>
                     ))}

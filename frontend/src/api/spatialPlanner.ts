@@ -1128,8 +1128,20 @@ export function parseTimeToMinutes(timeStr?: string): number | null {
   return hours * 60 + minutes;
 }
 
-export function formatMinutesToTime(minutes: number): string {
-  const m = Math.max(0, Math.min(23 * 60 + 59, Math.round(minutes)));
+export function roundMinutesToClean(minutes: number, step: number = 15): number {
+  return Math.round(minutes / step) * step;
+}
+
+export function roundTimeToCleanMinutes(timeStr?: string, step: number = 15): string {
+  if (!timeStr) return "09:00";
+  const m = parseTimeToMinutes(timeStr);
+  if (m === null) return timeStr || "09:00";
+  return formatMinutesToTime(m, step);
+}
+
+export function formatMinutesToTime(minutes: number, step: number = 15): string {
+  const rounded = step > 1 ? Math.round(minutes / step) * step : Math.round(minutes);
+  const m = Math.max(0, Math.min(23 * 60 + 45, rounded));
   const h = Math.floor(m / 60);
   const mins = m % 60;
   return `${String(h).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
@@ -1452,6 +1464,22 @@ export function calculateCoherenceScore(
     let longCommutePairs = 0;
 
     const validGeoActs = activities.filter(a => a.lat && a.lng && a.type !== "hotel");
+    const nonHotelActs = activities.filter(a => a.type !== "hotel");
+
+    // Strictly check for empty or severely underpopulated days
+    if (nonHotelActs.length === 0) {
+      warnings.push(
+        `Day ${day.day}: [Empty Day Alert] Day ${day.day} has no scheduled visit activities! Every single day must have at least 3 to 5 activities.`
+      );
+      macroFindings.push(`Day ${day.day} ไม่มีแผนกิจกรรมเที่ยวเลย (0 กิจกรรม) ต้องจัดให้ครบทุกวัน`);
+      selectionPenalty += 35;
+    } else if (nonHotelActs.length < 2 && itinerary.length >= 2) {
+      warnings.push(
+        `Day ${day.day}: [Underpopulated Day Alert] Day ${day.day} has only ${nonHotelActs.length} activity. Every single day must have at least 3 to 5 balanced activities.`
+      );
+      macroFindings.push(`Day ${day.day} มีกิจกรรมน้อยเกินไป (${nonHotelActs.length} กิจกรรม)`);
+      selectionPenalty += 15;
+    }
 
     // Crossing Check (Target for optimal 2-Opt route: 0 crossings)
     const dayCrossings = countIntersectingEdges(validGeoActs);
@@ -1540,6 +1568,16 @@ export function calculateCoherenceScore(
           schedulingPenalty += 10;
         } else {
           visitedTitles.add(cleanTitle);
+        }
+      }
+
+      // Clean / Round Time Check (Catch odd minute fractions like 11:36)
+      if (actTimeMin !== null && act.type !== "hotel") {
+        if (actTimeMin % 5 !== 0) {
+          warnings.push(
+            `Day ${day.day}: [Unrounded Time Slot] Activity "${act.title}" is scheduled at an awkward time (${act.time}) with odd minutes. AI review should round scheduled times to clean, round numbers (e.g. :00, :15, :30, :45 or clean 5-minute intervals like 11:30).`
+          );
+          schedulingPenalty += 4;
         }
       }
 
@@ -2553,9 +2591,9 @@ function getEstimatedDwellMinutes(act: Activity, pace: string = "Moderate"): num
 
   const p = pace.toLowerCase();
   if (p.includes("relax")) {
-    return Math.round(baseMinutes * 1.25); // +25% longer dwell time for relaxed pacing
+    return Math.round((baseMinutes * 1.25) / 15) * 15; // +25% longer dwell time for relaxed pacing
   } else if (p.includes("packed") || p.includes("fast")) {
-    return Math.round(baseMinutes * 0.75); // -25% shorter dwell time to fit more attractions
+    return Math.round((baseMinutes * 0.75) / 15) * 15; // -25% shorter dwell time to fit more attractions
   }
   return baseMinutes;
 }
@@ -2705,20 +2743,23 @@ export function assignDeterministicTimeSlots(
       }
     }
 
+    // Round to clean 15-minute interval (:00, :15, :30, :45)
+    actTimeMinutes = Math.round(actTimeMinutes / 15) * 15;
+
     // Ensure strictly non-decreasing time along the spatial progression
     if (assignedRegular.length > 0) {
       const prevTimeStr = assignedRegular[assignedRegular.length - 1].time;
       if (prevTimeStr) {
         const prevMinutes = parseTimeToMinutes(prevTimeStr) || 0;
-        if (actTimeMinutes < prevMinutes) {
-          actTimeMinutes = prevMinutes;
+        if (actTimeMinutes <= prevMinutes) {
+          actTimeMinutes = prevMinutes + 15;
         }
       }
     }
 
     assignedRegular.push({
       ...act,
-      time: formatMinutesToTime(actTimeMinutes),
+      time: formatMinutesToTime(actTimeMinutes, 15),
     });
 
     // Dynamic travel time to next activity using realistic urban transit model
@@ -2727,7 +2768,9 @@ export function assignDeterministicTimeSlots(
       const fromCoord = act.lat && act.lng ? { lat: act.lat, lng: act.lng } : undefined;
       const toCoord = nextAct.lat && nextAct.lng ? { lat: nextAct.lat, lng: nextAct.lng } : undefined;
       const transitMinutes = calculateRealisticTransitMinutes(fromCoord, toCoord, pace);
-      currentMinutes = actTimeMinutes + dwellTime + transitMinutes;
+      const roundedTransit = Math.max(15, Math.round(transitMinutes / 15) * 15);
+      const roundedDwell = Math.max(30, Math.round(dwellTime / 15) * 15);
+      currentMinutes = Math.round((actTimeMinutes + roundedDwell + roundedTransit) / 15) * 15;
     }
   }
 
@@ -2770,6 +2813,59 @@ export function rebalanceCrossDayPOIs<T extends { day: number; activities: Activ
 
   const result = days.map(d => ({ ...d, activities: [...d.activities] }));
 
+  // Phase 1: Zero-Activity & Severely Underpopulated Day Load Balancing
+  // Strictly ensure that NO day is left with 0 activities when other days have surplus activities!
+  let underpopulated = true;
+  let balanceLoops = 0;
+  while (underpopulated && balanceLoops < 5) {
+    underpopulated = false;
+    balanceLoops++;
+
+    for (let dayA = 0; dayA < result.length; dayA++) {
+      const nonHotelA = result[dayA].activities.filter(a => a.type !== "hotel");
+      if (nonHotelA.length < 2) {
+        // Find donor day with maximum non-hotel activities
+        let maxDayIdx = -1;
+        let maxCount = 0;
+        for (let dayB = 0; dayB < result.length; dayB++) {
+          if (dayA === dayB) continue;
+          const nonHotelB = result[dayB].activities.filter(a => a.type !== "hotel");
+          if (nonHotelB.length > maxCount) {
+            maxCount = nonHotelB.length;
+            maxDayIdx = dayB;
+          }
+        }
+
+        // If donor day has at least 3 activities (or at least 2 if nonHotelA has 0)
+        if (maxDayIdx !== -1 && (maxCount >= 3 || (nonHotelA.length === 0 && maxCount >= 2))) {
+          // Transfer half of surplus activities (at least 1, up to 3)
+          const transferCount = nonHotelA.length === 0 ? Math.max(1, Math.floor(maxCount / 2)) : 1;
+          const donorActs = result[maxDayIdx].activities;
+
+          let movedCount = 0;
+          for (let i = donorActs.length - 1; i >= 0 && movedCount < transferCount; i--) {
+            if (donorActs[i].type !== "hotel") {
+              const [moved] = donorActs.splice(i, 1);
+              result[dayA].activities.push(moved);
+              movedCount++;
+            }
+          }
+
+          if (movedCount > 0) {
+            underpopulated = true;
+            // Clean up times for the receiving day in standard progressive order
+            const defaultTimes = ["09:30", "12:00", "14:30", "17:00", "19:00", "20:30"];
+            result[dayA].activities.forEach((act, actIdx) => {
+              if (act.type !== "hotel" && actIdx < defaultTimes.length) {
+                act.time = defaultTimes[actIdx];
+              }
+            });
+          }
+        }
+      }
+    }
+  }
+
   let changed = true;
   let iterations = 0;
 
@@ -2779,15 +2875,16 @@ export function rebalanceCrossDayPOIs<T extends { day: number; activities: Activ
 
     const centroids = result.map(d => {
       const valid = d.activities.filter(a => a.lat && a.lng && a.type !== "hotel");
-      if (valid.length === 0) return { lat: 0, lng: 0, count: 0 };
+      if (valid.length === 0) return null;
       const avgLat = valid.reduce((acc, a) => acc + a.lat!, 0) / valid.length;
       const avgLng = valid.reduce((acc, a) => acc + a.lng!, 0) / valid.length;
       return { lat: avgLat, lng: avgLng, count: valid.length };
     });
 
     for (let dayA = 0; dayA < result.length; dayA++) {
+      if (!centroids[dayA]) continue;
       for (let dayB = 0; dayB < result.length; dayB++) {
-        if (dayA === dayB) continue;
+        if (dayA === dayB || !centroids[dayB]) continue;
 
         const dayBActs = result[dayB].activities;
         for (let i = 0; i < dayBActs.length; i++) {

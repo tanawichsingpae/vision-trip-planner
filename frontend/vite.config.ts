@@ -42,6 +42,12 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        "/serper-api": {
+          target: "https://google.serper.dev",
+          changeOrigin: true,
+          secure: true,
+          rewrite: (p) => p.replace(/^\/serper-api/, ""),
+        },
         "/resolve_maps_url": {
           target: "http://127.0.0.1:8080",
           changeOrigin: true,

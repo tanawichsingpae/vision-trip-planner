@@ -89,7 +89,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { getCoordinates, distanceMetres, verifyCoordinatesHaveNearbyPOI, sanitizePlaceTitle } from "@/api/geocode";
+import { getCoordinates, distanceMetres, verifyCoordinatesHaveNearbyPOI, sanitizePlaceTitle, cleanSuggestedPlaceName } from "@/api/geocode";
 import { getNearbyAttractions, fetchPlaceDetails, fetchPlaceDetailsByPlaceId, getFallbackOpeningHours } from "@/api/places";
 import { gatherCandidatePOIs, kMeansCluster, partitionPoisIntoNonOverlappingSectors, calculateMasterHub, sequenceDayClusters, solveGreedyTSP, scorePOIs, selectDiversePOIs, calculateCoherenceScore, optimizeDayActivities, rebalanceCrossDayPOIs, scrubAndRelocateDayOutliers, enforceMaxHopDistance, auditItineraryIssues, type DayCluster, type ItineraryCoherence } from "@/api/spatialPlanner";
 import { generateTravelPlan, refineItineraryWithAI, generateMoreSuggestions, generateMoreAccommodations, analyzeImage, inferFallbackNonTravelContent, type VisionResult, type TypicalWeather, type TripPreferences } from "@/services/aiService";
@@ -107,6 +107,8 @@ import { SavedTripsModal } from "@/components/SavedTripsModal";
 import { saveTrip, type TripRecord } from "@/services/tripService";
 import PixineraryDemoModal from "@/components/PixineraryDemoModal";
 import TravelWishHelperCard from "@/components/TravelWishHelperCard";
+import { AIPosterPreviewModal } from "@/components/AIPosterPreviewModal";
+import type { GeneratedPosterImage } from "@/services/aiPosterService";
 
 
 
@@ -979,37 +981,77 @@ const Index = () => {
         ? { lat: prefsWithModel.hotelLat, lng: prefsWithModel.hotelLng }
         : (selectedPlace || { lat: 13.7563, lng: 100.5018 });
 
-      const targetItinerary = (refined && Array.isArray(refined) && refined.length >= itinerary.length)
-        ? refined
-        : itinerary;
+      if (refined && Array.isArray(refined) && refined.length > 0) {
+        // AI Review succeeded: preserve AI's intelligent schedule and resolve any newly added venue coordinates
+        const enrichedRefined = await Promise.all(
+          refined.map(async (day) => {
+            const enrichedActs = await Promise.all(
+              day.activities.map(async (act) => {
+                let actLat = act.lat;
+                let actLng = act.lng;
+                let verified = act.isCoordsVerified;
 
-      const rebalanced = rebalanceCrossDayPOIs(targetItinerary);
-      const scrubbed = scrubAndRelocateDayOutliers(rebalanced, hotelLoc, 4.5);
-      const optimized = scrubbed.map((day, dIdx) => {
-        const prevDayLastAct = dIdx > 0 ? scrubbed[dIdx - 1]?.activities.slice(-1)[0] : undefined;
-        const dayStart = (prefsWithModel.hasHotel === "yes" && prefsWithModel.hotelLat && prefsWithModel.hotelLng)
-          ? hotelLoc
-          : (dIdx === 0
+                if ((!actLat || !actLng || actLat === 0 || actLng === 0) && act.title) {
+                  try {
+                    const fetchedCoords = await getCoordinates(act.title, hotelLoc, preferences?.destination);
+                    if (fetchedCoords && !fetchedCoords.isFallback && fetchedCoords.lat && fetchedCoords.lng) {
+                      actLat = fetchedCoords.lat;
+                      actLng = fetchedCoords.lng;
+                      verified = true;
+                    }
+                  } catch (_) {}
+                }
+
+                return {
+                  ...act,
+                  lat: actLat,
+                  lng: actLng,
+                  isCoordsVerified: verified,
+                };
+              })
+            );
+            return {
+              ...day,
+              activities: enrichedActs,
+            };
+          })
+        );
+
+        setItinerary(enrichedRefined);
+        setMapItinerary(enrichedRefined);
+        toast.success("AI ตรวจสอบและจัดระเบียบตารางเที่ยวให้สมบูรณ์แล้ว ✨", {
+          id: "ai-refine",
+          description: "จัดกลุ่มสถานที่ใกล้เคียง ปรับเวลาอาหาร ปัดเศษเวลาเป็นตัวเลขกลมๆ และเรียงลำดับเส้นทางให้ราบรื่นเรียบร้อย",
+        });
+      } else {
+        // Fallback: If AI returned empty, fall back to deterministic optimization
+        const rebalanced = rebalanceCrossDayPOIs(itinerary);
+        const scrubbed = scrubAndRelocateDayOutliers(rebalanced, hotelLoc, 4.5);
+        const optimized = scrubbed.map((day, dIdx) => {
+          const prevDayLastAct = dIdx > 0 ? scrubbed[dIdx - 1]?.activities.slice(-1)[0] : undefined;
+          const dayStart = (prefsWithModel.hasHotel === "yes" && prefsWithModel.hotelLat && prefsWithModel.hotelLng)
             ? hotelLoc
-            : (prevDayLastAct?.lat && prevDayLastAct?.lng ? { lat: prevDayLastAct.lat, lng: prevDayLastAct.lng } : hotelLoc));
+            : (dIdx === 0
+              ? hotelLoc
+              : (prevDayLastAct?.lat && prevDayLastAct?.lng ? { lat: prevDayLastAct.lat, lng: prevDayLastAct.lng } : hotelLoc));
 
-        const dayDate = new Date(tripStartDate || new Date());
-        dayDate.setDate(dayDate.getDate() + dIdx);
-        const dayOfWeek = dayDate.getDay();
+          const dayDate = new Date(tripStartDate || new Date());
+          dayDate.setDate(dayDate.getDate() + dIdx);
+          const dayOfWeek = dayDate.getDay();
 
-        const optActivities = enforceMaxHopDistance(optimizeDayActivities(day.activities, currentPace, dayStart, dayOfWeek), 4.0);
-        return {
-          ...day,
-          activities: optActivities,
-        };
-      });
+          const optActivities = enforceMaxHopDistance(optimizeDayActivities(day.activities, currentPace, dayStart, dayOfWeek), 4.0);
+          return {
+            ...day,
+            activities: optActivities,
+          };
+        });
 
-      setItinerary(optimized);
-      setMapItinerary(optimized);
-      toast.success("AI ตรวจสอบและจัดระเบียบตารางเที่ยวให้สมบูรณ์แล้ว ✨", {
-        id: "ai-refine",
-        description: "จัดกลุ่มสถานที่ใกล้เคียง ปรับเวลาอาหาร และเรียงลำดับเส้นทางให้ราบรื่นเรียบร้อย",
-      });
+        setItinerary(optimized);
+        setMapItinerary(optimized);
+        toast.info("จัดระเบียบเส้นทางด้วยอัลกอริทึมพื้นฐานเรียบร้อยแล้ว", {
+          id: "ai-refine",
+        });
+      }
     } catch (e: any) {
       console.error("AI Refinement failed:", e);
       toast.error("ไม่สามารถปรับแต่งตารางเที่ยวได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง", { id: "ai-refine" });
@@ -1489,7 +1531,8 @@ const Index = () => {
                   const isVerified = await verifyCoordinatesHaveNearbyPOI(
                     activity.lat,
                     activity.lng,
-                    cleanEnglish || cleanTitle
+                    cleanEnglish || cleanTitle,
+                    50
                   );
                   if (isVerified) {
                     actLat = activity.lat;
@@ -1798,6 +1841,39 @@ const Index = () => {
       // Scrub and relocate any rogue outliers (> 4.5 km from day cluster) before final map rendering
       const scrubbedItinerary = scrubAndRelocateDayOutliers(rebalancedItinerary, coords, 4.5);
 
+      // Fail-Safe Quality Gate: Strictly ensure every single day has scheduled activities
+      scrubbedItinerary.forEach((day, dIdx) => {
+        const nonHotel = day.activities.filter(a => a.type !== "hotel");
+        if (nonHotel.length === 0) {
+          // 1. Try borrowing surplus from another day
+          const donorDay = scrubbedItinerary.find((d, idx) => idx !== dIdx && d.activities.filter(a => a.type !== "hotel").length >= 4);
+          if (donorDay) {
+            const donorNonHotel = donorDay.activities.filter(a => a.type !== "hotel");
+            const moved = donorNonHotel.slice(-2);
+            donorDay.activities = donorDay.activities.filter(a => !moved.includes(a));
+            day.activities.push(...moved);
+          } else if (generatedSuggestions.length > 0) {
+            // 2. Try filling from suggestions
+            const sug = generatedSuggestions.find(s => !scrubbedItinerary.some(d => d.activities.some(a => a.title === s.name)));
+            if (sug) {
+              day.activities.push({
+                id: `fallback-sug-${Date.now()}-${dIdx}`,
+                time: "10:00",
+                title: sug.name,
+                english_name: sug.english_name || sug.name,
+                description: sug.description || `Explore ${sug.name}`,
+                type: sug.category || "landmark",
+                lat: sug.lat || coords.lat,
+                lng: sug.lng || coords.lng,
+                photo_url: sug.photo_url || null,
+                image_url: sug.photo_url || null,
+                rating: sug.rating || 4.5,
+              });
+            }
+          }
+        }
+      });
+
       // Apply Neuro-Symbolic 2-Opt TSP, Opening Hours constraint, and Anti-Looping Route Optimization
       const hotelLoc = prefs.hasHotel === "yes" && prefs.hotelLat && prefs.hotelLng
         ? { lat: prefs.hotelLat, lng: prefs.hotelLng }
@@ -2060,20 +2136,24 @@ const Index = () => {
       if (targetDayIndex === -1) return;
 
       const place = suggestionData.place;
-      const placeNameTh = place.name_th || (place as any).title_th || (hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "th"));
-      const placeNameEn = place.name_en || (place as any).title_en || place.english_name || (!hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "en"));
+      const targetCity = detectedLocations[0]?.city || detectedLocations[0]?.place || "";
+      const cleanTitle = cleanSuggestedPlaceName(place.name, targetCity);
+      const rawNameTh = place.name_th || (place as any).title_th;
+      const rawNameEn = place.name_en || (place as any).title_en || place.english_name;
+      const placeNameTh = cleanSuggestedPlaceName(rawNameTh ? (hasThaiScript(rawNameTh) ? rawNameTh : translateTextSync(rawNameTh, "th")) : (hasThaiScript(cleanTitle) ? cleanTitle : translateTextSync(cleanTitle, "th")), targetCity);
+      const placeNameEn = cleanSuggestedPlaceName(rawNameEn ? (!hasThaiScript(rawNameEn) ? rawNameEn : translateTextSync(rawNameEn, "en")) : (!hasThaiScript(cleanTitle) ? cleanTitle : translateTextSync(cleanTitle, "en")), targetCity);
       const placeDescTh = place.description_th || (hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "th"));
       const placeDescEn = place.description_en || (!hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "en"));
 
       const newActivity: Activity = {
         id: `act-${Date.now()}`,
         time: "12:00",
-        title: place.name,
+        title: cleanTitle,
         title_th: placeNameTh,
         title_en: placeNameEn,
-        name_th: place.name_th || placeNameTh,
-        name_en: place.name_en || placeNameEn,
-        english_name: place.english_name || placeNameEn,
+        name_th: placeNameTh,
+        name_en: placeNameEn,
+        english_name: placeNameEn,
         description: place.description,
         description_th: placeDescTh,
         description_en: placeDescEn,
@@ -2335,20 +2415,24 @@ const Index = () => {
 
   // Resolve drag overlay content
   const handleAddSuggestion = useCallback((place: SuggestedPlace, dayIndex: number, time: string = "12:00") => {
-    const placeNameTh = place.name_th || (place as any).title_th || (hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "th"));
-    const placeNameEn = place.name_en || (place as any).title_en || place.english_name || (!hasThaiScript(place.name) ? place.name : translateTextSync(place.name, "en"));
+    const targetCity = detectedLocations[0]?.city || detectedLocations[0]?.place || "";
+    const cleanTitle = cleanSuggestedPlaceName(place.name, targetCity);
+    const rawNameTh = place.name_th || (place as any).title_th;
+    const rawNameEn = place.name_en || (place as any).title_en || place.english_name;
+    const placeNameTh = cleanSuggestedPlaceName(rawNameTh ? (hasThaiScript(rawNameTh) ? rawNameTh : translateTextSync(rawNameTh, "th")) : (hasThaiScript(cleanTitle) ? cleanTitle : translateTextSync(cleanTitle, "th")), targetCity);
+    const placeNameEn = cleanSuggestedPlaceName(rawNameEn ? (!hasThaiScript(rawNameEn) ? rawNameEn : translateTextSync(rawNameEn, "en")) : (!hasThaiScript(cleanTitle) ? cleanTitle : translateTextSync(cleanTitle, "en")), targetCity);
     const placeDescTh = place.description_th || (hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "th"));
     const placeDescEn = place.description_en || (!hasThaiScript(place.description) ? place.description : translateTextSync(place.description, "en"));
 
     const newActivity: Activity = {
       id: `act-${Date.now()}`,
       time,
-      title: place.name,
+      title: cleanTitle,
       title_th: placeNameTh,
       title_en: placeNameEn,
-      name_th: place.name_th || placeNameTh,
-      name_en: place.name_en || placeNameEn,
-      english_name: place.english_name || placeNameEn,
+      name_th: placeNameTh,
+      name_en: placeNameEn,
+      english_name: placeNameEn,
       description: place.description,
       description_th: placeDescTh,
       description_en: placeDescEn,
@@ -2380,6 +2464,22 @@ const Index = () => {
       setMapItinerary(updated);
       return updated;
     });
+  }, []);
+
+  const handleUpdateSuggestionPhoto = useCallback((placeId: string, newPhotoUrl: string) => {
+    setSuggestions((prev) =>
+      prev.map((sug) =>
+        sug.id === placeId
+          ? {
+              ...sug,
+              photo_url: newPhotoUrl,
+              image_url: newPhotoUrl,
+              image: newPhotoUrl,
+              isUserPhoto: true,
+            }
+          : sug
+      )
+    );
   }, []);
 
   const handleAddHotel = useCallback((
@@ -2512,6 +2612,10 @@ const Index = () => {
   const [isExportingHTML, setIsExportingHTML] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [pdfExportProgress, setPdfExportProgress] = useState<string>("");
+  const [isExportingPoster, setIsExportingPoster] = useState(false);
+  const [posterExportProgress, setPosterExportProgress] = useState<string>("");
+  const [isPosterModalOpen, setIsPosterModalOpen] = useState(false);
+  const [generatedPosterImages, setGeneratedPosterImages] = useState<GeneratedPosterImage[]>([]);
 
   // ─── HTML / Print Export (Dedicated A4 Document) ───────────────────────────
 
@@ -2718,6 +2822,94 @@ const Index = () => {
     } finally {
       setIsExportingPDF(false);
       setPdfExportProgress("");
+    }
+  };
+
+  const exportToAIPoster = async () => {
+    if (isExportingPoster || isExportingPDF || isExportingHTML) return;
+    setIsExportingPoster(true);
+    setPosterExportProgress("");
+    toast.info(
+      language === "th"
+        ? "กำลังวิเคราะห์ทริปและสร้างภาพสรุปด้วย Gemini 3 Pro..."
+        : "Analyzing trip and synthesizing infographic poster with Gemini 3 Pro..."
+    );
+
+    try {
+      const [{ normalizeExportTrip }, { splitTripIntoPosterChunks }, { generateTripPosterImages }] =
+        await Promise.all([
+          import("@/lib/export/normalizeExportTrip"),
+          import("@/lib/export/aiPosterPrompt"),
+          import("@/services/aiPosterService"),
+        ]);
+
+      const apiKey = import.meta.env.VITE_GEOAPIFY_API_KEY ?? "";
+      const staticMapUrl = buildStaticMapUrl(itinerary, apiKey);
+
+      const cityFromVision =
+        (language === "th" ? detectedLocations[0]?.city_th : detectedLocations[0]?.city_en) ||
+        detectedLocations[0]?.city;
+
+      const destinationName =
+        preferences?.destination ||
+        cityFromVision ||
+        locPlace(detectedLocations[0]) ||
+        "Trip";
+
+      const landmarkName = locPlace(detectedLocations[0]);
+      const subtitle =
+        landmarkName && landmarkName !== destinationName
+          ? landmarkName
+          : (language === "th" ? "แผนการท่องเที่ยวอันน่าประทับใจ" : "Heritage & soul");
+
+      const exportTrip = normalizeExportTrip({
+        itinerary,
+        destination: destinationName,
+        subtitle,
+        tripStartDate,
+        language,
+        cityName: destinationName,
+        staticMapUrl,
+      });
+
+      // Split into 1, 2, or 3 chunks depending on trip length
+      const chunks = splitTripIntoPosterChunks(exportTrip);
+
+      const result = await generateTripPosterImages(chunks, {
+        language,
+        onProgress: (current, total, msg) => {
+          setPosterExportProgress(`(${current}/${total})`);
+          toast.info(msg);
+        },
+      });
+
+      if (result.success && result.images.length > 0) {
+        setGeneratedPosterImages(result.images);
+        setIsPosterModalOpen(true);
+        toast.success(
+          language === "th"
+            ? `สร้างภาพสรุปการเดินทางสำเร็จ (${result.images.length} รูป)! สามารถดูตัวอย่างและดาวน์โหลดได้ทันที`
+            : `AI Poster generated successfully (${result.images.length} images)! Ready to view and download.`
+        );
+      } else {
+        toast.error(
+          result.error ||
+            (language === "th"
+              ? "สร้างภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+              : "Failed to generate poster images. Please try again.")
+        );
+      }
+    } catch (err: any) {
+      console.error("AI Poster export failed:", err);
+      toast.error(
+        err?.message ||
+          (language === "th"
+            ? "เกิดข้อผิดพลาดในการสร้างภาพสรุป AI"
+            : "Error generating AI travel poster.")
+      );
+    } finally {
+      setIsExportingPoster(false);
+      setPosterExportProgress("");
     }
   };
 
@@ -3131,7 +3323,7 @@ const Index = () => {
                             : "Export itinerary (PDF or HTML)"
                         }
                       >
-                        {isExportingHTML || isExportingPDF ? (
+                        {isExportingHTML || isExportingPDF || isExportingPoster ? (
                           <span className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
                         ) : (
                           <FileDown className="size-3.5" />
@@ -3143,6 +3335,8 @@ const Index = () => {
                                 : `Exporting PDF ${pdfExportProgress}`)
                             : isExportingHTML
                             ? (language === "th" ? "กำลังส่งออก HTML..." : "Exporting HTML...")
+                            : isExportingPoster
+                            ? (language === "th" ? `กำลังสร้างภาพ AI ${posterExportProgress}` : `Generating Poster ${posterExportProgress}`)
                             : (language === "th" ? "ส่งออก" : "Export")}
                         </span>
                         <ChevronDown className="size-3 opacity-60 ml-0.5" />
@@ -3197,6 +3391,32 @@ const Index = () => {
                           </span>
                           <span className="text-[10px] text-muted-foreground truncate">
                             {language === "th" ? "ไฟล์เว็บเปิดในเบราว์เซอร์" : "Standalone interactive file"}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+
+                      <DropdownMenuSeparator className="my-1" />
+
+                      {/* AI Poster Export Option */}
+                      <DropdownMenuItem
+                        onClick={exportToAIPoster}
+                        disabled={isExportingPDF || isExportingHTML || isExportingPoster}
+                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors focus:bg-primary/10 focus:text-primary"
+                      >
+                        <div className="flex size-7 items-center justify-center rounded-md bg-gradient-to-tr from-indigo-500/15 to-pink-500/15 text-indigo-500 font-bold text-xs shrink-0">
+                          <Sparkles className="size-3.5 text-pink-500" />
+                        </div>
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-xs text-foreground">
+                              {language === "th" ? "ภาพสรุป AI (.png)" : "AI Poster (.png)"}
+                            </span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-gradient-to-r from-indigo-500/15 to-pink-500/15 text-indigo-600 dark:text-pink-400">
+                              Gemini 3 Pro
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground truncate">
+                            {language === "th" ? "โปสเตอร์อินโฟกราฟิกตามวัน" : "Infographic poster per days"}
                           </span>
                         </div>
                       </DropdownMenuItem>
@@ -3371,6 +3591,7 @@ const Index = () => {
                       suggestions={suggestions}
                       onRefreshSuggestions={handleRefreshSuggestions}
                       daysCount={itinerary.length}
+                      onUpdateSuggestionPhoto={handleUpdateSuggestionPhoto}
                     />
                   </TabsContent>
 
@@ -3434,6 +3655,7 @@ const Index = () => {
           }}
           messages={chatMessages}
           onUpdateMessages={setChatMessages}
+          environmentData={environmentData}
         />
       )}
 
@@ -3567,6 +3789,15 @@ const Index = () => {
 
       {/* Interactive Demo Modal */}
       <PixineraryDemoModal isOpen={isDemoOpen} onClose={() => setIsDemoOpen(false)} />
+
+      {/* AI Poster Preview Modal */}
+      <AIPosterPreviewModal
+        isOpen={isPosterModalOpen}
+        onClose={() => setIsPosterModalOpen(false)}
+        images={generatedPosterImages}
+        destinationName={preferences?.destination || detectedLocations[0]?.place || "Trip"}
+        language={language}
+      />
     </div>
   );
 };
