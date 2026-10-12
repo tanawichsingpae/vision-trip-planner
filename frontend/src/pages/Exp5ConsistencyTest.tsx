@@ -625,7 +625,7 @@ ${rows}
                 Thesis Chap. 4.5
               </Badge>
               <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-semibold">
-                Prompt: P1 Zero-Shot (Exp 4 Optimal)
+                Prompt: P1 Zero-Shot (Exp 1 Optimal)
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">

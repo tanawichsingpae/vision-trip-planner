@@ -153,7 +153,7 @@ ${tierMatrixRows
               </Button>
             </div>
             <p className="text-[11px] text-slate-500 text-left">
-              💡 <strong>Thesis Chap. 4.1 Recommendation:</strong> Reports model breakdown across Head (Iconic), Tail (Long-tail), Nature, and UGC domain shifts.
+              💡 <strong>Thesis Chap. 4.2 Recommendation:</strong> Reports model breakdown across Head (Iconic), Tail (Long-tail), Nature, and UGC domain shifts.
             </p>
           </TabsContent>
 

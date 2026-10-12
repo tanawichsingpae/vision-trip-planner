@@ -413,7 +413,7 @@ const Index = () => {
 
   // ── Saved Trips & Chat Persistence ──
 
-  const { role, isGuest } = useAuth();
+  const { role, isGuest, isDev } = useAuth();
   const [blindSaveModalOpen, setBlindSaveModalOpen] = useState(false);
   const [blindScenarioId, setBlindScenarioId] = useState("SC-01");
   const [blindScenarioTitle, setBlindScenarioTitle] = useState("");
@@ -2943,10 +2943,10 @@ const Index = () => {
             )}
 
             {/* Console Link: dev only */}
-            {role === "dev" && (
+            {(role === "dev" || isDev) && (
               <Link
                 to="/experiment"
-                className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
               >
                 <Beaker className="size-3 text-sky-500" />
                 <span>Console</span>

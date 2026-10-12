@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dialog";
 
 interface KeyTakeawaysCardProps {
-  expId: "exp1" | "exp2" | "exp3" | "exp4" | "exp5";
+  expId: "exp1" | "exp2" | "exp3" | "exp4" | "exp5" | "exp6";
   className?: string;
 }
 

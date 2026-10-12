@@ -3034,6 +3034,23 @@ EXP2_CSV_PATH = os.path.join(EXP_DIR, "exp2_pipeline_comparison.csv")
 EXP3_CSV_PATH = os.path.join(EXP_DIR, "exp3_robustness.csv")
 EXP4_CSV_PATH = os.path.join(EXP_DIR, "exp4_prompt_sensitivity.csv")
 EXP5_CSV_PATH = os.path.join(EXP_DIR, "exp5_consistency.csv")
+EXP6_CSV_PATH = os.path.join(EXP_DIR, "exp6_plan_evaluation.csv")
+EXP6_SIDECAR_CSV_PATH = os.path.join(EXP_DIR, "exp6_plan_evaluation_runs.csv")
+
+
+def _get_experiment_csv_path(filename: str) -> str:
+    parent_exp = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "experiment"))
+    if os.path.exists(parent_exp):
+        return os.path.join(parent_exp, filename)
+    local_exp = os.path.abspath(os.path.join(os.path.dirname(__file__), "experiment"))
+    if os.path.exists(local_exp):
+        return os.path.join(local_exp, filename)
+    cwd_exp = os.path.abspath(os.path.join("experiment", filename))
+    if os.path.exists(os.path.dirname(cwd_exp)):
+        return cwd_exp
+    os.makedirs(parent_exp, exist_ok=True)
+    return os.path.join(parent_exp, filename)
+
 
 
 def ensure_csv_file(csv_path, expected_fieldnames):
@@ -3607,6 +3624,139 @@ def get_exp5_results():
         return jsonify({"results": results})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# --------------------
+# EXP 6: Plan Evaluation Endpoints
+# --------------------
+
+@app.route("/experiment/save_exp6", methods=["POST"])
+def save_exp6():
+    import csv, datetime
+    data = request.get_json() or {}
+
+    # Support either a list of results (batch) or a single model result
+    results_list = data.get("results")
+    if results_list is None:
+        if "model" in data:
+            results_list = [data]
+        else:
+            return jsonify({"error": "Missing data"}), 400
+
+    csv_path = _get_experiment_csv_path("exp6_plan_evaluation.csv")
+    sidecar_path = _get_experiment_csv_path("exp6_plan_evaluation_runs.csv")
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    session_id = data.get("session_id", datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
+    evaluator_name = data.get("evaluator_name", "Human Evaluator")
+    image_name = data.get("image_name", "-")
+    destination = data.get("destination", "-")
+    days = data.get("days", "-")
+    budget = data.get("budget", "-")
+    travelers = data.get("travelers", "-")
+    pace = data.get("pace", "-")
+
+    rows_to_write = []
+    for idx, res in enumerate(results_list):
+        prompt_tok = int(res.get("prompt_tokens", 0) or 0)
+        comp_tok = int(res.get("completion_tokens", 0) or 0)
+        tot_tok = int(res.get("total_tokens", prompt_tok + comp_tok) or (prompt_tok + comp_tok))
+        m_name = res.get("model", f"m{idx+1}")
+        m_clean = str(m_name).replace("openai-", "").replace("anthropic-", "").replace("google-", "").replace("meta-", "")
+        req_id = res.get("request_id") or f"REQ-{session_id}-{m_clean}"
+
+        rows_to_write.append([
+            timestamp,
+            session_id,
+            req_id,
+            evaluator_name,
+            image_name,
+            destination,
+            days,
+            budget,
+            travelers,
+            pace,
+            res.get("model"),
+            res.get("model_label", res.get("model")),
+            res.get("gen_latency_ms", 0),
+            prompt_tok,
+            comp_tok,
+            tot_tok,
+            res.get("throughput_tps", 0),
+            res.get("total_score", 0),
+            res.get("dim1_score", 0),
+            res.get("dim2_score", 0),
+            res.get("dim3_score", 0),
+            res.get("dim4_score", 0),
+            res.get("dim5_score", 0),
+            res.get("criteria_scores_json", "{}"),
+            res.get("generated_plan_json", "[]"),
+        ])
+
+    header = [
+        "Timestamp", "Session ID", "Request ID", "Evaluator Name", "Image Name", "Destination",
+        "Days", "Budget", "Travelers", "Pace", "Model",
+        "Model Label", "Gen Latency MS", "Prompt Tokens", "Completion Tokens", "Total Tokens", "Throughput TPS",
+        "Total Score", "Dim1_ConstraintSatisfaction", "Dim2_ActivityRelevance", "Dim3_Spatiality",
+        "Dim4_AccuracyValidity", "Dim5_OverallQuality", "CriteriaScoresJSON", "GeneratedPlanJSON"
+    ]
+
+    target_path = csv_path
+    try:
+        file_exists = os.path.exists(target_path)
+        with open(target_path, mode="a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(header)
+            writer.writerows(rows_to_write)
+        return jsonify({"status": "success", "saved_count": len(rows_to_write), "target": "main"})
+    except PermissionError:
+        # Fallback to sidecar if Excel or another program locks the main file
+        sidecar_exists = os.path.exists(sidecar_path)
+        with open(sidecar_path, mode="a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not sidecar_exists:
+                writer.writerow(header)
+            writer.writerows(rows_to_write)
+        return jsonify({"status": "success", "saved_count": len(rows_to_write), "target": "sidecar"})
+    except Exception as e:
+        print("Error saving exp6:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/experiment/results_exp6", methods=["GET"])
+def get_exp6_results():
+    import csv
+    csv_path = _get_experiment_csv_path("exp6_plan_evaluation.csv")
+    sidecar_path = _get_experiment_csv_path("exp6_plan_evaluation_runs.csv")
+
+    results = []
+    seen_req_keys = set()
+
+    for p in [csv_path, sidecar_path]:
+        if os.path.exists(p):
+            try:
+                with open(p, mode="r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    for idx, row in enumerate(reader):
+                        r = dict(row)
+                        r.pop(None, None)
+                        m_clean = (r.get("Model") or "model").replace("openai-", "").replace("anthropic-", "").replace("google-", "").replace("meta-", "")
+                        req_id = r.get("Request ID") or r.get("request_id") or f"REQ-EXP6-{idx+1:03d}-{m_clean}"
+                        r["Request ID"] = req_id
+                        r["request_id"] = req_id
+                        p_tok = int(r.get("Prompt Tokens", 0) or 0)
+                        c_tok = int(r.get("Completion Tokens", 0) or 0)
+                        if not r.get("Total Tokens"):
+                            r["Total Tokens"] = p_tok + c_tok
+                        r["total_tokens"] = r["Total Tokens"]
+
+                        results.append(r)
+            except Exception as e:
+                print(f"Error reading {p}:", e)
+
+    return jsonify({"results": results})
+
 
 
 # --------------------

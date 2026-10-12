@@ -581,8 +581,8 @@ export default function Exp4PromptSensitivity() {
 
     const latex = `\\begin{table}[htbp]
   \\centering
-  \\caption{Experiment 4: Prompt Paradigm Sensitivity Analysis for Visual Place Recognition (VPR). Five canonical prompting strategies are compared across accuracy (Top-1) and average latency. P1 (Zero-Shot) serves as the baseline.}
-  \\label{tab:exp4_prompt_sensitivity}
+  \\caption{Experiment 1: Prompt Paradigm Sensitivity Analysis for Visual Place Recognition (VPR). Five canonical prompting strategies are compared across accuracy (Top-1) and average latency. P1 (Zero-Shot) serves as the baseline.}
+  \\label{tab:exp1_prompt_sensitivity}
   \\begin{tabular}{l l r r r l}
     \\toprule
     \\textbf{ID} & \\textbf{Paradigm} & \\textbf{N} & \\textbf{Acc. (\\%)} & \\textbf{Latency (ms)} & \\textbf{Reference} \\\\
@@ -698,10 +698,10 @@ ${rows}
           <div className="text-left">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Experiment 4: Prompt Engineering & Sensitivity Analysis
+                Experiment 1: Prompt Engineering & Sensitivity Analysis
               </h2>
               <Badge className="bg-purple-50 text-purple-700 border-purple-200 text-xs font-semibold">
-                Thesis Chap. 4.4
+                Thesis Chap. 4.1
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -733,7 +733,7 @@ ${rows}
         </div>
 
         {/* Executive Summary Takeaways Card */}
-        <KeyTakeawaysCard expId="exp4" />
+        <KeyTakeawaysCard expId="exp1" />
 
         {/* Top Hero KPI Dashboard */}
         {analytics && (

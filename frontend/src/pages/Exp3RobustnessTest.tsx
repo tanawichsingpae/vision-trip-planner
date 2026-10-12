@@ -646,8 +646,8 @@ export default function Exp3RobustnessTest() {
 
     const latex = `\\begin{table}[htbp]
   \\centering
-  \\caption{Environmental Robustness & Controlled Perturbation Benchmark (Tiers 1--3)}
-  \\label{tab:exp3_robustness_eval}
+  \\caption{Experiment 4: Environmental Robustness & Controlled Perturbation Benchmark (Tiers 1--3)}
+  \\label{tab:exp4_robustness_eval}
   \\begin{tabular}{l p{5.5cm} r r r}
     \\toprule
     \\textbf{Condition} & \\textbf{Perturbation Scope} & \\textbf{Trials (N)} & \\textbf{Accuracy (\\%)} & \\textbf{$\\Delta$ Degradation} \\\\
@@ -757,9 +757,9 @@ ${rows}
       ];
     });
 
-    const filename = `VPR_Thesis_Exp3_Robustness_${new Date().toISOString().slice(0, 10)}.csv`;
+    const filename = `VPR_Thesis_Exp4_Robustness_${new Date().toISOString().slice(0, 10)}.csv`;
     downloadCsv(filename, headers, rows);
-    toast.success(`Exported ${rows.length} Exp3 records to CSV!`);
+    toast.success(`Exported ${rows.length} Exp4 records to CSV!`);
   };
 
   return (
@@ -770,13 +770,13 @@ ${rows}
           <div className="text-left">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Experiment 3: Environmental Robustness & Controlled Perturbation
+                Experiment 4: Environmental Robustness & Controlled Perturbation
               </h2>
               <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-xs font-semibold">
-                Thesis Chap. 4.3
+                Thesis Chap. 4.4
               </Badge>
               <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-semibold">
-                Prompt: P1 Zero-Shot (Exp 4 Optimal)
+                Prompt: P1 Zero-Shot (Exp 1 Optimal)
               </Badge>
               <Badge variant="outline" className="text-xs bg-slate-50 border-slate-200 text-slate-600 font-mono">
                 Tiers 1–3 (Controlled)
@@ -811,7 +811,7 @@ ${rows}
         </div>
 
         {/* Executive Summary Takeaways Card */}
-        <KeyTakeawaysCard expId="exp3" />
+        <KeyTakeawaysCard expId="exp4" />
 
         {/* Tier Slicer Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">

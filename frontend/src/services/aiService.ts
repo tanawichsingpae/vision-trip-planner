@@ -474,7 +474,7 @@ export interface VisionAnalysisOptions {
 }
 
 /**
- * Canonical Academic Prompt Paradigms for VPR Evaluation (from Experiment 4)
+ * Canonical Academic Prompt Paradigms for VPR Evaluation (from Experiment 1)
  * - P1: Zero-Shot Direct (EN) - Academic baseline (Brown et al., 2020)
  * - P2: Expert Persona (Role) - Role-prompting (Reynolds & McDonell, 2021)
  * - P3: Chain-of-Thought (CoT) - Step-by-step reasoning (Wei et al., 2022)

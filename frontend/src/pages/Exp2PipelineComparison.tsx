@@ -730,20 +730,20 @@ ${rows}
   };
 
   const exportCSV = () => {
-    const filename = `VPR_Thesis_Exp2_MultiCandidate_${new Date().toISOString().slice(0, 10)}.csv`;
+    const filename = `VPR_Thesis_Exp3_MultiCandidate_${new Date().toISOString().slice(0, 10)}.csv`;
     downloadCsv(combinedLogs, filename);
-    toast.success(`Exported ${combinedLogs.length} Exp2 records!`);
+    toast.success(`Exported ${combinedLogs.length} Exp3 records!`);
   };
 
   return (
-    <ExperimentLayout activeTab="exp2">
+    <ExperimentLayout>
       <div className="space-y-6">
         {/* Header Banner */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-gradient-to-r from-sky-900 via-indigo-900 to-slate-900 text-white rounded-2xl shadow-xl relative overflow-hidden">
           <div className="space-y-1.5 z-10">
             <div className="flex items-center gap-2">
               <Badge className="bg-sky-500/20 text-sky-200 border-sky-400/30 text-xs px-2.5 py-0.5">
-                Experiment 2 • Chapter 4.2
+                Experiment 3 • Chapter 4.3
               </Badge>
               <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-400/30 text-xs px-2.5 py-0.5">
                 Multi-Candidate Retrieval & Calibration
@@ -782,7 +782,7 @@ ${rows}
         </div>
 
         {/* Executive Takeaways Card */}
-        <KeyTakeawaysCard expId="exp2" />
+        <KeyTakeawaysCard expId="exp3" />
 
         {/* Stratified Tier Slicer Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-xs">

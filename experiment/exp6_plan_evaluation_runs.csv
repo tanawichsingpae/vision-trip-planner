@@ -1,0 +1,1 @@
+Timestamp,Session ID,Request ID,Evaluator Name,Image Name,Destination,Days,Budget,Travelers,Pace,Model,Model Label,Gen Latency MS,Prompt Tokens,Completion Tokens,Total Tokens,Throughput TPS,Total Score,Dim1_ConstraintSatisfaction,Dim2_ActivityRelevance,Dim3_Spatiality,Dim4_AccuracyValidity,Dim5_OverallQuality,CriteriaScoresJSON,GeneratedPlanJSON

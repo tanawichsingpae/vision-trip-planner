@@ -15,6 +15,8 @@ import Exp2PipelineComparison from "./pages/Exp2PipelineComparison.tsx";
 import Exp3RobustnessTest from "./pages/Exp3RobustnessTest.tsx";
 import Exp4PromptSensitivity from "./pages/Exp4PromptSensitivity.tsx";
 import Exp5ConsistencyTest from "./pages/Exp5ConsistencyTest.tsx";
+import Exp6PlanEvaluation from "./pages/Exp6PlanEvaluation.tsx";
+
 import NotFound from "./pages/NotFound.tsx";
 import TripExportPage from "./pages/TripExportPage.tsx";
 import Demo from "./pages/Demo.tsx";
@@ -42,11 +44,14 @@ const App = () => {
                   <Route path="/login" element={<Login />} />
                   <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
                   <Route path="/blind-eval" element={<ProtectedRoute allowedRoles={["dev", "expert"]}><BlindEvaluation /></ProtectedRoute>} />
-                  <Route path="/experiment" element={<ProtectedRoute allowedRoles={["dev"]}><ExperimentConsole /></ProtectedRoute>} />
-                  <Route path="/experiment/exp2" element={<ProtectedRoute allowedRoles={["dev"]}><Exp2PipelineComparison /></ProtectedRoute>} />
-                  <Route path="/experiment/exp3" element={<ProtectedRoute allowedRoles={["dev"]}><Exp3RobustnessTest /></ProtectedRoute>} />
-                  <Route path="/experiment/exp4" element={<ProtectedRoute allowedRoles={["dev"]}><Exp4PromptSensitivity /></ProtectedRoute>} />
+                  <Route path="/experiment" element={<ProtectedRoute allowedRoles={["dev"]}><Exp4PromptSensitivity /></ProtectedRoute>} />
+                  <Route path="/experiment/exp1" element={<ProtectedRoute allowedRoles={["dev"]}><Exp4PromptSensitivity /></ProtectedRoute>} />
+                  <Route path="/experiment/exp2" element={<ProtectedRoute allowedRoles={["dev"]}><ExperimentConsole /></ProtectedRoute>} />
+                  <Route path="/experiment/exp3" element={<ProtectedRoute allowedRoles={["dev"]}><Exp2PipelineComparison /></ProtectedRoute>} />
+                  <Route path="/experiment/exp4" element={<ProtectedRoute allowedRoles={["dev"]}><Exp3RobustnessTest /></ProtectedRoute>} />
                   <Route path="/experiment/exp5" element={<ProtectedRoute allowedRoles={["dev"]}><Exp5ConsistencyTest /></ProtectedRoute>} />
+                  <Route path="/experiment/exp6" element={<ProtectedRoute allowedRoles={["dev"]}><Exp6PlanEvaluation /></ProtectedRoute>} />
+
                   <Route path="/export/trip" element={<TripExportPage />} />
                   <Route path="/demo" element={<Demo />} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

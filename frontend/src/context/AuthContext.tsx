@@ -93,7 +93,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Known developer emails for instant recognition
   const KNOWN_DEV_EMAILS = useMemo(
-    () => ['tanawichsingpae@gmail.com', 'supannika1212548@gmail.com', 'dev@pixinerary.com'],
+    () => [
+      'tanawichsingpae@gmail.com',
+      'tanawichs66@nu.ac.th',
+      'supannika1212548@gmail.com',
+      'dev@pixinerary.com',
+    ],
     []
   )
 

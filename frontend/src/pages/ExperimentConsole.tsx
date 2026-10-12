@@ -908,7 +908,7 @@ export default function ExperimentConsole() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `VPR_Thesis_Experiment1_ModelBenchmark_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute("download", `VPR_Thesis_Experiment2_ModelBenchmark_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -954,7 +954,7 @@ export default function ExperimentConsole() {
           <div className="text-left">
             <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-indigo-600" />
-              Experiment 1: Visual Place Recognition (VPR) Baseline Benchmarks
+              Experiment 2: Visual Place Recognition (VPR) Baseline Benchmarks
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               Multi-model accuracy evaluation across Recall@1, Recall@3, Recall@5, MRR, Latency, and Statistical Tests.
@@ -993,13 +993,13 @@ export default function ExperimentConsole() {
             </Button>
 
             <Badge variant="outline" className="border-slate-300 bg-slate-50 text-slate-700 px-2.5 py-1 font-medium text-xs">
-              Thesis Chap. 4 Suite
+              Thesis Chap. 4.2
             </Badge>
           </div>
         </div>
 
         {/* Executive Summary Takeaways Card */}
-        <KeyTakeawaysCard expId="exp1" />
+        <KeyTakeawaysCard expId="exp2" />
 
         {/* Mode Switcher Tabs */}
         <Tabs value={activeMode} onValueChange={(v) => setActiveMode(v as any)} className="w-full">

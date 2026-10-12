@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ArrowLeft, Beaker, Layers, Sparkles, Sliders, RefreshCw, BookOpen, GraduationCap } from "lucide-react";
+import { ArrowLeft, Beaker, Layers, Sparkles, Sliders, RefreshCw, BookOpen, GraduationCap, Award } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface ExperimentLayoutProps {
@@ -11,42 +11,42 @@ const EXPERIMENT_TABS = [
   {
     id: "exp1",
     path: "/experiment",
-    labelEn: "Exp 1: VPR Accuracy",
+    labelEn: "Exp 1: Prompt Sensitivity",
     chapter: "Chap. 4.1",
+    descEn: "CoT, Thai, Few-Shot & Variants",
+    icon: Sliders,
+    activeColor: "bg-purple-600 text-white shadow-purple-200",
+    badgeColor: "bg-purple-50 text-purple-700 border-purple-200",
+  },
+  {
+    id: "exp2",
+    path: "/experiment/exp2",
+    labelEn: "Exp 2: VPR Accuracy",
+    chapter: "Chap. 4.2",
     descEn: "Multi-Model Recognition Benchmark",
     icon: Beaker,
     activeColor: "bg-blue-600 text-white shadow-blue-200",
     badgeColor: "bg-blue-50 text-blue-700 border-blue-200",
   },
   {
-    id: "exp2",
-    path: "/experiment/exp2",
-    labelEn: "Exp 2: Pipeline Comparison",
-    chapter: "Chap. 4.2",
+    id: "exp3",
+    path: "/experiment/exp3",
+    labelEn: "Exp 3: Pipeline Comparison",
+    chapter: "Chap. 4.3",
     descEn: "2-Turn CLIP vs 1-Turn Direct VLM",
     icon: Layers,
     activeColor: "bg-indigo-600 text-white shadow-indigo-200",
     badgeColor: "bg-indigo-50 text-indigo-700 border-indigo-200",
   },
   {
-    id: "exp3",
-    path: "/experiment/exp3",
-    labelEn: "Exp 3: Robustness Test",
-    chapter: "Chap. 4.3",
+    id: "exp4",
+    path: "/experiment/exp4",
+    labelEn: "Exp 4: Robustness Test",
+    chapter: "Chap. 4.4",
     descEn: "Lighting, Weather, Angles & Noise",
     icon: Sparkles,
     activeColor: "bg-amber-600 text-white shadow-amber-200",
     badgeColor: "bg-amber-50 text-amber-700 border-amber-200",
-  },
-  {
-    id: "exp4",
-    path: "/experiment/exp4",
-    labelEn: "Exp 4: Prompt Sensitivity",
-    chapter: "Chap. 4.4",
-    descEn: "CoT, Thai, Few-Shot & Variants",
-    icon: Sliders,
-    activeColor: "bg-purple-600 text-white shadow-purple-200",
-    badgeColor: "bg-purple-50 text-purple-700 border-purple-200",
   },
   {
     id: "exp5",
@@ -58,6 +58,16 @@ const EXPERIMENT_TABS = [
     activeColor: "bg-rose-600 text-white shadow-rose-200",
     badgeColor: "bg-rose-50 text-rose-700 border-rose-200",
   },
+  {
+    id: "exp6",
+    path: "/experiment/exp6",
+    labelEn: "Exp 6: Plan Evaluation",
+    chapter: "Chap. 4.6",
+    descEn: "5-Dimension & 20-Criteria Benchmark",
+    icon: Award,
+    activeColor: "bg-teal-600 text-white shadow-teal-200",
+    badgeColor: "bg-teal-50 text-teal-700 border-teal-200",
+  },
 ];
 
 export const ExperimentLayout: React.FC<ExperimentLayoutProps> = ({ children }) => {
@@ -65,7 +75,7 @@ export const ExperimentLayout: React.FC<ExperimentLayoutProps> = ({ children }) 
 
   const currentTab = EXPERIMENT_TABS.find((t) =>
     t.path === "/experiment"
-      ? location.pathname === "/experiment" || location.pathname === "/experiment/"
+      ? location.pathname === "/experiment" || location.pathname === "/experiment/" || location.pathname === "/experiment/exp1"
       : location.pathname.startsWith(t.path)
   ) || EXPERIMENT_TABS[0];
 
@@ -122,7 +132,7 @@ export const ExperimentLayout: React.FC<ExperimentLayoutProps> = ({ children }) 
               const Icon = tab.icon;
               const isActive =
                 tab.path === "/experiment"
-                  ? location.pathname === "/experiment" || location.pathname === "/experiment/"
+                  ? location.pathname === "/experiment" || location.pathname === "/experiment/" || location.pathname === "/experiment/exp1"
                   : location.pathname.startsWith(tab.path);
 
               return (

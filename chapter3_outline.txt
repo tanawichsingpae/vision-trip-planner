@@ -1,0 +1,250 @@
+================================================================================
+บทที่ 3 — วิธีดำเนินงานวิจัย
+โปรเจค: Pixinerary — Vision-Language Place Recognition for AI Travel Planning
+================================================================================
+
+[หมายเหตุสำคัญ]
+โครงร่างนี้สร้างจากการวิเคราะห์โค้ดและข้อมูลการทดลองจริงในโปรเจค
+ครอบคลุม Exp1–Exp6, Frontend (React/TypeScript + Vite), Backend (Flask + CLIP + OpenRouter)
+
+--------------------------------------------------------------------------------
+3.1 ภาพรวมกระบวนการวิจัย (Research Design Overview)
+--------------------------------------------------------------------------------
+
+อธิบายวิธีการวิจัยเชิงทดลอง (Experimental Research) ที่ใช้ในงานนี้ โดยแบ่งเป็น 2 ส่วนหลัก:
+
+1. ส่วนที่ 1 – การพัฒนาระบบ (System Development): 
+   ออกแบบและสร้าง Web Application สำหรับ Vision-Language Place Recognition และ Itinerary Generation
+2. ส่วนที่ 2 – การประเมินผล (Experimental Evaluation): 
+   ทำการทดลอง 6 การทดลองเพื่อวัดประสิทธิภาพของระบบในมิติต่าง ๆ
+
+ภาพรวมกระบวนการวิจัย:
+  ออกแบบระบบ 
+  → พัฒนา Backend/Frontend 
+  → รวบรวมชุดข้อมูล 
+  → ออกแบบการทดลอง 
+  → รัน Exp 1-6 
+  → วิเคราะห์ผล 
+  → สรุปข้อค้นพบ
+
+--------------------------------------------------------------------------------
+3.2 สถาปัตยกรรมระบบ (System Architecture)
+--------------------------------------------------------------------------------
+
+3.2.1 ภาพรวมสถาปัตยกรรม
+อธิบายการออกแบบระบบแบบ 3-tier:
+- Frontend: React + TypeScript (Vite) — UI สำหรับผู้ใช้อัปโหลดภาพ ดู Itinerary และประเมินผล
+- Backend: Python Flask API (clip_server.py) — จัดการ CLIP Embedding, OpenRouter LLM calls, Geolocation APIs
+- External Services: OpenRouter AI Gateway (Claude Sonnet 3.5, Gemini 3.8 Flash, GPT-4o ฯลฯ), Geoapify, Foursquare, Wikimedia
+
+3.2.2 กระบวนการทำงานหลัก (Pipeline)
+1. Image Embedding: ผู้ใช้อัปโหลดภาพ → Backend โหลดโมเดล CLIP (ViT-B/32, openai pretrained) → สร้าง 512-dim embedding → Cosine Similarity Matching กับ Supabase vector store
+2. Two-Turn Place Recognition: 
+   - Turn 1 = ระบุ Top-N candidate places จากภาพ
+   - Turn 2 = VLM Re-rank และยืนยันสถานที่สุดท้าย
+3. Itinerary Generation: ส่ง confirmed place + context (จำนวนวัน, งบประมาณ, ประเภทนักท่องเที่ยว) → LLM สร้าง JSON itinerary → Frontend render แผนที่และ timeline
+
+3.2.3 โมเดลภาษา (Vision-Language Models ที่ใช้)
+ตารางโมเดลที่ใช้ในการทดลอง:
+--------------------------------------------------------------------------------
+Model                        Provider                     Role
+--------------------------------------------------------------------------------
+claude-sonnet-3.5 (sonnet5)  Anthropic (via OpenRouter)   Place Recognition + Plan Generation
+gemini-3.8-flash             Google (via OpenRouter)      Place Recognition
+gpt-4o (gpt-54)              OpenAI (via OpenRouter)      Place Recognition
+gpt-4o-mini (gpt-54-mini)    OpenAI (via OpenRouter)      Place Recognition
+meta-llama4                  Meta (via OpenRouter)        Place Recognition
+qwen-2.5-vl-72b              Alibaba (via OpenRouter)     Place Recognition
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+3.3 ชุดข้อมูลที่ใช้ในการทดสอบ (Evaluation Dataset)
+--------------------------------------------------------------------------------
+
+3.3.1 การแบ่งระดับความยากของภาพ (Tier Classification)
+ชุดข้อมูลถูกแบ่งเป็น 4 Tier ตามระดับความยากในการระบุสถานที่:
+
+--------------------------------------------------------------------------------
+Tier     ชื่อ                       ลักษณะภาพ                                               จำนวน (Exp1)  จำนวน (Exp2)
+--------------------------------------------------------------------------------
+Tier 1   Iconic Landmarks           สถานที่ท่องเที่ยวโลก ที่จำง่าย เช่น วัดพระแก้ว, Eiffel Tower 25 ภาพ       6 ภาพ
+Tier 2   Long-tail Landmarks        สถานที่ท่องเที่ยวที่รู้จักน้อยกว่า                        25 ภาพ       6 ภาพ
+Tier 3   Pure Nature                ภาพวิวธรรมชาติล้วน ไม่มีสิ่งปลูกสร้างเฉพาะตัว          25 ภาพ       6 ภาพ
+Tier 4   UGC / Social Screenshots   ภาพแคปหน้าจอจาก Instagram, TikTok, Lemon8                25 ภาพ       6 ภาพ
+--------------------------------------------------------------------------------
+รวม                                                                                         100 ภาพ      24 ภาพ
+--------------------------------------------------------------------------------
+
+3.3.2 ขนาดชุดข้อมูลแต่ละการทดลอง
+--------------------------------------------------------------------------------
+Experiment   ชุดข้อมูล                       จำนวนแถว
+--------------------------------------------------------------------------------
+Exp 1        exp1_model_benchmark.csv       600 แถว (100 ภาพ × 6 โมเดล)
+Exp 2        exp2_pipeline_comparison.csv   144 แถว (24 ภาพ × 6 โมเดล)
+Exp 3        exp3_robustness.csv            ~200 แถว
+Exp 4        exp4_prompt_sensitivity.csv    1,199 แถว (40 ภาพ × 6 โมเดล × 5 prompts)
+Exp 5        exp5_consistency.csv           720 แถว (24 ภาพ × 6 โมเดล × 5 trials)
+Exp 6        exp6_plan_evaluation.csv       หลายแถว (Human evaluation records)
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+3.4 การออกแบบการทดลอง (Experimental Design)
+--------------------------------------------------------------------------------
+
+3.4.1 การทดลองที่ 1 — Model Benchmark (Direct Single-Turn)
+- วัตถุประสงค์: เปรียบเทียบความแม่นยำของ VLM 6 ตัว ในการระบุสถานที่แบบ Zero-Shot
+- วิธีการ: ส่งภาพพร้อม Prompt P1 (Base English) → วัด Top-1 Accuracy, Latency, Cost
+- ตัวชี้วัด: Accuracy (%), Latency (ms), Cost (USD/query), Tokens
+- จำนวน: 600 รัน (100 ภาพ × 6 โมเดล, Temperature = 0.1)
+
+3.4.2 การทดลองที่ 2 — Two-Turn Pipeline Comparison
+- วัตถุประสงค์: ประเมินสถาปัตยกรรมแบบ Two-Turn Re-ranking ว่าเพิ่มความแม่นยำได้แค่ไหน
+- วิธีการ:
+  * Turn 1 (CLIP-assisted): CLIP Embedding + Similarity Matching ส่ง Top-N candidate → VLM คัด Top-3
+  * Turn 2 (No-CLIP): VLM ระบุสถานที่โดยตรงจากภาพ (Baseline)
+  * วัด Top-1 vs Top-3 Recall, Human Recovery Gain
+- ตัวชี้วัด: Top-1 Accuracy, Top-3 Recall, Human Recovery Gain (%), Latency, Cost
+- จำนวน: 144 รัน (24 ภาพ × 6 โมเดล)
+
+3.4.3 การทดลองที่ 3 — Robustness Test
+- วัตถุประสงค์: ทดสอบความทนทานของระบบต่อสภาพภาพที่หลากหลาย
+- วิธีการ: ทดสอบกับภาพที่มี Noise, Blur, JPEG Compression, Low Resolution, Cropped
+- ตัวชี้วัด: Accuracy drop (%), Failure Mode distribution
+
+3.4.4 การทดลองที่ 4 — Prompt Sensitivity Analysis
+- วัตถุประสงค์: วิเคราะห์ว่า Prompt ที่แตกต่างกันส่งผลต่อความแม่นยำอย่างไร
+- วิธีการ: ทดสอบ 5 รูปแบบ Prompt:
+  * P1: Base English (baseline)
+  * P2: Detailed English with context
+  * P3: Chain-of-Thought reasoning
+  * P4: Thai language prompt
+  * P5: Minimalist prompt
+- ตัวชี้วัด: Accuracy per prompt paradigm, Failure mode (visual_confusion vs hallucination_overconfidence)
+- จำนวน: 1,199 รัน (40 ภาพ × 6 โมเดล × 5 prompts)
+
+3.4.5 การทดลองที่ 5 — Consistency Test
+- วัตถุประสงค์: วัด Stochastic Consistency ของ VLM ด้วยการรัน 5 ครั้งซ้ำ ที่ Temperature = 0.1
+- วิธีการ: รัน 5 Repeated Trials ต่อภาพ-โมเดล คู่เดิม
+- ตัวชี้วัด: Consistency Rate (%), Standard Deviation ของ Accuracy
+- จำนวน: 720 รัน (24 ภาพ × 6 โมเดล × 5 trials)
+
+3.4.6 การทดลองที่ 6 — Plan Quality Evaluation (Human Evaluation)
+- วัตถุประสงค์: ประเมินคุณภาพของ Itinerary ที่ระบบสร้างขึ้น โดยผู้ประเมินจริง
+- วิธีการ:
+  * ผู้ประเมินอัปโหลดชุดภาพจากทริปของตนเอง
+  * ระบบสร้าง Itinerary (หลาย context: budget, traveler_type, duration)
+  * ผู้ประเมินให้คะแนนด้วย Rubric 20 ข้อ แบ่งเป็น 5 มิติ (1–5 คะแนน)
+- Evaluation Rubric (5 มิติ × 4 ข้อ = 20 คะแนน):
+  * มิติที่ 1: Place Recognition Accuracy (1.1–1.5)
+  * มิติที่ 2: Itinerary Coherence & Logic (2.1–2.4)
+  * มิติที่ 3: Content Relevance (3.1–3.4)
+  * มิติที่ 4: Practical Feasibility (4.1–4.3)
+  * มิติที่ 5: User Experience & Presentation (5.1–5.4)
+
+--------------------------------------------------------------------------------
+3.5 เมตริกการวัดผล (Evaluation Metrics)
+--------------------------------------------------------------------------------
+
+3.5.1 เมตริกด้านความแม่นยำ
+--------------------------------------------------------------------------------
+เมตริก               นิยาม
+--------------------------------------------------------------------------------
+Top-1 Accuracy       ร้อยละของภาพที่ระบบตอบถูกในอันดับแรก
+Top-3 Recall         ร้อยละของภาพที่คำตอบที่ถูกต้องอยู่ใน 3 อันดับแรก
+Human Recovery Gain  ผลต่างระหว่าง Top-3 Recall และ Top-1 Accuracy
+Consistency Rate     สัดส่วนรัน (ใน 5 ครั้ง) ที่ตอบเหมือนกัน
+--------------------------------------------------------------------------------
+
+3.5.2 เมตริกด้านประสิทธิภาพ
+--------------------------------------------------------------------------------
+เมตริก                   นิยาม
+--------------------------------------------------------------------------------
+Latency (ms)             เวลาตั้งแต่ส่ง request จนได้ response
+Generation Time (ms)     เวลาที่ LLM ใช้สร้าง token จริง (จาก OpenRouter API)
+Tokens Per Second (TPS)  จำนวน token ที่ผลิตต่อวินาที
+Cost (USD)               ต้นทุนต่อ query (คำนวณจาก input + output tokens × rate)
+--------------------------------------------------------------------------------
+
+3.5.3 เมตริกด้านคุณภาพ (Exp 6)
+--------------------------------------------------------------------------------
+เมตริก                นิยาม
+--------------------------------------------------------------------------------
+Overall Score (avg)   ค่าเฉลี่ย 20 ข้อ (สเกล 1–5)
+Dimension Scores      คะแนนเฉลี่ยรายมิติ (5 มิติ)
+Failure Mode          ประเภทข้อผิดพลาด: visual_confusion / hallucination_overconfidence / none
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+3.6 เครื่องมือและเทคโนโลยีที่ใช้ (Tools & Technology)
+--------------------------------------------------------------------------------
+
+3.6.1 ส่วน Frontend
+- Framework: React 18 + TypeScript + Vite
+- Testing: Vitest + Playwright
+- Styling: TailwindCSS + shadcn/ui
+- APIs: Geoapify (Places & Geocoding), Foursquare (Place Details), Wikimedia (Photos), Serper (Image Search)
+
+3.6.2 ส่วน Backend
+- Runtime: Python 3.x + Flask + Gunicorn
+- Computer Vision: OpenCLIP (ViT-B/32, openai pretrained, vit_b_32.pt)
+- Device: CPU (with torch thread optimization) / CUDA if available
+- AI Gateway: OpenRouter API (compatible with OpenAI SDK)
+- Image Formats: JPEG, PNG, HEIF/HEIC (via pillow-heif)
+- Deployment: Railway (Backend), Vercel (Frontend)
+
+3.6.3 ส่วนข้อมูลและการทดลอง
+- Database: Supabase (vector store + blind evaluation records)
+- Data Format: CSV (experiment logs), JSON (itinerary outputs)
+- Analysis: Python (pandas, matplotlib) — scripts ใน experiment/scripts/
+- Visualization: Matplotlib plots ใน experiment/plots/
+
+--------------------------------------------------------------------------------
+3.7 กระบวนการรวบรวมและบันทึกข้อมูลการทดลอง
+--------------------------------------------------------------------------------
+
+อธิบายว่า backend (clip_server.py) บันทึกข้อมูลอย่างไร:
+1. Real-time Logging: ทุก inference request บันทึก timestamp, model, image_id, tier, predicted_place, confidence, time_ms, tokens, cost_usd ลง CSV ทันที
+2. OpenRouter Generation Stats: ระบบ fetch generation_time_ms, pure_tokens_per_sec, provider_name จาก OpenRouter API (with retry + backfill mechanism)
+3. Backfill Mechanism: daemon thread สำหรับเติม generation stats ที่ยังขาดอยู่ในภายหลัง
+4. Backup System: ระบบสร้าง timestamped backup ก่อน overwrite CSV ทุกครั้ง
+
+--------------------------------------------------------------------------------
+3.8 กระบวนการประเมินคุณภาพแผนเดินทาง (Human Evaluation Protocol)
+--------------------------------------------------------------------------------
+
+3.8.1 ขั้นตอนการประเมิน
+1. ผู้ประเมินเข้าสู่ระบบผ่าน Blind Evaluation Interface (Login + role-based access)
+2. อัปโหลดชุดภาพจากทริปจริง (Easy / Medium / Hard difficulty)
+3. กำหนด Context: จำนวนวัน, Budget (budget/standard), Traveler Type (solo/friends/family_kids), Style (relaxed/balanced)
+4. ระบบสร้าง Itinerary ผ่าน claude-sonnet-3.5 (primary model)
+5. ผู้ประเมินให้คะแนน 20 ข้อตาม Rubric
+6. ข้อมูลบันทึกลง Supabase (exp6_plan_evaluation.csv สำหรับ offline analysis)
+
+3.8.2 ระดับความยากของชุดข้อมูล Exp 6
+--------------------------------------------------------------------------------
+ระดับ     ลักษณะภาพ
+--------------------------------------------------------------------------------
+Easy      ภาพสถานที่ท่องเที่ยวที่รู้จักดี ระบุได้ง่าย
+Medium    ภาพสถานที่ทั่วไปที่มีความหลากหลายระดับกลาง
+Hard      ภาพสถานที่หายาก ภาพธรรมชาติล้วน หรือภาพจากมุมที่ยาก
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+3.9 ข้อจำกัดของการวิจัย (Limitations)
+--------------------------------------------------------------------------------
+
+1. Dataset Scope: ชุดภาพทดสอบ Exp 1-5 ใช้ภาพจำนวนจำกัด (100 ภาพ) อาจไม่ครอบคลุมความหลากหลายของสถานที่ทั่วโลก
+2. Model Dependency: ระบบพึ่งพา Commercial LLM APIs ผ่าน OpenRouter ซึ่งมีการเปลี่ยนแปลง pricing และ model version อยู่เสมอ
+3. CLIP Model Version: ใช้ ViT-B/32 ซึ่งเป็นรุ่นขนาดกลาง อาจให้ embedding ที่ด้อยกว่ารุ่นใหญ่กว่า (ViT-L/14)
+4. Nature Images (Tier 3): ภาพธรรมชาติล้วนมีความแม่นยำต่ำทุกโมเดล (~30-50%) เนื่องจากขาด visual landmark เฉพาะตัว
+5. Human Evaluation Subjectivity: คะแนน Exp 6 ขึ้นกับผู้ประเมิน ซึ่งมีความ subjective ในการให้คะแนน
+
+--------------------------------------------------------------------------------
+แนะนำลำดับการเขียน
+--------------------------------------------------------------------------------
+
+3.1 → 3.2 → 3.3 → 3.4 (ลำดับ Exp1→Exp6) → 3.5 → 3.6 → 3.7 → 3.8 → 3.9
+
+[คำแนะนำ]
+- หัวข้อ 3.4 เป็นหัวใจของบท ควรเขียนละเอียดที่สุด โดยอธิบาย rationale ว่าทำไมถึงออกแบบแต่ละการทดลองแบบนั้น
+- ควร reference ตัวเลขจาก CSV จริงเพื่อความน่าเชื่อถือ เช่น "รัน 600 การทดลองจาก exp1_model_benchmark.csv"
