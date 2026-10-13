@@ -26,6 +26,14 @@ dist-ssr
 .env
 demo2.zip
 .vercel
-.env
 frontend/.env
 backend/.env
+
+# Temporary and Cache
+temp/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
