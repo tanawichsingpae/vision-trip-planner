@@ -1,0 +1,187 @@
+================================================================================
+EXP 5 FORENSIC INVESTIGATION REPORT
+================================================================================
+1. Basic shape: (720, 28)
+Total Rows: 720
+
+--- 1. SCENE DISAMBIGUATION & SESSION IDS ---
+Unique (Image Name, Ground Truth, Tier): 12
+         Image Name Ground Truth            Tier
+0      images01.jpg     images01    tier1_iconic
+60     images02.jpg     images02    tier1_iconic
+120  images25.1.jpg   images25.1    tier1_iconic
+180  images01.1.jpg   images01.1  tier2_longtail
+240  images03.1.jpg   images03.1  tier2_longtail
+300  images08.1.jpg   images08.1  tier2_longtail
+360    images12.jpg     images12    tier3_nature
+420    images01.jpg     images01    tier3_nature
+480  images19.1.jpg   images19.1    tier3_nature
+540          28.jpg           28       tier4_ugc
+600          29.jpg           29       tier4_ugc
+660          30.jpg           30       tier4_ugc
+
+Session ID inspection:
+     Session ID      Image Name Ground Truth            Tier  Temperature
+540  SES-460709          28.jpg           28       tier4_ugc          0.1
+570  SES-686337          28.jpg           28       tier4_ugc          0.7
+600  SES-178929          29.jpg           29       tier4_ugc          0.1
+630  SES-589972          29.jpg           29       tier4_ugc          0.7
+660  SES-881321          30.jpg           30       tier4_ugc          0.1
+690  SES-654750          30.jpg           30       tier4_ugc          0.7
+180  SES-381139  images01.1.jpg   images01.1  tier2_longtail          0.1
+210  SES-644850  images01.1.jpg   images01.1  tier2_longtail          0.7
+0    SES-134314    images01.jpg     images01    tier1_iconic          0.1
+420  SES-034988    images01.jpg     images01    tier3_nature          0.1
+30   SES-258329    images01.jpg     images01    tier1_iconic          0.7
+450  SES-189326    images01.jpg     images01    tier3_nature          0.7
+60   SES-417714    images02.jpg     images02    tier1_iconic          0.1
+90   SES-749719    images02.jpg     images02    tier1_iconic          0.7
+240  SES-578972  images03.1.jpg   images03.1  tier2_longtail          0.1
+270  SES-736773  images03.1.jpg   images03.1  tier2_longtail          0.7
+300  SES-925979  images08.1.jpg   images08.1  tier2_longtail          0.1
+330  SES-215907  images08.1.jpg   images08.1  tier2_longtail          0.7
+360  SES-583934    images12.jpg     images12    tier3_nature          0.1
+390  SES-798523    images12.jpg     images12    tier3_nature          0.7
+480  SES-593600  images19.1.jpg   images19.1    tier3_nature          0.1
+510  SES-826821  images19.1.jpg   images19.1    tier3_nature          0.7
+120  SES-984135  images25.1.jpg   images25.1    tier1_iconic          0.1
+150  SES-189835  images25.1.jpg   images25.1    tier1_iconic          0.7
+
+Images named images01.jpg:
+     Session ID    Image Name Ground Truth          Tier  Temperature
+0    SES-134314  images01.jpg     images01  tier1_iconic          0.1
+30   SES-258329  images01.jpg     images01  tier1_iconic          0.7
+420  SES-034988  images01.jpg     images01  tier3_nature          0.1
+450  SES-189326  images01.jpg     images01  tier3_nature          0.7
+
+Unique Scene_Key: 12
+List of Scene_Keys:
+  tier1_iconic_images01_images01.jpg
+  tier1_iconic_images02_images02.jpg
+  tier1_iconic_images25.1_images25.1.jpg
+  tier2_longtail_images01.1_images01.1.jpg
+  tier2_longtail_images03.1_images03.1.jpg
+  tier2_longtail_images08.1_images08.1.jpg
+  tier3_nature_images12_images12.jpg
+  tier3_nature_images01_images01.jpg
+  tier3_nature_images19.1_images19.1.jpg
+  tier4_ugc_28_28.jpg
+  tier4_ugc_29_29.jpg
+  tier4_ugc_30_30.jpg
+
+Total groups (Model x Temp x Scene_Key): 144
+Are all group counts exactly 5? True
+Min group count: 5, Max group count: 5
+
+--- 2. CONSISTENCY AFTER KEY RESOLUTION ---
+                       Model  Temperature  Perfect_Scenes  Total_Scenes  Consistency_%  Correct_Runs  Total_Runs  Accuracy_%  Conf_Mean  Conf_SD_Overall  Conf_SD_Within  Lat_Mean_ms  Lat_SD_Overall_ms  Lat_SD_Within_ms
+0     google-gemini-38-flash          0.1               8            12      66.666667            55          60   91.666667   0.982167     1.341536e-02        0.002944  4952.916667        1999.912984       1187.696918
+1     google-gemini-38-flash          0.7               6            12      50.000000            55          60   91.666667   0.982167     1.354111e-02        0.003233  4822.800000        1230.136423        962.910120
+2   anthropic-claude-sonnet5          0.1               6            12      50.000000            58          60   96.666667   0.888833     1.236053e-01        0.012072  5453.550000        5615.346564       1745.005112
+3   anthropic-claude-sonnet5          0.7               6            12      50.000000            57          60   95.000000   0.890333     1.205772e-01        0.017292  4395.033333        1452.597871       1056.815311
+4              openai-gpt-54          0.1               6            12      50.000000            45          60   75.000000   0.918833     1.112501e-01        0.024468  4931.266667        4371.088593       2022.734610
+5              openai-gpt-54          0.7               4            12      33.333333            51          60   85.000000   0.915667     1.125869e-01        0.020400  5059.466667        3391.702994       1471.854764
+6         openai-gpt-54-mini          0.1               9            12      75.000000            40          60   66.666667   0.913333     1.286259e-01        0.043086  2755.533333        1596.803496       1013.700072
+7         openai-gpt-54-mini          0.7               7            12      58.333333            40          60   66.666667   0.909833     1.111647e-01        0.032994  3761.833333        2446.654493       1515.620388
+8             qwen-25-vl-72b          0.1              12            12     100.000000            40          60   66.666667   0.950000     1.007633e-15        0.000000  2994.250000        2956.757682       1786.020714
+9             qwen-25-vl-72b          0.7               5            12      41.666667            37          60   61.666667   0.946500     2.327616e-02        0.011645  3439.500000        3133.768217       1986.637428
+10               meta-llama4          0.1              11            12      91.666667            45          60   75.000000   0.951333     7.471225e-03        0.002981  4593.133333        3927.330121       2279.255558
+11               meta-llama4          0.7               9            12      75.000000            45          60   75.000000   0.953000     1.154211e-02        0.005264  3975.766667        3596.337414       1821.801015
+
+--- 3. ACCURACY, CONSISTENT-BUT-WRONG & ALIAS CASES ---
+[Consistent but Wrong] Model: openai-gpt-54-mini, Temp: 0.1, Scene: tier3_nature_images19.1_images19.1.jpg
+   Pred: Railay Beach, GT: images19.1, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: openai-gpt-54-mini, Temp: 0.1, Scene: tier4_ugc_30_30.jpg
+   Pred: Koh Sichang, GT: 30, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: qwen-25-vl-72b, Temp: 0.1, Scene: tier3_nature_images01_images01.jpg
+   Pred: Monteverde Cloud Forest Reserve, GT: images01, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: qwen-25-vl-72b, Temp: 0.1, Scene: tier3_nature_images19.1_images19.1.jpg
+   Pred: Railay Beach, GT: images19.1, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: qwen-25-vl-72b, Temp: 0.1, Scene: tier4_ugc_29_29.jpg
+   Pred: Pha That Phu, GT: 29, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: qwen-25-vl-72b, Temp: 0.1, Scene: tier4_ugc_30_30.jpg
+   Pred: Koh Si Chang, GT: 30, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: meta-llama4, Temp: 0.1, Scene: tier3_nature_images01_images01.jpg
+   Pred: Zhangjiajie National Forest Park, GT: images01, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: meta-llama4, Temp: 0.1, Scene: tier3_nature_images19.1_images19.1.jpg
+   Pred: Railay Beach, GT: images19.1, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: meta-llama4, Temp: 0.1, Scene: tier4_ugc_30_30.jpg
+   Pred: Koh Sichang, GT: 30, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: meta-llama4, Temp: 0.7, Scene: tier3_nature_images01_images01.jpg
+   Pred: Zhangjiajie National Forest Park, GT: images01, Is Correct: [False, False, False, False, False]
+[Consistent but Wrong] Model: meta-llama4, Temp: 0.7, Scene: tier3_nature_images19.1_images19.1.jpg
+   Pred: Railay Beach, GT: images19.1, Is Correct: [False, False, False, False, False]
+[Semantic Alias Variation - 100% Correct] Model: google-gemini-38-flash, Temp: 0.1, Scene: tier1_iconic_images01_images01.jpg
+   Unique Preds: ['Eiffel Tower (viewed from Trocadéro)', 'Eiffel Tower', 'Eiffel Tower, Paris']
+[Semantic Alias Variation - 100% Correct] Model: google-gemini-38-flash, Temp: 0.1, Scene: tier3_nature_images12_images12.jpg
+   Unique Preds: ['Vinicunca (Rainbow Mountain)', 'Rainbow Mountain (Vinicunca)']
+[Semantic Alias Variation - 100% Correct] Model: google-gemini-38-flash, Temp: 0.1, Scene: tier3_nature_images19.1_images19.1.jpg
+   Unique Preds: ['Koh Hong', 'Koh Hong (Hong Island)', 'Hong Beach, Koh Hong', 'Hong Island (Koh Hong), Krabi']
+[Semantic Alias Variation - 100% Correct] Model: google-gemini-38-flash, Temp: 0.7, Scene: tier1_iconic_images01_images01.jpg
+   Unique Preds: ['Eiffel Tower', 'Eiffel Tower (view from Place du Trocadéro)']
+[Semantic Alias Variation - 100% Correct] Model: google-gemini-38-flash, Temp: 0.7, Scene: tier1_iconic_images02_images02.jpg
+   Unique Preds: ['Colosseum', 'Colosseum, Rome']
+[Semantic Alias Variation - 100% Correct] Model: google-gemini-38-flash, Temp: 0.7, Scene: tier2_longtail_images03.1_images03.1.jpg
+   Unique Preds: ['Fushimi Inari-taisha', 'Fushimi Inari Shrine', 'Fushimi Inari Taisha']
+[Semantic Alias Variation - 100% Correct] Model: google-gemini-38-flash, Temp: 0.7, Scene: tier3_nature_images12_images12.jpg
+   Unique Preds: ['Rainbow Mountain (Vinicunca)', 'Vinicunca (Rainbow Mountain)']
+[Semantic Alias Variation - 100% Correct] Model: google-gemini-38-flash, Temp: 0.7, Scene: tier3_nature_images19.1_images19.1.jpg
+   Unique Preds: ['Koh Hong (Hong Island)', 'Koh Hong (Hong Island), Krabi', 'Hong Island (Koh Hong)']
+[Semantic Alias Variation - 100% Correct] Model: anthropic-claude-sonnet5, Temp: 0.1, Scene: tier1_iconic_images01_images01.jpg
+   Unique Preds: ['Eiffel Tower, Trocadéro', 'Eiffel Tower, viewed from Trocadéro']
+[Semantic Alias Variation - 100% Correct] Model: anthropic-claude-sonnet5, Temp: 0.1, Scene: tier3_nature_images01_images01.jpg
+   Unique Preds: ['Ang Ka Nature Trail, Doi Inthanon National Park', 'Doi Inthanon National Park (Ang Ka Nature Trail)']
+[Semantic Alias Variation - 100% Correct] Model: anthropic-claude-sonnet5, Temp: 0.1, Scene: tier3_nature_images19.1_images19.1.jpg
+   Unique Preds: ['Koh Hong Island (Hong Island Beach)', 'Koh Hong Island (Hong Island)']
+[Semantic Alias Variation - 100% Correct] Model: anthropic-claude-sonnet5, Temp: 0.1, Scene: tier4_ugc_28_28.jpg
+   Unique Preds: ['Lake Kawaguchiko (Mount Fuji view)', 'Lake Kawaguchiko (Mount Fuji)', 'Lake Kawaguchiko with Mount Fuji']
+[Semantic Alias Variation - 100% Correct] Model: anthropic-claude-sonnet5, Temp: 0.1, Scene: tier4_ugc_29_29.jpg
+   Unique Preds: ['Khao Chong Lom (Nakhon Nayok)', 'Khao Chong Lom (เขาช่องลม)']
+[Semantic Alias Variation - 100% Correct] Model: anthropic-claude-sonnet5, Temp: 0.7, Scene: tier3_nature_images12_images12.jpg
+   Unique Preds: ['Rainbow Mountain (Vinicunca)', 'Vinicunca (Rainbow Mountain)']
+[Semantic Alias Variation - 100% Correct] Model: anthropic-claude-sonnet5, Temp: 0.7, Scene: tier3_nature_images19.1_images19.1.jpg
+   Unique Preds: ['Koh Hong Island (Hong Island)', 'Koh Hong (Hong Island)']
+[Semantic Alias Variation - 100% Correct] Model: anthropic-claude-sonnet5, Temp: 0.7, Scene: tier4_ugc_28_28.jpg
+   Unique Preds: ['Lake Kawaguchiko (with Mount Fuji)', 'Lake Kawaguchiko with Mount Fuji', 'Lake Kawaguchiko']
+[Semantic Alias Variation - 100% Correct] Model: anthropic-claude-sonnet5, Temp: 0.7, Scene: tier4_ugc_29_29.jpg
+   Unique Preds: ['Khao Chong Lom (เขาช่องลม)', 'Khao Chong Lom (เขาช่องลม), Nakhon Nayok', 'Khao Chong Lom (Nakhon Nayok)']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54, Temp: 0.1, Scene: tier2_longtail_images03.1_images03.1.jpg
+   Unique Preds: ['Fushimi Inari Taisha', 'Fushimi Inari Taisha, Kyoto']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54, Temp: 0.1, Scene: tier4_ugc_28_28.jpg
+   Unique Preds: ['Lake Kawaguchi with Mount Fuji', 'Lake Kawaguchiko, Mount Fuji']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54, Temp: 0.1, Scene: tier4_ugc_29_29.jpg
+   Unique Preds: ['Khao Chong Lom, Nakhon Nayok', 'Khao Chong Lom']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54, Temp: 0.7, Scene: tier1_iconic_images02_images02.jpg
+   Unique Preds: ['Colosseum', 'Colosseum, Rome']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54, Temp: 0.7, Scene: tier2_longtail_images01.1_images01.1.jpg
+   Unique Preds: ['Mont-Saint-Michel', 'Mont Saint-Michel']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54, Temp: 0.7, Scene: tier2_longtail_images03.1_images03.1.jpg
+   Unique Preds: ['Fushimi Inari Taisha', 'Fushimi Inari Taisha, Kyoto']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54, Temp: 0.7, Scene: tier3_nature_images19.1_images19.1.jpg
+   Unique Preds: ['Maya Bay, Phi Phi Leh', 'Maya Bay, Ko Phi Phi Leh']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54, Temp: 0.7, Scene: tier4_ugc_28_28.jpg
+   Unique Preds: ['Lake Kawaguchiko with Mount Fuji', 'Lake Kawaguchiko, Mount Fuji']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54, Temp: 0.7, Scene: tier4_ugc_29_29.jpg
+   Unique Preds: ['Khao Chong Lom, Nakhon Nayok', 'Khao Chong Lom']
+[Semantic Alias Variation - 100% Correct] Model: openai-gpt-54-mini, Temp: 0.7, Scene: tier4_ugc_28_28.jpg
+   Unique Preds: ['Lake Kawaguchiko with Mount Fuji', 'Mount Fuji (Fujisan), Lake Kawaguchiko', 'Mount Fuji, Lake Kawaguchi']
+[Semantic Alias Variation - 100% Correct] Model: qwen-25-vl-72b, Temp: 0.7, Scene: tier2_longtail_images03.1_images03.1.jpg
+   Unique Preds: ['Fushimi Inari Taisha', 'Fushimi Inari Shrine']
+[Semantic Alias Variation - 100% Correct] Model: qwen-25-vl-72b, Temp: 0.7, Scene: tier3_nature_images12_images12.jpg
+   Unique Preds: ['Vinicunca', 'Rainbow Mountain']
+[Semantic Alias Variation - 100% Correct] Model: meta-llama4, Temp: 0.1, Scene: tier1_iconic_images25.1_images25.1.jpg
+   Unique Preds: ['Gwanghwamun Gate', 'Gyeongbokgung Palace']
+[Semantic Alias Variation - 100% Correct] Model: meta-llama4, Temp: 0.7, Scene: tier1_iconic_images25.1_images25.1.jpg
+   Unique Preds: ['Gwanghwamun Gate', 'Gyeongbokgung Palace']
+[Semantic Alias Variation - 100% Correct] Model: meta-llama4, Temp: 0.7, Scene: tier4_ugc_28_28.jpg
+   Unique Preds: ['Lake Kawaguchiko', 'Lake Kawaguchi']
+
+--- 4. CONFIDENCE & LATENCY CHECKS ---
+Missing Confidence values: 0
+Confidence min: 0.34, max: 1.0
+Any 0 confidence? How many? 0
+
+Missing Time MS: 0
+Time MS min: 1306, max: 35551
+
+--- 5. FIGURE 4.5 GENERATION LOGIC ---

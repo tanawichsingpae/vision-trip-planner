@@ -248,7 +248,7 @@ export default function Exp2PipelineComparison() {
   // Fetch persisted history
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/results_exp2`);
+      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/results_exp3`);
       if (res.ok) {
         const data = await res.json();
         const mapped = (data.results || []).map((row: any) => {
@@ -521,18 +521,18 @@ export default function Exp2PipelineComparison() {
     };
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/save_exp2`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/save_exp3`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (res.ok) {
-        toast.success("Exp 2 results with candidate failure modes saved to CSV!");
+        toast.success("Exp 3 results with candidate failure modes saved to CSV!");
         fetchHistory();
         setCurrentResults([]);
       } else {
-        toast.error("Failed to save Exp 2 results.");
+        toast.error("Failed to save Exp 3 results.");
       }
     } catch (e) {
       toast.error("Network error while saving Exp 2.");

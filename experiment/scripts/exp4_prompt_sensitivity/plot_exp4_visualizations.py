@@ -24,7 +24,9 @@ plt.rcParams['legend.fontsize'] = 9.5
 plt.rcParams['figure.titlesize'] = 13.5
 plt.rcParams['figure.dpi'] = 300
 
-CSV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'exp4_prompt_sensitivity.csv'))
+CSV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'exp1_prompt_sensitivity.csv'))
+if not os.path.exists(CSV_PATH):
+    CSV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'exp4_prompt_sensitivity.csv'))
 OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'figures', 'exp4_prompt_sensitivity'))
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 

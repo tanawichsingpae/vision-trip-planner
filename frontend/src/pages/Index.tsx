@@ -78,6 +78,7 @@ import TravelItinerary, {
 } from "@/components/TravelItinerary";
 import MapSection from "@/components/MapSection";
 import AISuggestedPlaces, { type SuggestedPlace, SuggestionDragOverlay, getFallbackSuggestions } from "@/components/AISuggestedPlaces";
+import { deduplicateItineraryActivities } from "@/data/fallbackPlaces";
 import AIAccommodations, { HotelDragOverlay } from "@/components/AIAccommodations";
 import FlightInfoDashboard from "@/components/FlightInfoDashboard";
 import ChatBot, { type Message as ChatMessage } from "@/components/ChatBot";
@@ -106,7 +107,6 @@ import { detectVisionOutliers } from "@/utils/outlierDetector";
 import { SavedTripsModal } from "@/components/SavedTripsModal";
 import { saveTrip, type TripRecord } from "@/services/tripService";
 import PixineraryDemoModal from "@/components/PixineraryDemoModal";
-import TravelWishHelperCard from "@/components/TravelWishHelperCard";
 import { AIPosterPreviewModal } from "@/components/AIPosterPreviewModal";
 import type { GeneratedPosterImage } from "@/services/aiPosterService";
 
@@ -1874,13 +1874,16 @@ const Index = () => {
         }
       });
 
+      // Strictly deduplicate activities across days and within days, replacing any duplicates or excess generic zone places with real POIs
+      const deduplicatedItinerary = deduplicateItineraryActivities(scrubbedItinerary, destinationCity);
+
       // Apply Neuro-Symbolic 2-Opt TSP, Opening Hours constraint, and Anti-Looping Route Optimization
       const hotelLoc = prefs.hasHotel === "yes" && prefs.hotelLat && prefs.hotelLng
         ? { lat: prefs.hotelLat, lng: prefs.hotelLng }
         : coords;
 
-      const sortedEnrichedItinerary = scrubbedItinerary.map((day, dIdx) => {
-        const prevDayLastAct = dIdx > 0 ? scrubbedItinerary[dIdx - 1]?.activities.slice(-1)[0] : undefined;
+      const sortedEnrichedItinerary = deduplicatedItinerary.map((day, dIdx) => {
+        const prevDayLastAct = dIdx > 0 ? deduplicatedItinerary[dIdx - 1]?.activities.slice(-1)[0] : undefined;
         const dayStart = (prefs.hasHotel === "yes" && prefs.hotelLat && prefs.hotelLng)
           ? hotelLoc
           : (dIdx === 0
@@ -2915,7 +2918,7 @@ const Index = () => {
 
 
   return (
-    <div className="dot-grid-bg min-h-screen pb-24 text-foreground selection:bg-sky-500/20">
+    <div className={`dot-grid-bg min-h-screen text-foreground selection:bg-sky-500/20 ${step === 0 ? "pb-4" : "pb-24"}`}>
       {/* Subtle ambient light */}
       <div className="fixed -top-40 -left-40 size-96 rounded-full bg-sky-400/10 blur-3xl pointer-events-none" />
       <div className="fixed -bottom-40 -right-40 size-96 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />
@@ -3019,7 +3022,7 @@ const Index = () => {
       </div>
 
       {/* Main Content Area (90% width with 5% margins left & right on Itinerary, 80% on earlier steps) */}
-      <main className={`mx-auto transition-all duration-300 ${step >= 3 ? "w-[90%] max-w-[2560px]" : "w-[96%] lg:w-[80%] max-w-[1920px]"} px-2 sm:px-4 pt-6 pb-20`}>
+      <main className={`mx-auto transition-all duration-300 ${step >= 3 ? "w-[90%] max-w-[2560px]" : "w-[96%] lg:w-[80%] max-w-[1920px]"} px-2 sm:px-4 ${step === 0 ? "pt-3 pb-2" : "pt-6 pb-20"}`}>
         {/* Step Indicator */}
         <StepIndicator
           currentStep={step}
@@ -3057,19 +3060,19 @@ const Index = () => {
 
         {/* ── STEP 0: Upload & First Impression (Pixinerary) ── */}
         {step === 0 && !isAnalyzing && (
-          <section className="animate-in fade-in mx-auto flex max-w-2xl flex-col gap-6 duration-500 mb-12">
+          <section className="animate-in fade-in mx-auto flex max-w-3xl flex-col gap-2.5 duration-500 mb-2">
             {/* Minimalist Floating Demo Pill (Option A) */}
-            <div className="flex justify-center pt-2 mb-1">
+            <div className="flex justify-center pt-0 mb-0">
               <button
                 type="button"
                 onClick={() => setIsDemoOpen(true)}
-                className="group relative inline-flex items-center gap-2 overflow-hidden rounded-full border border-sky-400/50 bg-white/80 dark:bg-slate-900/80 px-4 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 shadow-xs backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-500 hover:shadow-md hover:shadow-sky-500/15 cursor-pointer"
+                className="group relative inline-flex items-center gap-1.5 overflow-hidden rounded-full border border-sky-400/40 bg-white/80 dark:bg-slate-900/80 px-3 py-1 text-[11px] font-semibold text-slate-800 dark:text-slate-200 shadow-2xs backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-500 cursor-pointer"
               >
                 <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-sky-400/20 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
                 <span className="flex size-1.5 rounded-full bg-sky-500 animate-pulse" />
-                <Sparkles className="size-3.5 text-sky-500" />
+                <Sparkles className="size-3 text-sky-500" />
                 <span>New to Pixinerary? See 20s Interactive Demo</span>
-                <ArrowRight className="size-3 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                <ArrowRight className="size-2.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
               </button>
             </div>
 
@@ -3078,9 +3081,6 @@ const Index = () => {
               isAnalyzing={isAnalyzing}
               loadingLabel={loadingStep}
             />
-
-            {/* TravelWish Sister Research Project Contextual Helper */}
-            <TravelWishHelperCard />
 
             {/* Advanced Settings Collapsible for CLIP toggle */}
             <div className="rounded-2xl border border-border/70 bg-secondary/40 overflow-hidden">
@@ -3783,7 +3783,7 @@ const Index = () => {
         </DialogContent>
       </Dialog>
 
-      <footer className="border-t border-border/70 py-6 text-center text-xs text-muted-foreground mt-12">
+      <footer className={`border-t border-border/60 py-3 text-center text-[11.5px] text-muted-foreground ${step === 0 ? "mt-4" : "mt-12"}`}>
         <p>Pixinerary — AI-Powered Image-Based Travel Planner • Research Project</p>
       </footer>
 

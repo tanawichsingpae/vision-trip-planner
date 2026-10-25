@@ -1,0 +1,87 @@
+[
+  {
+    "id": "__system_default_role__",
+    "scenario_id": "__system__",
+    "expert_id": "__system__",
+    "expert_name": "System Settings",
+    "expert_profile": {},
+    "rankings": [],
+    "best_for_practical_use": {},
+    "qualitative_feedback": {
+      "default_role": "user"
+    },
+    "submitted_at": "2026-10-14T22:35:51.016+00:00"
+  },
+  {
+    "id": "comp_y44yz962",
+    "scenario_id": "ทริปที่ 1",
+    "expert_id": "test05@gmail.com",
+    "expert_name": "Expert 12",
+    "expert_profile": {
+      "name": "",
+      "role": "อาจารย์/นักวิชาการด้านการท่องเที่ยว",
+      "saved_at": "2026-10-08T15:17:52.133Z",
+      "experience": "มากกว่า 10 ปี",
+      "role_other": "",
+      "ai_familiarity": "เคยใช้บ้าง (เช่น Google Trips, TripAdvisor, Klook)",
+      "geographic_familiarity": 3
+    },
+    "rankings": [],
+    "best_for_practical_use": {},
+    "qualitative_feedback": {
+      "q1_real_travel": "เลือกแผน C เพราะจัดเรียงสถานที่ได้เป็น zone อย่างชัดเจนทำให้สะดวกในการเดินทางและวางแผนการท่องเที่ยวในแต่ละวัน",
+      "q2_tourism_context": "C เพราะเป็นการจัดเส้นทางท่องเที่ยวที่ช่วยให้มีประสบการณ์ด้านการท่องเที่ยวได้อย่างเข้าใจง่าย เนื่องจากจัดโซนพื้นที่ได้ดี\n",
+      "q3_value_experience": "C คุ้มค่า คุ้มเวลา",
+      "q4_distinct_differences": "A เน้นความหบากหลาย B เน้นอาหาร C เน้นความคุ้มค่าของเวลาในการเดินทาง\n"
+    },
+    "submitted_at": "2026-10-08T15:30:53.405+00:00"
+  },
+  {
+    "id": "comp_r7ovxjxa",
+    "scenario_id": "ทริปที่ 2",
+    "expert_id": "test05@gmail.com",
+    "expert_name": "Expert 12",
+    "expert_profile": {
+      "name": "",
+      "role": "อาจารย์/นักวิชาการด้านการท่องเที่ยว",
+      "saved_at": "2026-10-08T15:17:52.133Z",
+      "experience": "มากกว่า 10 ปี",
+      "role_other": "",
+      "ai_familiarity": "เคยใช้บ้าง (เช่น Google Trips, TripAdvisor, Klook)",
+      "geographic_familiarity": 3
+    },
+    "rankings": [],
+    "best_for_practical_use": {},
+    "qualitative_feedback": {
+      "q1_real_travel": "แผน C เนื่องจากมีความหลากหลายของกิจกรรมในแต่ละวันได้อยากครบถ้วนทั้งวัฒนธรรม อาหาร และธรรมชาติ\n",
+      "q2_tourism_context": "C เนื่องจากมีความหลากหลายของกิจกรรมในแต่ละวันได้อยากครบถ้วนทั้งวัฒนธรรม อาหาร และธรรมชาติ\n",
+      "q3_value_experience": "C เนื่องจากมีความหลากหลายของกิจกรรมในแต่ละวันได้อยากครบถ้วนทั้งวัฒนธรรม อาหาร และธรรมชาติ คุ้มเวลา\n",
+      "q4_distinct_differences": "A เน้นาถนที่ธรรมชาติ B ครบ C หลากหลาย ครบถ้วนด้่นประสบการณ์ท่องเที่ยว\n"
+    },
+    "submitted_at": "2026-10-08T15:53:13.298+00:00"
+  },
+  {
+    "id": "comp_25dclz74",
+    "scenario_id": "ทริปที่ 3",
+    "expert_id": "test05@gmail.com",
+    "expert_name": "Expert 12",
+    "expert_profile": {
+      "name": "",
+      "role": "อาจารย์/นักวิชาการด้านการท่องเที่ยว",
+      "saved_at": "2026-10-08T15:17:52.133Z",
+      "experience": "มากกว่า 10 ปี",
+      "role_other": "",
+      "ai_familiarity": "เคยใช้บ้าง (เช่น Google Trips, TripAdvisor, Klook)",
+      "geographic_familiarity": 3
+    },
+    "rankings": [],
+    "best_for_practical_use": {},
+    "qualitative_feedback": {
+      "q1_real_travel": "แผน C เพราะมีความหลากหลายด้านกิจกรรม และ สามารถดำเนินทริปได้อย่างคุ้มค่าเวลา\n",
+      "q2_tourism_context": "C ได้ประสบการณ์ท่องเที่ยวครบถ้วน ด้านวัฒนธรรม และ landmark ของเมือง\n",
+      "q3_value_experience": "C ได้เที่ยวดีๆ คุ้มค่า\n",
+      "q4_distinct_differences": "A เน้นเมือง B เน้นประหยัด C เน้นความคุ้มค่า\n"
+    },
+    "submitted_at": "2026-10-08T16:09:04.37+00:00"
+  }
+]

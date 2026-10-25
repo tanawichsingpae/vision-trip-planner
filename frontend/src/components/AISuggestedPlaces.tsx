@@ -85,8 +85,10 @@ const categoryConfig: Record<string, { label: string; label_th: string; color: s
   hotel: { label: "🏨 Accommodation", label_th: "🏨 ที่พัก & โรงแรม", color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-300 font-semibold" },
   attraction: { label: "Attraction", label_th: "สถานที่ท่องเที่ยว", color: "bg-primary/15 text-primary border-primary/20" },
 };
+import { getFallbackSuggestions as getCuratedFallbackSuggestions } from "@/data/fallbackPlaces";
 
 export function getFallbackSuggestions(locationName: string): SuggestedPlace[] {
+  return getCuratedFallbackSuggestions(locationName);
   const normCity = (locationName || "").toLowerCase().trim();
   const isBkk = /(bangkok|bkk|กรุงเทพ|บางกอก)/i.test(normCity);
   const isCnx = /(chiang\s*mai|cnx|เชียงใหม่)/i.test(normCity);

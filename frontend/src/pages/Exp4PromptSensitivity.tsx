@@ -243,7 +243,7 @@ export default function Exp4PromptSensitivity() {
 
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/results_exp4`);
+      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/results_exp1`);
       if (res.ok) {
         const data = await res.json();
         const mapped = (data.results || []).map((row: any) => ({
@@ -493,7 +493,7 @@ export default function Exp4PromptSensitivity() {
     };
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/save_exp4`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/save_exp1`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -505,7 +505,7 @@ export default function Exp4PromptSensitivity() {
         setCurrentResults([]);
       }
     } catch (e) {
-      toast.error("Failed to save Exp4 results.");
+      toast.error("Failed to save Exp1 results.");
     }
   };
 
@@ -685,9 +685,9 @@ ${rows}
       log.openrouter_id || "",
     ]);
 
-    const filename = `VPR_Thesis_Exp4_PromptSensitivity_${new Date().toISOString().slice(0, 10)}.csv`;
+    const filename = `VPR_Thesis_Exp1_PromptSensitivity_${new Date().toISOString().slice(0, 10)}.csv`;
     downloadCsv(filename, headers, rows);
-    toast.success(`Exported ${rows.length} Exp4 records to CSV!`);
+    toast.success(`Exported ${rows.length} Exp1 records to CSV!`);
   };
 
   return (

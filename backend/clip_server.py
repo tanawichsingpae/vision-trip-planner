@@ -2969,7 +2969,7 @@ def flight_trends():
 # Save/Read Experiment Results (Exp 1 - 5 with Token & Cost Benchmarking)
 # --------------------
 
-EXP1_FIELDNAMES = [
+EXP_PROMPT_SENSITIVITY_FIELDNAMES = [
     "Timestamp", "Image Name", "Ground Truth", "Tier", "Model",
     "Prompt Variant ID", "Prompt Variant Name",
     "Predicted Place", "Confidence", "Time MS", "Is Correct",
@@ -2979,7 +2979,17 @@ EXP1_FIELDNAMES = [
     "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID"
 ]
 
-EXP2_FIELDNAMES = [
+EXP_MODEL_BENCHMARK_FIELDNAMES = [
+    "Timestamp", "Image Name", "Ground Truth", "Tier", "Model",
+    "Prompt Variant ID", "Prompt Variant Name",
+    "Predicted Place", "Confidence", "Time MS", "Is Correct",
+    "Recall Rank", "Matched Alias", "AI Reasoning",
+    "Temperature", "Failure Mode",
+    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec",
+    "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID"
+]
+
+EXP_PIPELINE_FIELDNAMES = [
     "Timestamp", "Image Name", "Ground Truth", "Tier", "Model",
     "Prompt Variant",
     "Top 1 Place", "Confidence",
@@ -2995,7 +3005,7 @@ EXP2_FIELDNAMES = [
     "Correct (CLIP)", "Correct (No CLIP)", "Latency CLIP (ms)", "Latency No CLIP (ms)", "Delta Latency (ms)"
 ]
 
-EXP3_FIELDNAMES = [
+EXP_ROBUSTNESS_FIELDNAMES = [
     "Timestamp", "Landmark Ground Truth", "Image Name", "Tier",
     "Condition Category", "Condition Label",
     "Prompt Variant ID", "Prompt Variant Name",
@@ -3006,17 +3016,7 @@ EXP3_FIELDNAMES = [
     "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID"
 ]
 
-EXP4_FIELDNAMES = [
-    "Timestamp", "Image Name", "Ground Truth", "Tier", "Model",
-    "Prompt Variant ID", "Prompt Variant Name",
-    "Predicted Place", "Confidence", "Time MS", "Is Correct",
-    "Recall Rank", "Matched Alias", "AI Reasoning",
-    "Temperature", "Failure Mode",
-    "Prompt Tokens", "Completion Tokens", "Total Tokens", "Cost USD", "Tokens Per Sec",
-    "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID"
-]
-
-EXP5_FIELDNAMES = [
+EXP_CONSISTENCY_FIELDNAMES = [
     "Timestamp", "Session ID", "Image Name", "Ground Truth", "Tier", "Model",
     "Run Number", "Total Runs",
     "Prompt Variant ID", "Prompt Variant Name",
@@ -3027,15 +3027,47 @@ EXP5_FIELDNAMES = [
     "Generation Time MS", "Pure Tokens Per Sec", "Provider Name", "OpenRouter ID"
 ]
 
+# Fieldnames indexed according to thesis & UI sequence:
+# Exp 1 = Prompt Sensitivity (Chap 4.1)
+# Exp 2 = Model Benchmark (Chap 4.2)
+# Exp 3 = Pipeline Comparison (Chap 4.3)
+# Exp 4 = Robustness Test (Chap 4.4)
+# Exp 5 = Consistency Test (Chap 4.5)
+EXP1_FIELDNAMES = EXP_PROMPT_SENSITIVITY_FIELDNAMES
+EXP2_FIELDNAMES = EXP_MODEL_BENCHMARK_FIELDNAMES
+EXP3_FIELDNAMES = EXP_PIPELINE_FIELDNAMES
+EXP4_FIELDNAMES = EXP_ROBUSTNESS_FIELDNAMES
+EXP5_FIELDNAMES = EXP_CONSISTENCY_FIELDNAMES
+
 EXP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "experiment"))
-EXP1_CSV_PATH = os.path.join(EXP_DIR, "exp1_model_benchmark.csv")
-EXP1_LEGACY_CSV_PATH = os.path.join(EXP_DIR, "experiment_results.csv")
-EXP2_CSV_PATH = os.path.join(EXP_DIR, "exp2_pipeline_comparison.csv")
-EXP3_CSV_PATH = os.path.join(EXP_DIR, "exp3_robustness.csv")
-EXP4_CSV_PATH = os.path.join(EXP_DIR, "exp4_prompt_sensitivity.csv")
-EXP5_CSV_PATH = os.path.join(EXP_DIR, "exp5_consistency.csv")
-EXP6_CSV_PATH = os.path.join(EXP_DIR, "exp6_plan_evaluation.csv")
-EXP6_SIDECAR_CSV_PATH = os.path.join(EXP_DIR, "exp6_plan_evaluation_runs.csv")
+
+def _resolve_exp_csv(primary_name: str, fallback_name: str = None) -> str:
+    p = os.path.join(EXP_DIR, primary_name)
+    if os.path.exists(p):
+        return p
+    if fallback_name:
+        fb = os.path.join(EXP_DIR, fallback_name)
+        if os.path.exists(fb):
+            return fb
+    return p
+
+# Primary CSV paths aligned with Thesis Chapters & UI Order
+EXP1_CSV_PATH = _resolve_exp_csv("exp1_prompt_sensitivity.csv", "exp4_prompt_sensitivity.csv")
+EXP2_CSV_PATH = _resolve_exp_csv("exp2_model_benchmark.csv", "exp1_model_benchmark.csv")
+EXP2_LEGACY_CSV_PATH = os.path.join(EXP_DIR, "experiment_results.csv")
+EXP3_CSV_PATH = _resolve_exp_csv("exp3_pipeline_comparison.csv", "exp2_pipeline_comparison.csv")
+EXP4_CSV_PATH = _resolve_exp_csv("exp4_robustness.csv", "exp3_robustness.csv")
+EXP5_CSV_PATH = _resolve_exp_csv("exp5_consistency.csv")
+EXP6_CSV_PATH = _resolve_exp_csv("exp6_plan_evaluation.csv")
+EXP6_SIDECAR_CSV_PATH = _resolve_exp_csv("exp6_plan_evaluation_runs.csv")
+
+# Semantic constants
+EXP_PROMPT_SENSITIVITY_CSV = EXP1_CSV_PATH
+EXP_MODEL_BENCHMARK_CSV = EXP2_CSV_PATH
+EXP_PIPELINE_COMPARISON_CSV = EXP3_CSV_PATH
+EXP_ROBUSTNESS_CSV = EXP4_CSV_PATH
+EXP_CONSISTENCY_CSV = EXP5_CSV_PATH
+EXP_PLAN_EVALUATION_CSV = EXP6_CSV_PATH
 
 
 def _get_experiment_csv_path(filename: str) -> str:
@@ -3128,22 +3160,22 @@ def save_experiment():
     results = data["results"]
 
     os.makedirs("../experiment", exist_ok=True)
-    csv_path = EXP1_CSV_PATH
+    csv_path = EXP2_CSV_PATH
 
-    # Migrate from legacy experiment_results.csv if exp1_model_benchmark.csv doesn't exist
-    if not os.path.exists(csv_path) and os.path.exists(EXP1_LEGACY_CSV_PATH):
+    # Migrate from legacy experiment_results.csv if exp2_model_benchmark.csv doesn't exist
+    if not os.path.exists(csv_path) and os.path.exists(EXP2_LEGACY_CSV_PATH):
         try:
-            ensure_csv_file(EXP1_LEGACY_CSV_PATH, EXP1_FIELDNAMES)
+            ensure_csv_file(EXP2_LEGACY_CSV_PATH, EXP2_FIELDNAMES)
             import shutil
-            shutil.copyfile(EXP1_LEGACY_CSV_PATH, csv_path)
-            print(f"[Migration] Copied {EXP1_LEGACY_CSV_PATH} to {csv_path}")
+            shutil.copyfile(EXP2_LEGACY_CSV_PATH, csv_path)
+            print(f"[Migration] Copied {EXP2_LEGACY_CSV_PATH} to {csv_path}")
         except Exception as mig_err:
             print(f"[Migration Warning] Could not copy legacy CSV: {mig_err}")
 
     try:
-        ensure_csv_file(csv_path, EXP1_FIELDNAMES)
+        ensure_csv_file(csv_path, EXP2_FIELDNAMES)
         with open(csv_path, mode="a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=EXP1_FIELDNAMES, extrasaction="ignore")
+            writer = csv.DictWriter(f, fieldnames=EXP2_FIELDNAMES, extrasaction="ignore")
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             for res in results:
@@ -3182,24 +3214,25 @@ def save_experiment():
                     "OpenRouter ID": gen_metrics["openrouter_id"]
                 })
 
-        return jsonify({"status": "success", "message": "Results saved successfully to exp1_model_benchmark.csv"})
+        return jsonify({"status": "success", "message": "Results saved successfully to exp2_model_benchmark.csv"})
     except Exception as e:
         print("Error saving experiment:", e)
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/experiment/results", methods=["GET"])
+@app.route("/experiment/results_exp2", methods=["GET"])
 def get_experiment_results():
     """
     Reads the existing experiment results from the local CSV file.
     """
     import csv
-    csv_path = EXP1_CSV_PATH
-    if not os.path.exists(csv_path) and os.path.exists(EXP1_LEGACY_CSV_PATH):
+    csv_path = EXP2_CSV_PATH
+    if not os.path.exists(csv_path) and os.path.exists(EXP2_LEGACY_CSV_PATH):
         try:
-            ensure_csv_file(EXP1_LEGACY_CSV_PATH, EXP1_FIELDNAMES)
+            ensure_csv_file(EXP2_LEGACY_CSV_PATH, EXP2_FIELDNAMES)
             import shutil
-            shutil.copyfile(EXP1_LEGACY_CSV_PATH, csv_path)
+            shutil.copyfile(EXP2_LEGACY_CSV_PATH, csv_path)
         except Exception:
             pass
 
@@ -3252,23 +3285,24 @@ def get_experiment_results():
 
 
 # --------------------
-# EXP 2: Pipeline Comparison Endpoints
+# EXP 3: Pipeline Comparison Endpoints (Reordered from Exp 2)
 # --------------------
 
-@app.route("/experiment/save_exp2", methods=["POST"])
-def save_exp2():
+@app.route("/experiment/save_exp3", methods=["POST"])
+@app.route("/experiment/save_exp2_pipeline", methods=["POST"])
+def save_exp3():
     import csv, datetime
     data = request.get_json()
     if not data or "results" not in data:
         return jsonify({"error": "Missing data"}), 400
 
     os.makedirs("../experiment", exist_ok=True)
-    csv_path = EXP2_CSV_PATH
+    csv_path = EXP3_CSV_PATH
 
     try:
-        ensure_csv_file(csv_path, EXP2_FIELDNAMES)
+        ensure_csv_file(csv_path, EXP3_FIELDNAMES)
         with open(csv_path, mode="a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=EXP2_FIELDNAMES, extrasaction="ignore")
+            writer = csv.DictWriter(f, fieldnames=EXP3_FIELDNAMES, extrasaction="ignore")
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             tier = data.get("tier") or "tier1_iconic"
@@ -3332,16 +3366,17 @@ def save_exp2():
                     "Latency No CLIP (ms)": res.get("latency_noclip", 0),
                     "Delta Latency (ms)": res.get("delta_latency", 0)
                 })
-        return jsonify({"status": "success", "message": "Results saved successfully to exp2_pipeline_comparison.csv"})
+        return jsonify({"status": "success", "message": "Results saved successfully to exp3_pipeline_comparison.csv"})
     except Exception as e:
-        print("Error saving exp2:", e)
+        print("Error saving exp3:", e)
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/experiment/results_exp2", methods=["GET"])
-def get_exp2_results():
+@app.route("/experiment/results_exp3", methods=["GET"])
+@app.route("/experiment/results_exp2_pipeline", methods=["GET"])
+def get_exp3_results():
     import csv
-    csv_path = EXP2_CSV_PATH
+    csv_path = EXP3_CSV_PATH
     if not os.path.exists(csv_path):
         return jsonify({"results": []})
     
@@ -3363,23 +3398,24 @@ def get_exp2_results():
 
 
 # --------------------
-# EXP 3: Robustness Test Endpoints
+# EXP 4: Robustness Test Endpoints (Reordered from Exp 3)
 # --------------------
 
-@app.route("/experiment/save_exp3", methods=["POST"])
-def save_exp3():
+@app.route("/experiment/save_exp4", methods=["POST"])
+@app.route("/experiment/save_exp3_robustness", methods=["POST"])
+def save_exp4():
     import csv, datetime
     data = request.get_json()
     if not data or "results" not in data:
         return jsonify({"error": "Missing data"}), 400
 
     os.makedirs("../experiment", exist_ok=True)
-    csv_path = EXP3_CSV_PATH
+    csv_path = EXP4_CSV_PATH
 
     try:
-        ensure_csv_file(csv_path, EXP3_FIELDNAMES)
+        ensure_csv_file(csv_path, EXP4_FIELDNAMES)
         with open(csv_path, mode="a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=EXP3_FIELDNAMES, extrasaction="ignore")
+            writer = csv.DictWriter(f, fieldnames=EXP4_FIELDNAMES, extrasaction="ignore")
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             tier = data.get("tier") or "tier1_iconic"
             temperature = data.get("temperature", 0.0)
@@ -3420,16 +3456,17 @@ def save_exp3():
                     "Provider Name": gen_metrics["provider_name"],
                     "OpenRouter ID": gen_metrics["openrouter_id"]
                 })
-        return jsonify({"status": "success", "message": "Results saved successfully to exp3_robustness.csv"})
+        return jsonify({"status": "success", "message": "Results saved successfully to exp4_robustness.csv"})
     except Exception as e:
-        print("Error saving exp3:", e)
+        print("Error saving exp4:", e)
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/experiment/results_exp3", methods=["GET"])
-def get_exp3_results():
+@app.route("/experiment/results_exp4", methods=["GET"])
+@app.route("/experiment/results_exp3_robustness", methods=["GET"])
+def get_exp4_results():
     import csv
-    csv_path = EXP3_CSV_PATH
+    csv_path = EXP4_CSV_PATH
     if not os.path.exists(csv_path):
         return jsonify({"results": []})
     
@@ -3451,23 +3488,24 @@ def get_exp3_results():
 
 
 # --------------------
-# EXP 4: Prompt Sensitivity Endpoints
+# EXP 1: Prompt Sensitivity Endpoints (Reordered from Exp 4)
 # --------------------
 
-@app.route("/experiment/save_exp4", methods=["POST"])
-def save_exp4():
+@app.route("/experiment/save_exp1", methods=["POST"])
+@app.route("/experiment/save_exp4_prompt", methods=["POST"])
+def save_exp1():
     import csv, datetime
     data = request.get_json()
     if not data or "results" not in data:
         return jsonify({"error": "Missing data"}), 400
 
     os.makedirs("../experiment", exist_ok=True)
-    csv_path = EXP4_CSV_PATH
+    csv_path = EXP1_CSV_PATH
 
     try:
-        ensure_csv_file(csv_path, EXP4_FIELDNAMES)
+        ensure_csv_file(csv_path, EXP1_FIELDNAMES)
         with open(csv_path, mode="a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=EXP4_FIELDNAMES, extrasaction="ignore")
+            writer = csv.DictWriter(f, fieldnames=EXP1_FIELDNAMES, extrasaction="ignore")
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             tier = data.get("tier") or "tier1_iconic"
             temperature = data.get("temperature", 0.0)
@@ -3506,16 +3544,17 @@ def save_exp4():
                     "Provider Name": gen_metrics["provider_name"],
                     "OpenRouter ID": gen_metrics["openrouter_id"]
                 })
-        return jsonify({"status": "success", "message": "Results saved successfully to exp4_prompt_sensitivity.csv"})
+        return jsonify({"status": "success", "message": "Results saved successfully to exp1_prompt_sensitivity.csv"})
     except Exception as e:
-        print("Error saving exp4:", e)
+        print("Error saving exp1:", e)
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/experiment/results_exp4", methods=["GET"])
-def get_exp4_results():
+@app.route("/experiment/results_exp1", methods=["GET"])
+@app.route("/experiment/results_exp4_prompt", methods=["GET"])
+def get_exp1_results():
     import csv
-    csv_path = EXP4_CSV_PATH
+    csv_path = EXP1_CSV_PATH
     if not os.path.exists(csv_path):
         return jsonify({"results": []})
     

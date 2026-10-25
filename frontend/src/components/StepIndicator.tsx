@@ -17,7 +17,7 @@ const StepIndicator = ({ currentStep, maxUnlockedStep = currentStep, onStepClick
     { id: 4, label: language === "th" ? "ตารางท่องเที่ยว" : "Itinerary" },
   ];
   return (
-    <div className="mb-8 flex items-center justify-center">
+    <div className="mt-3 sm:mt-4 mb-3 sm:mb-4 flex items-center justify-center">
       <ol className="flex items-center gap-1.5 sm:gap-2">
         {steps.map((step, i) => {
           const isComplete = i < currentStep;

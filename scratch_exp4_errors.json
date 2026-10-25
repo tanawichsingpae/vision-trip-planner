@@ -1,0 +1,242 @@
+[
+  {
+    "Model": "openai-gpt-54-mini",
+    "Condition Category": "Atmospheric",
+    "Condition Label": "C3: Atmospheric",
+    "Landmark Ground Truth": "1.3.1",
+    "Predicted Place": "Unknown mountain valley / hillside landscape",
+    "Confidence": 0.22,
+    "Failure Mode": "degradation_rejection",
+    "AI Reasoning": "No distinctive landmark, signage, or architecture visible; Generic mountainous terrain with clouds and trees; insufficient unique identifiers to reliably geolocate"
+  },
+  {
+    "Model": "openai-gpt-54-mini",
+    "Condition Category": "Geometric",
+    "Condition Label": "C4: Geometric",
+    "Landmark Ground Truth": "1.3.1",
+    "Predicted Place": "Ijen Crater",
+    "Confidence": 0.97,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "Large volcanic crater with a vivid turquoise/blue acidic lake; Steep eroded crater walls and sulfuric-looking terrain characteristic of Mount Ijen; Aerial view matches the well-known caldera of Kawah Ijen in East Java"
+  },
+  {
+    "Model": "meta-llama4",
+    "Condition Category": "Geometric",
+    "Condition Label": "C4: Geometric",
+    "Landmark Ground Truth": "1.3.1",
+    "Predicted Place": "Kelimutu Crater Lakes",
+    "Confidence": 0.95,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "aerial view of volcanic crater lakes"
+  },
+  {
+    "Model": "openai-gpt-54-mini",
+    "Condition Category": "Occlusion",
+    "Condition Label": "C5: Occlusion",
+    "Landmark Ground Truth": "1.4.1",
+    "Predicted Place": "Cologne Cathedral",
+    "Confidence": 0.98,
+    "Failure Mode": "degradation_rejection",
+    "AI Reasoning": "Gothic cathedral facade with twin towers and elaborate spires; Large pointed arch portal and rose-window-style ornamentation; Iconic scale and stone detailing match Cologne Cathedral in Cologne"
+  },
+  {
+    "Model": "meta-llama4",
+    "Condition Category": "Illumination",
+    "Condition Label": "C2: Illumination",
+    "Landmark Ground Truth": "2.3.1",
+    "Predicted Place": "Kastel Ksatria",
+    "Confidence": 0.95,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "distinctive castle architecture; nighttime illumination; surrounding landscape"
+  },
+  {
+    "Model": "anthropic-claude-sonnet5",
+    "Condition Category": "Baseline",
+    "Condition Label": "C1: Baseline",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "James Bond Island (Khao Phing Kan)",
+    "Confidence": 0.97,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "Distinctive limestone karst pinnacle rising vertically from the sea; Surrounding limestone cliffs typical of Phang Nga Bay; Longtail boat visible on the water, common in Thai coastal tourism; Yellow buoy markers indicating a tourist boundary line; Lush greenery atop the rock formation consistent with tropical limestone islands"
+  },
+  {
+    "Model": "anthropic-claude-sonnet5",
+    "Condition Category": "Illumination",
+    "Condition Label": "C2: Illumination",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "James Bond Island (Khao Phing Kan)",
+    "Confidence": 0.95,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "Distinctive limestone karst tower with narrow base rising from the sea; Phang Nga Bay characteristic rock formations; Sunset coloring over calm bay waters typical of the region; Vegetation growing on top of limestone pillar consistent with known island"
+  },
+  {
+    "Model": "openai-gpt-54",
+    "Condition Category": "Illumination",
+    "Condition Label": "C2: Illumination",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "Khao Phing Kan (James Bond Island), Phang Nga Bay",
+    "Confidence": 0.83,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "distinctive tall limestone karst sea stack rising vertically from calm bay water; tropical coastal setting with multiple karst islets visible on the horizon typical of Phang Nga Bay; silhouette closely matches the famous rock formation associated with James Bond Island in Thailand"
+  },
+  {
+    "Model": "openai-gpt-54-mini",
+    "Condition Category": "Atmospheric",
+    "Condition Label": "C3: Atmospheric",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "James Bond Island (Khao Phing Kan)",
+    "Confidence": 0.92,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "Iconic tall limestone karst stack rising from the water; Mist-covered Phang Nga Bay landscape commonly associated with this landmark"
+  },
+  {
+    "Model": "anthropic-claude-sonnet5",
+    "Condition Category": "Atmospheric",
+    "Condition Label": "C3: Atmospheric",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "James Bond Island (Khao Phing Kan)",
+    "Confidence": 0.9,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "Distinctive narrow limestone karst tower shape widening at top; Location in Phang Nga Bay with misty limestone cliffs in background; Isolated rock formation rising from calm sea water; Similar silhouette to famous Ko Tapu rock featured in 'The Man with the Golden Gun'"
+  },
+  {
+    "Model": "meta-llama4",
+    "Condition Category": "Atmospheric",
+    "Condition Label": "C3: Atmospheric",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "Avatar Hallelujah Mountain",
+    "Confidence": 0.95,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "distinctive tall, narrow rock formation in a body of water"
+  },
+  {
+    "Model": "openai-gpt-54-mini",
+    "Condition Category": "Geometric",
+    "Condition Label": "C4: Geometric",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "James Bond Island (Khao Phing Kan)",
+    "Confidence": 0.98,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "Distinctive tall limestone karst rising from turquoise water; Iconic detached sea stack resembling Ko Tapu nearby; Scenic Phang Nga Bay-style karst island landscape"
+  },
+  {
+    "Model": "anthropic-claude-sonnet5",
+    "Condition Category": "Geometric",
+    "Condition Label": "C4: Geometric",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "James Bond Island (Khao Phing Kan)",
+    "Confidence": 0.97,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "Distinctive limestone karst pillar rising from water; Phang Nga Bay setting with turquoise water; Tall narrow rock formation matching iconic James Bond Island; Lush vegetation on limestone cliffs typical of the region"
+  },
+  {
+    "Model": "google-gemini-38-flash",
+    "Condition Category": "Occlusion",
+    "Condition Label": "C5: Occlusion",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "James Bond Island (Khao Phing Kan)",
+    "Confidence": 0.98,
+    "Failure Mode": "degradation_rejection",
+    "AI Reasoning": "Distinctive karst limestone sea stacks rising from the emerald sea of Phang Nga Bay; Viewpoint on the paved tourist shoreline of Khao Phing Kan overlooking Ko Ta Pu; Characteristic sheer limestone cliff formations covered with sparse tropical vegetation"
+  },
+  {
+    "Model": "anthropic-claude-sonnet5",
+    "Condition Category": "Occlusion",
+    "Condition Label": "C5: Occlusion",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "James Bond Island (Khao Phing Kan)",
+    "Confidence": 0.85,
+    "Failure Mode": "degradation_rejection",
+    "AI Reasoning": "Distinctive limestone karst rock formations rising from the sea; Phang Nga Bay style scenery with mist and greenery; Narrow pinnacle rock resembling the famous Ko Tapu islet; Overcast, rainy tropical climate consistent with the region"
+  },
+  {
+    "Model": "qwen-25-vl-72b",
+    "Condition Category": "Occlusion",
+    "Condition Label": "C5: Occlusion",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "Phi Phi Islands",
+    "Confidence": 0.95,
+    "Failure Mode": "degradation_rejection",
+    "AI Reasoning": "karst formations rising from the sea"
+  },
+  {
+    "Model": "meta-llama4",
+    "Condition Category": "Occlusion",
+    "Condition Label": "C5: Occlusion",
+    "Landmark Ground Truth": "2.5.1",
+    "Predicted Place": "Halong Bay",
+    "Confidence": 0.95,
+    "Failure Mode": "degradation_rejection",
+    "AI Reasoning": "limestone karst landscape"
+  },
+  {
+    "Model": "openai-gpt-54-mini",
+    "Condition Category": "Atmospheric",
+    "Condition Label": "C3: Atmospheric",
+    "Landmark Ground Truth": "3.5.1",
+    "Predicted Place": "Mardalsfossen",
+    "Confidence": 0.58,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "Tall multi-tier waterfall plunging over dark rocky cliffs; Mist and heavy water flow suggest a northern fjord-like mountainous landscape; No visible urban structures; landmark appears to be a natural waterfall rather than a city site"
+  },
+  {
+    "Model": "openai-gpt-54-mini",
+    "Condition Category": "Geometric",
+    "Condition Label": "C4: Geometric",
+    "Landmark Ground Truth": "3.5.1",
+    "Predicted Place": "Mågøyfossen",
+    "Confidence": 0.82,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "Aerial view of a boat approaching a powerful multi-stream waterfall dropping directly into a fjord-like body of water; Steep green coastal cliffs and Nordic landscape match the well-known Norwegian waterfall setting"
+  },
+  {
+    "Model": "anthropic-claude-sonnet5",
+    "Condition Category": "Geometric",
+    "Condition Label": "C4: Geometric",
+    "Landmark Ground Truth": "3.5.1",
+    "Predicted Place": "Geirangerfjord",
+    "Confidence": 0.65,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "aerial view of fjord with waterfall cascading into blue water; tour boat positioned near waterfall base typical of Norwegian fjord cruises; steep green cliffs characteristic of Norwegian fjord landscapes; Klook watermark suggests popular tourist excursion site"
+  },
+  {
+    "Model": "openai-gpt-54",
+    "Condition Category": "Geometric",
+    "Condition Label": "C4: Geometric",
+    "Landmark Ground Truth": "3.5.1",
+    "Predicted Place": "Mardalsfossen",
+    "Confidence": 0.55,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "A very tall waterfall plunging directly beside a fjord-like body of deep blue water; Steep dark rock cliffs with vivid green vegetation are characteristic of Norwegian fjord landscapes; A sightseeing boat positioned near the base of the falls matches common tourist views of famous Norwegian waterfalls"
+  },
+  {
+    "Model": "qwen-25-vl-72b",
+    "Condition Category": "Geometric",
+    "Condition Label": "C4: Geometric",
+    "Landmark Ground Truth": "3.5.1",
+    "Predicted Place": "Seven Sisters Waterfalls",
+    "Confidence": 0.95,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "multiple cascading waterfalls flowing into fjord"
+  },
+  {
+    "Model": "meta-llama4",
+    "Condition Category": "Geometric",
+    "Condition Label": "C4: Geometric",
+    "Landmark Ground Truth": "3.5.1",
+    "Predicted Place": "Seven Sisters",
+    "Confidence": 0.95,
+    "Failure Mode": "visual_confusion",
+    "AI Reasoning": "aerial view of multiple waterfalls cascading into a fjord"
+  },
+  {
+    "Model": "openai-gpt-54-mini",
+    "Condition Category": "Occlusion",
+    "Condition Label": "C5: Occlusion",
+    "Landmark Ground Truth": "3.5.1",
+    "Predicted Place": "Mardalsfossen Waterfall",
+    "Confidence": 0.54,
+    "Failure Mode": "degradation_rejection",
+    "AI Reasoning": "Tall multi-stream waterfall plunging down a steep mossy cliff; Tourist viewpoint with railing right at the base of the falls; Nordic-looking wet rocky terrain and overcast fjord-like setting"
+  }
+]

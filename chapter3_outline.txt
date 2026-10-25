@@ -1,250 +1,602 @@
 ================================================================================
-บทที่ 3 — วิธีดำเนินงานวิจัย
-โปรเจค: Pixinerary — Vision-Language Place Recognition for AI Travel Planning
+บทที่ 3 — วิธีดำเนินงานวิจัย (Research Methodology)
+โครงร่างฉบับแก้ไข — อ้างอิงจากโค้ดและ CSV จริงในโปรเจค Pixinerary
+วันที่ตรวจข้อมูล: 2026-10-13 (ปรับปรุงลำดับการทดลอง Exp 1–Exp 6 ให้ตรงกับ UI และ Chapter 4)
 ================================================================================
 
-[หมายเหตุสำคัญ]
-โครงร่างนี้สร้างจากการวิเคราะห์โค้ดและข้อมูลการทดลองจริงในโปรเจค
-ครอบคลุม Exp1–Exp6, Frontend (React/TypeScript + Vite), Backend (Flask + CLIP + OpenRouter)
+โปรเจค: Pixinerary — Vision-Language Place Recognition for AI Travel Planning
+
+[หลักการเขียน]
+- บทนี้บรรยาย “ทำอะไร / ทำไม / ทำอย่างไร / วัดด้วยอะไร”
+- ตัวเลขผลลัพธ์ (accuracy, latency, คะแนน rubric) ไปไว้บทที่ 4
+- อ้างไฟล์ข้อมูลจริงในโฟลเดอร์ experiment/ (ระบุการแมปปิ้งระหว่าง Exp กับไฟล์ CSV ให้ชัดเจน)
+- อย่าคัดลอกชื่อโมเดล/prompt จาก experiment/reports หรือ experimentTakeaways.ts
+  เพราะเอกสารเหล่านั้นยังปนรุ่นเก่า (GPT-4o, Gemini 2.5, Claude 3.5)
+
+ลำดับการเขียน: 3.1 → 3.2 → 3.3 → 3.4 (Exp1–Exp6) → 3.5 → 3.6 → 3.7 → 3.8 → 3.9
 
 --------------------------------------------------------------------------------
 3.1 ภาพรวมกระบวนการวิจัย (Research Design Overview)
 --------------------------------------------------------------------------------
 
-อธิบายวิธีการวิจัยเชิงทดลอง (Experimental Research) ที่ใช้ในงานนี้ โดยแบ่งเป็น 2 ส่วนหลัก:
+งานนี้ใช้ระเบียบวิธีแบบผสม 2 ส่วนที่เชื่อมกัน:
 
-1. ส่วนที่ 1 – การพัฒนาระบบ (System Development): 
-   ออกแบบและสร้าง Web Application สำหรับ Vision-Language Place Recognition และ Itinerary Generation
-2. ส่วนที่ 2 – การประเมินผล (Experimental Evaluation): 
-   ทำการทดลอง 6 การทดลองเพื่อวัดประสิทธิภาพของระบบในมิติต่าง ๆ
+ส่วนที่ 1 — การพัฒนาระบบ (System Development)
+  ออกแบบและสร้าง Web Application สำหรับ
+  (ก) Vision-Language Place Recognition จากภาพผู้ใช้
+  (ข) การสร้างแผนเดินทางอัตโนมัติ (Itinerary Generation)
+  พร้อมกลไก Human-in-the-Loop ให้ผู้ใช้ยืนยัน/สลับสถานที่จากชุด Top-3
 
-ภาพรวมกระบวนการวิจัย:
-  ออกแบบระบบ 
-  → พัฒนา Backend/Frontend 
-  → รวบรวมชุดข้อมูล 
-  → ออกแบบการทดลอง 
-  → รัน Exp 1-6 
-  → วิเคราะห์ผล 
-  → สรุปข้อค้นพบ
+ส่วนที่ 2 — การประเมินผลเชิงทดลอง (Experimental Evaluation)
+  ทดลอง 6 ชุด จัดลำดับเชิงตรรกะทางวิทยาศาสตร์ (ค้นหา Prompt ที่ดีที่สุดก่อน → วัดโมเดล → วัดสถาปัตยกรรม → วัดความทนทาน → วัดความคงที่ → วัดแผนเดินทาง):
+  Exp 1  ความไวต่อรูปแบบ Prompt (Prompt Sensitivity & Reasoning Paradigms)
+  Exp 2  ความสามารถพื้นฐานของโมเดล (Multi-Model VPR Benchmark)
+  Exp 3  สถาปัตยกรรม 1-Turn เทียบ 2-Turn / Top-3 recovery (Pipeline Comparison)
+  Exp 4  ความทนทานต่อสภาพภาพในโลกจริง (Real-World Environmental Robustness)
+  Exp 5  ความคงที่เมื่อรันซ้ำ (consistency) และผลของ temperature
+  Exp 6  คุณภาพแผนเดินทางโดยผู้ประเมินมนุษย์ (Plan Quality Benchmark)
+
+คำถามวิจัยที่ผูกกับแต่ละการทดลอง (เขียนใน 3.1 แล้วตอบในบท 4):
+  RQ1  รูปแบบ Prompt ใดเหมาะสมกับงาน VPR นี้มากที่สุด (วิเคราะห์ 5 paradigms ในมิติความแม่นยำ vs ต้นทุน/เวลา)
+  RQ2  เมื่อใช้ Prompt มาตรฐาน โมเดล VLM ใดให้สมดุลความแม่นยำ–เวลา–ต้นทุนดีที่สุดในการระบุสถานที่แบบ zero-shot
+  RQ3  การมี Top-3 candidates และการใช้ CLIP visual similarity ช่วยกู้คืนคำตอบเมื่อ Top-1 ผิดได้เพียงใด
+  RQ4  สภาวะความเสื่อมสภาพของภาพจริงใดทำให้ระบบเสื่อมประสิทธิภาพมากที่สุด
+  RQ5  คำตอบของโมเดลคงที่เพียงใดเมื่อป้อนภาพเดิมซ้ำ ที่ temperature ต่ำและสูง
+  RQ6  แผนเดินทางที่ระบบสร้างผ่านเกณฑ์คุณภาพ 5 มิติของผู้ใช้จริงเพียงใด
+
+ผังกระบวนการวิจัย:
+  กำหนดปัญหาและขอบเขต
+  → ออกแบบสถาปัตยกรรมระบบ (1-Turn / 2-Turn + itinerary planner)
+  → พัฒนา Frontend / Backend / โปรโตคอลบันทึกผล
+  → สร้างชุดภาพทดสอบ 4 ระดับความยาก พร้อม Ground Truth แบบ multi-alias
+  → ออกแบบการทดลอง 6 ชุด (เรียงตามลำดับตรรกะ Exp 1 ถึง Exp 6)
+  → รันทดลองและบันทึก CSV
+  → วิเคราะห์ผลเชิงสถิติ (บทที่ 4)
+  → สรุปข้อค้นพบและข้อจำกัด (บทที่ 5)
+
+ตัวแปรควบคุมร่วม (ยกเว้นที่ระบุเป็นตัวแปรอิสระในแต่ละ Exp):
+  - เกตเวย์โมเดล: OpenRouter API
+  - รูปแบบคำตอบ: JSON บังคับฟิลด์ place, country, confidence, ai_reasoning
+  - เกณฑ์ถูก/ผิด: Multi-Alias Flexible Matcher เกณฑ์ความคล้าย ≥ 0.72
+  - หน่วยทดลอง: หนึ่งภาพ × หนึ่งโมเดล × หนึ่งเงื่อนไข = หนึ่งแถวใน CSV
 
 --------------------------------------------------------------------------------
-3.2 สถาปัตยกรรมระบบ (System Architecture)
+3.2 การออกแบบและสถาปัตยกรรมระบบ (System Design & Architecture)
 --------------------------------------------------------------------------------
 
-3.2.1 ภาพรวมสถาปัตยกรรม
-อธิบายการออกแบบระบบแบบ 3-tier:
-- Frontend: React + TypeScript (Vite) — UI สำหรับผู้ใช้อัปโหลดภาพ ดู Itinerary และประเมินผล
-- Backend: Python Flask API (clip_server.py) — จัดการ CLIP Embedding, OpenRouter LLM calls, Geolocation APIs
-- External Services: OpenRouter AI Gateway (Claude Sonnet 3.5, Gemini 3.8 Flash, GPT-4o ฯลฯ), Geoapify, Foursquare, Wikimedia
+[แนวทางการเขียนหัวข้อ 3.2]
+- ใช้แผนภาพ 2 รูปในการบรรยายให้สอดคล้องกัน:
+  (1) รูปที่ 3.1: สถาปัตยกรรมภาพรวมของระบบและระบบนิเวศบริการ (Overall System Architecture & Production Ecosystem)
+      อธิบายโครงสร้าง 3 ชั้นหลัก (Frontend ↔ Backend Flask ↔ External Services/Database)
+  (2) รูปที่ 3.2: สถาปัตยกรรมเชิงลึกของกระบวนการวางแผนการท่องเที่ยว 5 ระยะ (Detailed 5-Stage Travel Planning Architecture)
+      อธิบายโฟลว์ข้อมูลการทำงานทีละขั้นตอนตั้งแต่ ❶ ถึง ⓳ จากการรับภาพถ่ายสู่แผนการเดินทาง
+- ชี้ให้เห็นความแตกต่างระหว่างโหมดทดลอง (1-Turn Baseline) กับโหมดใช้งานจริง (Two-Turn + CLIP + HITL)
+- อธิบายหลักการทางคณิตศาสตร์ของ 6 อัลกอริทึมเชิงเรขาคณิต (Spatial Algorithms) ที่ใช้ในระยะที่ 4
 
-3.2.2 กระบวนการทำงานหลัก (Pipeline)
-1. Image Embedding: ผู้ใช้อัปโหลดภาพ → Backend โหลดโมเดล CLIP (ViT-B/32, openai pretrained) → สร้าง 512-dim embedding → Cosine Similarity Matching กับ Supabase vector store
-2. Two-Turn Place Recognition: 
-   - Turn 1 = ระบุ Top-N candidate places จากภาพ
-   - Turn 2 = VLM Re-rank และยืนยันสถานที่สุดท้าย
-3. Itinerary Generation: ส่ง confirmed place + context (จำนวนวัน, งบประมาณ, ประเภทนักท่องเที่ยว) → LLM สร้าง JSON itinerary → Frontend render แผนที่และ timeline
+--------------------------------------------------------------------------------
+3.2.1 สถาปัตยกรรมภาพรวมของระบบ (Overall System Architecture & Ecosystem)
+[อ้างอิง: รูปที่ 3.1 สถาปัตยกรรมภาพรวมของระบบ]
 
-3.2.3 โมเดลภาษา (Vision-Language Models ที่ใช้)
-ตารางโมเดลที่ใช้ในการทดลอง:
+ระบบ Pixinerary พัฒนาขึ้นบนสถาปัตยกรรมแบบแยกส่วน (Modular Decoupled Architecture) แบ่งเป็น 3 ส่วนหลัก:
+
+(1) ส่วนติดต่อผู้ใช้งานและประมวลผลฝั่งไคลเอนต์ (Client Frontend: React 18 + TypeScript + Vite)
+    แบ่งออกเป็น 2 ชั้นย่อย (Layers):
+    ก. ชั้นการแสดงผลและโต้ตอบ (Presentation & Interaction Layer)
+       - หน้าจอหลักของระบบ (Main UI): จัดการการอัปโหลดภาพถ่าย, แบบฟอร์มกำหนดเงื่อนไขทริป, แสดงผลแผนที่แบบโต้ตอบ (Interactive Map) และตารางเวลารายวัน (Daily Timeline)
+       - ส่วนการมีส่วนร่วมของมนุษย์ (Human-in-the-Loop Interface / HITL Hub): แสดงผลสถานที่ Top-1 พร้อมรายชื่อตัวเลือก Top-3 ให้ผู้ใช้สามารถตรวจสอบ ยืนยัน หรือสลับเลือกสถานที่ได้ก่อนนำไปสร้างแผน
+       - ผู้ช่วยส่วนตัวอัจฉริยะ Pixo Buddy: ทำงานคู่ขนานผ่านโมเดล Gemini 2.5 Flash:online ให้คำแนะนำเชิงบริบทแบบ Real-Time เช่น การแจ้งเตือนข้อควรระวังการแต่งกายเข้าวัด (Dress Code), แจ้งเตือนฝนตก/สภาพอากาศ และสรุปงบประมาณ
+    ข. ชั้นประมวลผลและจัดการข้อมูล (Client Engines & Orchestration Layer)
+       - ระบบประสานงาน AI (AI Orchestrator - aiService.ts): จัดการสร้าง Prompt, บริหารการเรียก API ไปยัง OpenRouter, ตรวจสอบความถูกต้องของข้อมูลโครงสร้าง JSON (JSON Schema Strict Validation)
+       - เครื่องมือวางแผนเชิงพื้นที่ (Spatial Planner Engine - spatialPlanner.ts): ประมวลผลพิกัดภูมิศาสตร์ คัดเลือก POI จัดกลุ่มรายวัน และคำนวณลำดับการเดินทาง
+       - ระบบตรวจประเมินคุณภาพแผน (AI Self-Review Quality Gate): ทำงานแบบ Critic-Actor ตรวจสอบความหนาแน่นของตารางเวลา, เวลาเปิด-ปิดสถานที่, ความสอดคล้องกับสภาพอากาศ และงบประมาณ หากคะแนนต่ำกว่าเกณฑ์ (< 88 คะแนน) จะส่งคำขอให้ LLM ปรับปรุงแผนอัตโนมัติ
+       - ระบบค้นหารูปภาพหลายระดับ (Multi-Tier Photo Engine - photoService.ts): ระบบดึงภาพประกอบสถานที่แบบสำรอง 5 ระดับ (Tier 1-3: Wikipedia/Wikidata/Wikimedia Commons, Tier 4: Serper Google Images, Tier 5: Foursquare Photos) พร้อมระบบแคชสองระดับ (Memory L1 + LocalStorage L2)
+
+(2) เซิร์ฟเวอร์ประมวลผลส่วนหลัง (Python Flask Backend Microservice - clip_server.py)
+    - บริการ OpenCLIP Service: โฮสต์โมเดล OpenCLIP (สถาปัตยกรรม ViT-B-32 น้ำหนัก OpenAI) สำหรับสกัดคุณลักษณะของภาพถ่ายเป็นเวกเตอร์ 512 มิติ (Normalized Embedding) ผ่าน Endpoint `/embedding` (ไฟล์ภาพ) และ `/embedding_url` (ลิงก์รูปภาพอ้างอิง) เพื่อคำนวณ Cosine Similarity Re-ranking
+    - เกตเวย์ตัวกลาง (Secure API Proxy): ทำหน้าที่เป็น Proxy รักษาความปลอดภัยและซ่อน API Key ของบริการภายนอก เช่น ค้นหาสถานที่และรูปภาพ Foursquare (`/foursquare/search`, `/foursquare/photos`) และดึงแนวโน้มราคาเที่ยวบิน (`/flight/trends`, `/flight/status`)
+    - ตัวแปลงฟอร์แมตภาพ: รองรับการแปลงไฟล์ภาพ iOS (HEIF/HEIC) ผ่านไลบรารี pillow-heif
+
+(3) บริการปัญญาประดิษฐ์และบริการภายนอก (External AI, APIs & Database)
+    - เกตเวย์ OpenRouter: เกตเวย์รวมศูนย์สำหรับเรียกโมเดลภาษาและการมองเห็นขนาดใหญ่ (VLM/LLM)
+    - บริการข้อมูลสถานที่และรูปภาพ (Places & Media APIs):
+      * Foursquare Places API: ดึงข้อมูลพิกัด หมวดหมู่สถานที่ เวลาเปิด-ปิด และภาพถ่ายจริง
+      * Serper.dev API: ค้นหารูปภาพสถานที่จริงจาก Google Images ความแม่นยำสูง
+      * Wikimedia Commons & Wikidata API: ดึงภาพถ่ายสารานุกรมและข้อมูลเชิงความหมายของสถานที่
+      * Geoapify API: ให้บริการ Geocoding, Reverse Geocoding และค้นหาจุดสถานที่ท่องเที่ยวใกล้เคียง
+    - บริการสภาพแวดล้อมและการเดินทาง (Environmental & Logistics APIs):
+      * Open-Meteo API: พยากรณ์อากาศล่วงหน้า 7 วัน (อุณหภูมิ, โอกาสฝนตก) และดัชนีคุณภาพอากาศ (US AQI, PM2.5)
+      * Flight Intelligence APIs: Google Flights Trends via RapidAPI (ปฏิทินแนวโน้มราคาตั๋วเครื่องบิน 30 วัน) และ Aviationstack (ติดตามสถานะเที่ยวบิน)
+    - ฐานข้อมูลระบบ (Database & Persistence):
+      * Supabase Cloud (PostgreSQL): บริหารระบบยืนยันตัวตนผู้ใช้ (Authentication), บันทึกแผนการเดินทาง (Saved Trips) และจัดเก็บข้อมูลบันทึกผลการทดลอง (Blind Evaluation Logs) หมายเหตุ: ไม่ได้ใช้เป็นเวกเตอร์สโตร์สำหรับค้นหาภาพ
+
 --------------------------------------------------------------------------------
-Model                        Provider                     Role
+3.2.2 สถาปัตยกรรมเชิงลึกของกระบวนการวางแผนการท่องเที่ยว (Detailed 5-Stage Travel Planning Architecture)
+[อ้างอิง: รูปที่ 3.2 สถาปัตยกรรมกระบวนการจัดแผนการท่องเที่ยว 5 ระยะ]
+
+กระบวนการสร้างแผนการเดินทางจากภาพถ่ายประกอบด้วย 5 ระยะต่อเนื่อง (Sequential Stages) ทำงานตามลำดับขั้นตอน ❶ ถึง ⓳ ดังนี้:
+
+[ระยะที่ 1: การรับภาพถ่ายและคัดกรองเบื้องต้น (Image Ingestion & Turn-1 VPR)]
+  ❶ ผู้ใช้อัปโหลดภาพถ่ายสถานที่ (JPEG, PNG หรือ HEIC) ผ่านหน้าจอเว็บ (UI Upload)
+  ❷ Frontend แปลงไฟล์เป็น Base64 Data URL ส่งให้ AI Orchestrator เพื่อประกอบ Prompt คัดกรอง (Zero-Shot Guardrail Prompt) ส่งต่อไปยัง OpenRouter Gateway (รอบที่ 1)
+  ❸ VLM ประมวลผลรอบแรก ส่งผลลัพธ์กลับมาในรูปแบบ JSON ระบุสถานะความถูกต้อง (is_valid_travel) และเสนอรายชื่อสถานที่ผู้สมัคร 5 อันดับแรก (Top-5 Candidate Places)
+
+[ระยะที่ 2: การสกัดเวกเตอร์และการจัดอันดับเชิงภาพ (CLIP Embedding & Visual Re-ranking)]
+  ❹ AI Orchestrator ส่งไฟล์ภาพถ่ายต้นฉบับของผู้ใช้ไปยัง Flask Backend (`/embedding`)
+  ❺ เซิร์ฟเวอร์ OpenCLIP (ViT-B-32) สกัดคุณลักษณะของภาพถ่ายเป็นเวกเตอร์ 512 มิติ (Normalized Vector)
+  ❻ AI Orchestrator ค้นหาภาพถ่ายอ้างอิงที่เป็นตัวแทนของแต่ละ Candidate จากฐานข้อมูลภายนอก (Geoapify / Wikimedia / Foursquare)
+  ❼ ส่ง URL ภาพอ้างอิงไปยัง Flask Backend (`/embedding_url`)
+  ❽ OpenCLIP แปลงภาพอ้างอิงทั้งหมดเป็นเวกเตอร์ 512 มิติ
+  ❾ ฟังก์ชัน Cosine Similarity คำนวณ Dot Product ระหว่างเวกเตอร์ภาพผู้ใช้กับเวกเตอร์ภาพอ้างอิง คัดกรองและจัดอันดับได้ชุดตัวเลือก 3 อันดับแรก (Top-3 Candidates) พร้อมคะแนนความคล้ายคลึงเชิงภาพ (Visual Similarity Score)
+
+[ระยะที่ 3: การตรวจทานและการมีส่วนร่วมของผู้ใช้ (Turn-2 Verification & Human-in-the-Loop)]
+  ❿ AI Orchestrator รวบรวมภาพถ่าย, รายชื่อ Top-3 และคะแนนความคล้ายคลึง ส่งกลับไปยัง OpenRouter Gateway (รอบที่ 2)
+  ⓫ VLM ดำเนินการวิเคราะห์เหตุผลหลายรูปแบบ (Multimodal Reasoning) ตัดสินเลือกสถานที่อันดับที่ 1 (Top-1) พร้อมกำหนดค่าระดับความเชื่อมั่น (Confidence Score) และอธิบายเหตุผล (AI Reasoning)
+  ⓬ ระบบนำผลลัพธ์ไปแสดงผลบนหน้าจอ Human-in-the-Loop Interface แสดงสถานที่ Top-1 พร้อมรายการสถานที่สำรองในกลุ่ม Top-3
+  ⓭ กลไกการมีส่วนร่วมของมนุษย์ (HITL): ผู้ใช้ตรวจสอบความถูกต้อง สามารถกดยืนยันสถานที่ หรือกดปุ่มสลับเลือกสถานที่อื่นจากชุด Top-3 ได้อย่างอิสระ พร้อมกำหนดเงื่อนไขการเดินทาง (จำนวนวัน, งบประมาณ, ประเภทนักเดินทาง, จังหวะการเที่ยว)
+
+[ระยะที่ 4: การจัดสรรเส้นทางเชิงพื้นที่ (Spatial Route Optimization)]
+  ⓮ เครื่องมือวางแผนเชิงพื้นที่ (Spatial Planner) นำพิกัดสถานที่ที่ผู้ใช้ยืนยันไปเรียกค้นหาสถานที่ท่องเที่ยวและร้านอาหารโดยรอบ (POI Candidates) ผ่าน POI Retrieval Services (Geoapify / Foursquare)
+  ⓯ ส่งรายการสถานที่พร้อมพิกัดภูมิศาสตร์ (Latitude, Longitude) เข้าสู่โมดูลอัลกอริทึมเชิงเรขาคณิต (Geometric Algorithms) 6 อัลกอริทึม
+  ⓰ ดำเนินการจัดกลุ่มสถานที่รายวันและจัดลำดับเส้นทางที่ลดการเดินทางย้อนกลับ ได้โครงสร้างกลุ่มสถานที่รายวันและลำดับการแวะชมที่เหมาะสมที่สุด
+
+[ระยะที่ 5: การสร้างแผนเดินทางและการแสดงผล (Itinerary Synthesis & Output)]
+  ⓱ ส่งโครงสร้างกลุ่มสถานที่ที่จัดเส้นทางแล้วและเงื่อนไขทริปไปยัง OpenRouter Gateway ให้ LLM สังเคราะห์รายละเอียดกิจกรรม เวลา และงบประมาณในรูปแบบ Structured JSON
+  ⓲ แผนเดินทางผ่านการตรวจสอบคุณภาพจาก AI Self-Review Gate และส่งกลับมาแสดงผลบนหน้าจอ Interactive Itinerary View ในรูปแผนที่แบบโต้ตอบ (Leaflet/Mapbox) และตารางเวลารายวัน
+  ⓳ แผนการเดินทางและประวัติการสร้างจะถูกบันทึกลงในฐานข้อมูล Supabase PostgreSQL เพื่อให้ผู้ใช้สามารถเรียกดูย้อนหลังได้
+
 --------------------------------------------------------------------------------
-claude-sonnet-3.5 (sonnet5)  Anthropic (via OpenRouter)   Place Recognition + Plan Generation
-gemini-3.8-flash             Google (via OpenRouter)      Place Recognition
-gpt-4o (gpt-54)              OpenAI (via OpenRouter)      Place Recognition
-gpt-4o-mini (gpt-54-mini)    OpenAI (via OpenRouter)      Place Recognition
-meta-llama4                  Meta (via OpenRouter)        Place Recognition
-qwen-2.5-vl-72b              Alibaba (via OpenRouter)     Place Recognition
+3.2.3 รายละเอียดอัลกอริทึมเชิงเรขาคณิตและการจัดสรรเส้นทาง (Geometric & Spatial Algorithms)
+[เจาะลึกกลไกคณิตศาสตร์ในระยะที่ 4 ของรูปที่ 3.2]
+
+เพื่อแก้ปัญหาเส้นทางท่องเที่ยววกวนและซ้ำซ้อน (Criss-crossing) ระบบได้นำอัลกอริทึมเชิงเรขาคณิต 6 ตัวมาทำงานต่อเนื่องกัน:
+
+(1) สูตรระยะทางฮาเวอร์ซีน (Haversine Distance Formula)
+    - ฟังก์ชัน: `haversineDistance(a, b)`
+    - หน้าที่: คำนวณระยะทางวงกลมใหญ่ (Great-Circle Distance) บนผิวทรงกลมของโลก ($R \approx 6,371$ กม.) จากพิกัด $(\text{lat}, \text{lng})$ เพื่อให้ได้ระยะทางจริงแทนการใช้ระยะเส้นตรงแบบยุคลิด (Euclidean Distance)
+    - สูตรคำนวณ:
+      $$d = 2R \arcsin\left(\sqrt{\sin^2\left(\frac{\Delta\phi}{2}\right) + \cos(\phi_1)\cos(\phi_2)\sin^2\left(\frac{\Delta\lambda}{2}\right)}\right)$$
+
+(2) สเปเชียล เมดอยด์ (Spatial Medoid / Master Hub Calculation)
+    - ฟังก์ชัน: `calculateMasterHub(userSeeds, centerCoords)`
+    - หน้าที่: ค้นหาจุดศูนย์กลางหลักของทริป (Anchor Hub) จากสถานที่ภาพถ่าย โดยเลือกพิกัดที่ผลรวมระยะทาง Haversine ไปยังจุดอื่นๆ ทั้งหมดมีค่าน้อยที่สุด ($\min \sum d(c, p)$)
+    - ประโยชน์: ได้จุดกึ่งกลางที่เป็น "สถานที่จริงบนบกเสมอ" ทนทานต่อค่าสุดโต่ง (Outliers) ไม่ตกกลางแม่น้ำหรือในทะเลเหมือนการหาจุดกึ่งกลางเฉลี่ย (Mean Centroid)
+
+(3) การแบ่งโซนมุมเชิงขั้ว (Polar / Angular Sector Partitioning)
+    - ฟังก์ชัน: `partitionPoisIntoNonOverlappingSectors(pois, k, masterHub)`
+    - หน้าที่: คำนวณมุมอาซิมุธสัมพัทธ์ (Azimuth Angle: $0^\circ - 360^\circ$) ของแต่ละสถานที่เทียบกับ Master Hub ด้วยสูตร $\text{atan2}(\Delta\text{lat}, \Delta\text{lng} \cdot \cos(\text{lat}_{\text{hub}}))$ แล้วจัดกลุ่มมุมตามเข็มนาฬิกาเป็น $K$ วัน
+    - ประโยชน์: การันตีว่ากลุ่มสถานที่ในแต่ละวันจะเป็น "รูปลิ่มมุมที่ไม่ซ้อนทับกัน" (Disjoint Angular Wedges) ทำให้การเดินทางแต่ละวันมุ่งไปคนละทิศของเมือง ไม่เดินทางตัดข้ามเมืองไปมา
+
+(4) การจัดกลุ่มเชิงพื้นที่ เคมีนส์แบบมีเงื่อนไข (Constrained K-Means / K-Medoids Clustering)
+    - ฟังก์ชัน: `kMeansCluster(pois, k, userSeeds)`
+    - กลไกเสริม:
+      * Radial K-Means++ Initialization: กระจายจุดตั้งต้นของแต่ละวันให้ห่างกันมากที่สุด
+      * Excursion Isolation: แยกสถานที่ที่อยู่ไกลเกิน 20 กม. ออกเป็น Day-Trip แยกต่างหากโดยเฉพาะ
+      * Outlier Rebalancing: ตรวจสอบและย้าย POI ที่อยู่ห่างจากศูนย์กลางกลุ่มเกิน 4 กม. ไปยังกลุ่มข้างเคียง
+    - ประโยชน์: จัดสถานที่ลงใน $K$ วันอย่างสมดุล ไม่หนาแน่นหรือเบาบางเกินไป
+
+(5) การจัดลำดับกลุ่มวัน (Macro-Cluster Sequencing / Inter-Day TSP)
+    - ฟังก์ชัน: `sequenceDayClusters(clusters, startCoord)`
+    - หน้าที่: จัดลำดับว่าวันใดควรไปโซนใด (วัน 1 → 2 → ... → $K$) เพื่อให้การเดินทางระหว่างวันต่อเนื่องกัน
+    - กลไก: ใช้ Exact Permutation ($K!$) สำหรับ $K \le 6$ และ Greedy Nearest Neighbor สำหรับ $K > 6$ พร้อมลงโทษค่าปรับมุมเลี้ยวย้อนศร (Acute Backtrack Penalty $> 120^\circ$) ด้วยการคำนวณ Vector Dot Product
+
+(6) การจัดเส้นทางสั้นที่สุดรายวันด้วย 2-Opt (Intra-Day 2-Opt TSP Solver)
+    - ฟังก์ชัน: `solve2OptTSP(items, startCoord, endDepotCoord)`
+    - หน้าที่: จัดคิวสถานที่ตั้งแต่เช้าจรดเย็นภายในวันเดียวกันให้ได้ระยะทางสั้นที่สุด
+    - กลไก: เริ่มต้นด้วย Greedy Nearest Neighbor Tour แล้วขัดเกลาด้วย 2-Opt Local Search Heuristic (สลับกลับด้านเส้นทาง) ร่วมกับการตรวจจับจุดตัดด้วย Counterclockwise (CCW) Segment Intersection จนกระทั่งจำนวนเส้นตัดกันเป็น 0 (Planar Tour with 0 Crossings) พร้อมคิดค่าปรับการข้ามแม่น้ำเจ้าพระยาไป-มาซ้ำซ้อน (Waterway Barrier Penalty)
+
 --------------------------------------------------------------------------------
+3.2.4 โหมดการทำงานของระบบ (System Operation Modes)
+
+ระบบได้รับการออกแบบให้รองรับ 2 โหมดการทำงานหลักเพื่อใช้ในงานวิจัยและการใช้งานจริง:
+
+โหมด A: Direct 1-Turn Baseline (ใช้ในการทดลอง Exp 1, Exp 2, Exp 4, Exp 5 และเป็นเกณฑ์เปรียบเทียบใน Exp 3)
+  - ฟังก์ชันหลัก: `analyzeImageDirect()` ใน `aiService.ts`
+  - กลไก: ส่งภาพถ่ายและคำสั่ง Prompt ไปยัง VLM เพียงครั้งเดียว โดยไม่มีการสกัดเวกเตอร์ CLIP และไม่มีการเรียก Places API ภายนอก
+  - วัตถุประสงค์: ใช้วัดประสิทธิภาพความสามารถพื้นฐาน (Raw Capability) และความไวต่อเงื่อนไขต่างๆ ของแต่ละโมเดลโดยตรง
+
+โหมด B: Two-Turn + CLIP Re-ranking & HITL Production (ระบบใช้งานจริง และแกนหลักของการทดลอง Exp 3)
+  - ฟังก์ชันหลัก: `analyzeImageWithPipeline()` ใน `aiService.ts`
+  - กลไก: ประมวลผลแบบ 2 รอบร่วมกับ OpenCLIP และเปิดโอกาสให้มนุษย์ตรวจสอบและยืนยันสถานที่ผ่านส่วนต่อประสาน HITL ตามที่อธิบายในหัวข้อ 3.2.2
+  - วัตถุประสงค์: เพื่อยกระดับความแม่นยำในการระบุสถานที่และสร้างความมั่นใจก่อนนำไปวางแผนการเดินทาง
+
+--------------------------------------------------------------------------------
+3.2.5 รายการโมเดล AI และเทคโนโลยีที่ใช้งาน (Technologies & AI Models)
+
+(1) แบบจำลองภาษาและการมองเห็นขนาดใหญ่ (Large Vision-Language Models)
+    เรียกใช้งานผ่าน OpenRouter API เพื่อควบคุมตัวแปรสภาพแวดล้อม:
+    ---------------------------------------------------------------------------------------------
+    รหัสโมเดลในระบบ            OpenRouter Model Identifier                  ผู้พัฒนา      บทบาทหลัก
+    ---------------------------------------------------------------------------------------------
+    anthropic-claude-sonnet5   anthropic/claude-sonnet-5                    Anthropic    VPR + วางแผนทริป
+    google-gemini-38-flash     google/gemini-3.8-flash                      Google       VPR Benchmark
+    openai-gpt-54              openai/gpt-5.4                               OpenAI       VPR Benchmark
+    openai-gpt-54-mini         openai/gpt-5.4-mini                          OpenAI       VPR Benchmark
+    meta-llama4                meta-llama/llama-4-maverick                  Meta         VPR Benchmark
+    qwen-25-vl-72b             qwen/qwen2.5-vl-72b-instruct                 Alibaba      VPR Benchmark
+    google-gemini-25-flash     google/gemini-2.5-flash:online               Google       Pixo Buddy Companion
+    ---------------------------------------------------------------------------------------------
+
+(2) แบบจำลองวิทัศน์สำหรับจัดอันดับภาพ (Visual Embedding Model)
+    - ไลบรารี: OpenCLIP (รันบน Python Flask Backend)
+    - สถาปัตยกรรมโครงข่าย: Vision Transformer (ViT-B-32)
+    - น้ำหนักที่ผ่านการฝึกฝน: Pretrained บนฐานข้อมูล OpenAI
+    - เวกเตอร์คุณลักษณะ: เวกเตอร์ 512 มิติ (L2-Normalized Float Array)
 
 --------------------------------------------------------------------------------
 3.3 ชุดข้อมูลที่ใช้ในการทดสอบ (Evaluation Dataset)
 --------------------------------------------------------------------------------
 
-3.3.1 การแบ่งระดับความยากของภาพ (Tier Classification)
-ชุดข้อมูลถูกแบ่งเป็น 4 Tier ตามระดับความยากในการระบุสถานที่:
+3.3.1 การแบ่งระดับความยาก (4 Tiers)
+  รหัสในโค้ด/CSV          ชื่อที่ใช้เขียน                        ลักษณะ
+  --------------------------------------------------------------------------------
+  tier1_iconic            Famous Landmarks                    สถานที่โลกที่มีรูปทรงจำได้ง่าย
+  tier2_longtail          Local Heritage & Markets            มรดกท้องถิ่น ย่านวัฒนธรรม ตลาด ที่รู้จักน้อยกว่า
+  tier3_nature            Nature & Waterfalls                 ภูเขา ชายหาด เกาะ น้ำตก อุทยาน — จุดสังเกตเฉพาะตัวน้อย
+  tier4_ugc               Casual UGC / Social                 ภาพผู้ใช้จริง / แคปจาก IG TikTok ฯลฯ
+
+  เหตุผลที่แบ่งแบบนี้: ทดสอบทั้ง head distribution (Tier 1) และ domain shift ในโลกจริง (Tier 4)
+  ไม่ใช่การสุ่มรวมภาพทั้งหมดแล้วรายงานเลขเดียว
+
+3.3.2 Ground Truth และการตรวจคำตอบ (เขียนเป็นหัวข้อย่อย ห้ามข้าม)
+
+  - แต่ละภาพมี Ground Truth เป็นสตริง multi-alias คั่นด้วย | ; หรือ ,
+    ตัวอย่างรูปแบบ: "Wat Arun | วัดอรุณ | Temple of Dawn"
+  - ระบบ normalize (ตัวพิมพ์เล็ก, ตัดวรรณยุกต์, คงอักษรไทย)
+  - คำนวณความคล้ายจาก exact match, substring/token overlap และ Levenshtein
+  - ถือว่าถูกเมื่อ similarity ≥ 0.72 กับ alias ใด alias หนึ่ง
+    (evaluatePredictionWithAliases ใน frontend/src/utils/evaluationMetrics.ts)
+  - บันทึก Is Correct, Recall Rank, Matched Alias
+
+  Exp 3 (เดิมระบุ Exp 2) เพิ่มเกณฑ์คุณภาพราย candidate แบบ 0–3:
+    3 Exact POI
+    2 Parent / Regional Area
+    1 Co-located Neighbor
+    0 Irrelevant / Generic
+
+  Top-1 Strict  = candidate 1 ได้ 3
+  Top-3 Recall  = มี candidate ใน 3 อันดับแรกที่ได้ ≥ 2
+  Human Recovery Gain = Top-3 Recall − Top-1 Strict
+
+3.3.3 ขนาดชุดข้อมูล — แยก “จำนวนรัน” กับ “ชื่อไฟล์ไม่ซ้ำ”
+
+  ต้องเขียนสองคอลัมน์ เพราะชื่อไฟล์ใน CSV มีการชนกันข้าม tier
+  (เช่น ภาพคนละไฟล์แต่ถูกบันทึกชื่อ images01.1.jpg ซ้ำ)
+
+  การทดลอง   ไฟล์ CSV                         จำนวนแถวจริง   หมายเหตุการนับ
+  --------------------------------------------------------------------------------
+  Exp 1      exp1_prompt_sensitivity.csv      1,199          ออกแบบ 40×6×5 = 1,200
+                                                              ขาด 1 เซลล์: 30.jpg × Claude × P1
+                                                              ชื่อไฟล์ไม่ซ้ำ = 36
+  Exp 2      exp2_model_benchmark.csv         600            25 รัน/tier × 4 tier × 6 โมเดล
+                                                              ชื่อไฟล์ไม่ซ้ำทั้งไฟล์ = 74
+  Exp 3      exp3_pipeline_comparison.csv     144            6 รัน/tier × 4 tier × 6 โมเดล
+                                                              ชื่อไฟล์ไม่ซ้ำ = 22
+  Exp 4      exp4_robustness.csv              450            75 ภาพ × 6 โมเดล
+                                                              5 เงื่อนไข × 15 ภาพ; เฉพาะ Tier 1–3
+  Exp 5      exp5_consistency.csv             720            11 ชื่อไฟล์ × 6 โมเดล × 5 รอบ
+                                                              × 2 อุณหภูมิ (0.1 และ 0.7)
+                                                              บางเซลล์ถูกรันซ้ำถึง 10 รอบ
+  Exp 6      exp6_plan_evaluation.csv         74 (ณ วันตรวจ)  ประเมิน 5 มิติ 20 ข้อ
+             exp6_plan_evaluation_runs.csv    0              โปรโตคอลอยู่ที่ UI + Supabase
+
+  ตอนเขียนต้นฉบับ: อ้างจำนวนแถวจาก CSV เป็นหลัก และเปิดเผยข้อจำกัดชื่อไฟล์ซ้ำใน 3.9
+
+3.3.4 Failure Mode ที่ใช้จริงในโค้ด (3 กลุ่ม เมื่อตอบผิด)
+  none                      ตอบถูก
+  visual_confusion          สับสนกับสถานที่จริงที่หน้าตา/ตำแหน่งใกล้เคียง
+  hallucination             กุชื่อที่ไม่มี หรือตอบกว้างจนระบุพิกัดไม่ได้
+  degradation_rejection     ภาพเสื่อม (มืด/เบลอ/บดบัง) หรือโมเดลปฏิเสธภาพ
+
+  อย่าใช้ชุดเก่าจากเอกสาร schema (spatial_hallucination, over_generalization, scale_error)
 
 --------------------------------------------------------------------------------
-Tier     ชื่อ                       ลักษณะภาพ                                               จำนวน (Exp1)  จำนวน (Exp2)
---------------------------------------------------------------------------------
-Tier 1   Iconic Landmarks           สถานที่ท่องเที่ยวโลก ที่จำง่าย เช่น วัดพระแก้ว, Eiffel Tower 25 ภาพ       6 ภาพ
-Tier 2   Long-tail Landmarks        สถานที่ท่องเที่ยวที่รู้จักน้อยกว่า                        25 ภาพ       6 ภาพ
-Tier 3   Pure Nature                ภาพวิวธรรมชาติล้วน ไม่มีสิ่งปลูกสร้างเฉพาะตัว          25 ภาพ       6 ภาพ
-Tier 4   UGC / Social Screenshots   ภาพแคปหน้าจอจาก Instagram, TikTok, Lemon8                25 ภาพ       6 ภาพ
---------------------------------------------------------------------------------
-รวม                                                                                         100 ภาพ      24 ภาพ
+3.4 การออกแบบการทดลอง (Experimental Design)  ★ เขียนละเอียดที่สุด
 --------------------------------------------------------------------------------
 
-3.3.2 ขนาดชุดข้อมูลแต่ละการทดลอง
---------------------------------------------------------------------------------
-Experiment   ชุดข้อมูล                       จำนวนแถว
---------------------------------------------------------------------------------
-Exp 1        exp1_model_benchmark.csv       600 แถว (100 ภาพ × 6 โมเดล)
-Exp 2        exp2_pipeline_comparison.csv   144 แถว (24 ภาพ × 6 โมเดล)
-Exp 3        exp3_robustness.csv            ~200 แถว
-Exp 4        exp4_prompt_sensitivity.csv    1,199 แถว (40 ภาพ × 6 โมเดล × 5 prompts)
-Exp 5        exp5_consistency.csv           720 แถว (24 ภาพ × 6 โมเดล × 5 trials)
-Exp 6        exp6_plan_evaluation.csv       หลายแถว (Human evaluation records)
---------------------------------------------------------------------------------
+หลักการออกแบบร่วม: แยกตัวแปรอิสระทีละมิติ ไม่ทดสอบทุกอย่างพร้อมกัน
+Exp 1 มุ่งหา Prompt Champion → ได้ P2 นำไปใช้เป็น Prompt มาตรฐานใน Exp 2, 4, 5
+ดังนั้น Prompt มาตรฐานของชุด Exp 2, 4, 5 ใน CSV คือ P2 Expert Persona (Role)
 
 --------------------------------------------------------------------------------
-3.4 การออกแบบการทดลอง (Experimental Design)
+3.4.1 การทดลองที่ 1 — Prompt Sensitivity (5 Paradigms)
 --------------------------------------------------------------------------------
+ไฟล์: experiment/exp1_prompt_sensitivity.csv (1,199 แถว)
 
-3.4.1 การทดลองที่ 1 — Model Benchmark (Direct Single-Turn)
-- วัตถุประสงค์: เปรียบเทียบความแม่นยำของ VLM 6 ตัว ในการระบุสถานที่แบบ Zero-Shot
-- วิธีการ: ส่งภาพพร้อม Prompt P1 (Base English) → วัด Top-1 Accuracy, Latency, Cost
-- ตัวชี้วัด: Accuracy (%), Latency (ms), Cost (USD/query), Tokens
-- จำนวน: 600 รัน (100 ภาพ × 6 โมเดล, Temperature = 0.1)
+วัตถุประสงค์
+  แยกผลของเทคนิค prompting โดยเปลี่ยนเพียงมิติเดียวต่อเงื่อนไข (RQ1)
+  เพื่อค้นหา Prompt Paradigm ที่ดีที่สุดและคุ้มค่าที่สุด นำไปเป็นมาตรฐานในระบบ
 
-3.4.2 การทดลองที่ 2 — Two-Turn Pipeline Comparison
-- วัตถุประสงค์: ประเมินสถาปัตยกรรมแบบ Two-Turn Re-ranking ว่าเพิ่มความแม่นยำได้แค่ไหน
-- วิธีการ:
-  * Turn 1 (CLIP-assisted): CLIP Embedding + Similarity Matching ส่ง Top-N candidate → VLM คัด Top-3
-  * Turn 2 (No-CLIP): VLM ระบุสถานที่โดยตรงจากภาพ (Baseline)
-  * วัด Top-1 vs Top-3 Recall, Human Recovery Gain
-- ตัวชี้วัด: Top-1 Accuracy, Top-3 Recall, Human Recovery Gain (%), Latency, Cost
-- จำนวน: 144 รัน (24 ภาพ × 6 โมเดล)
+เหตุผล
+  งาน VPR ของภาพท่องเที่ยวอาจไวต่อภาษา บทบาทผู้เชี่ยวชาญ และขั้นตอนคิด
+  ต้องรู้ว่าความแม่นยำที่เพิ่มขึ้นคุ้มกับ token/latency หรือไม่ ก่อนจะนำไปทดสอบโมเดลอื่น
 
-3.4.3 การทดลองที่ 3 — Robustness Test
-- วัตถุประสงค์: ทดสอบความทนทานของระบบต่อสภาพภาพที่หลากหลาย
-- วิธีการ: ทดสอบกับภาพที่มี Noise, Blur, JPEG Compression, Low Resolution, Cropped
-- ตัวชี้วัด: Accuracy drop (%), Failure Mode distribution
+วิธีการ — 5 รูปแบบจาก CANONICAL_VPR_PROMPTS ใน aiService.ts
+  P1 Zero-Shot Direct (EN)         baseline ถามตรง ภาษาอังกฤษ (Brown et al., 2020)
+  P2 Expert Persona (Role)         กำหนดบทบาทนักภูมิศาสตร์/ผู้เชี่ยวชาญแลนด์มาร์ก
+  P3 Chain-of-Thought (CoT)        ให้คิดเป็นขั้น: ลักษณะภาพ → จุดเด่น → เทียบแลนด์มาร์ก → สรุป
+  P4 Cross-Lingual Thai (TH)       แปลโครงสร้างเดียวกับ P1 เป็นไทย เพื่อแยกตัวแปรภาษา
+  P5 Few-Shot In-Context (ICL)     ยกตัวอย่าง Eiffel Tower และ Taj Mahal แล้วให้ทำตามรูปแบบ
 
-3.4.4 การทดลองที่ 4 — Prompt Sensitivity Analysis
-- วัตถุประสงค์: วิเคราะห์ว่า Prompt ที่แตกต่างกันส่งผลต่อความแม่นยำอย่างไร
-- วิธีการ: ทดสอบ 5 รูปแบบ Prompt:
-  * P1: Base English (baseline)
-  * P2: Detailed English with context
-  * P3: Chain-of-Thought reasoning
-  * P4: Thai language prompt
-  * P5: Minimalist prompt
-- ตัวชี้วัด: Accuracy per prompt paradigm, Failure mode (visual_confusion vs hallucination_overconfidence)
-- จำนวน: 1,199 รัน (40 ภาพ × 6 โมเดล × 5 prompts)
+  Temperature = 0.1    โหมด 1-Turn
+  ออกแบบ: 40 ภาพ × 6 โมเดล × 5 prompt = 1,200
+  ได้จริง: 1,199 (ขาด anthropic-claude-sonnet5 × 30.jpg × P1)
 
-3.4.5 การทดลองที่ 5 — Consistency Test
-- วัตถุประสงค์: วัด Stochastic Consistency ของ VLM ด้วยการรัน 5 ครั้งซ้ำ ที่ Temperature = 0.1
-- วิธีการ: รัน 5 Repeated Trials ต่อภาพ-โมเดล คู่เดิม
-- ตัวชี้วัด: Consistency Rate (%), Standard Deviation ของ Accuracy
-- จำนวน: 720 รัน (24 ภาพ × 6 โมเดล × 5 trials)
+ตัวแปรอิสระ: Prompt Variant (P1–P5)
+ตัวแปรตาม: Accuracy ราย paradigm, Latency, Tokens, Cost, Failure Mode
+ตัวแปรควบคุม: โมเดลชุดเดียวกัน, ภาพชุดเดียวกัน, temperature 0.1
 
-3.4.6 การทดลองที่ 6 — Plan Quality Evaluation (Human Evaluation)
-- วัตถุประสงค์: ประเมินคุณภาพของ Itinerary ที่ระบบสร้างขึ้น โดยผู้ประเมินจริง
-- วิธีการ:
-  * ผู้ประเมินอัปโหลดชุดภาพจากทริปของตนเอง
-  * ระบบสร้าง Itinerary (หลาย context: budget, traveler_type, duration)
-  * ผู้ประเมินให้คะแนนด้วย Rubric 20 ข้อ แบ่งเป็น 5 มิติ (1–5 คะแนน)
-- Evaluation Rubric (5 มิติ × 4 ข้อ = 20 คะแนน):
-  * มิติที่ 1: Place Recognition Accuracy (1.1–1.5)
-  * มิติที่ 2: Itinerary Coherence & Logic (2.1–2.4)
-  * มิติที่ 3: Content Relevance (3.1–3.4)
-  * มิติที่ 4: Practical Feasibility (4.1–4.3)
-  * มิติที่ 5: User Experience & Presentation (5.1–5.4)
+--------------------------------------------------------------------------------
+3.4.2 การทดลองที่ 2 — Multi-Model VPR Benchmark (Direct 1-Turn)
+--------------------------------------------------------------------------------
+ไฟล์: experiment/exp2_model_benchmark.csv (600 แถว, 25 คอลัมน์)
+
+วัตถุประสงค์
+  เปรียบเทียบ VLM 6 ตัวในการระบุสถานที่แบบ zero-shot บน 4 ระดับความยาก
+  โดยใช้ Prompt มาตรฐาน (P2) เพื่อหาจุดสมดุลความแม่นยำ–เวลา–ต้นทุน (นำไปตอบ RQ2)
+
+เหตุผลที่ออกแบบแบบนี้
+  ถ้าไม่สร้าง baseline 1-Turn ก่อน จะไม่แยกได้ว่าความผิดพลาดมาจากโมเดลหรือจาก pipeline CLIP
+
+วิธีการ
+  - โหมด: analyzeImageDirect (ไม่มี CLIP, ไม่มี Places lookup)
+  - Prompt ที่บันทึกใน CSV: P2 Expert Persona (Role)
+  - Temperature = 0.1 ทั้งไฟล์
+  - หน่วยทดลอง: 100 รันต่อโมเดล (25 ต่อ tier)
+
+ตัวแปรอิสระ: โมเดล (6) × Tier (4)
+ตัวแปรตาม: Top-1 Accuracy, Time MS, Generation Time MS, Cost USD, Tokens, Failure Mode
+ตัวแปรควบคุม: prompt P2, temperature 0.1, JSON schema, alias matcher
+
+--------------------------------------------------------------------------------
+3.4.3 การทดลองที่ 3 — Two-Turn Pipeline และ Top-3 Human Recovery
+--------------------------------------------------------------------------------
+ไฟล์: experiment/exp3_pipeline_comparison.csv (144 แถว, 41 คอลัมน์)
+
+วัตถุประสงค์
+  ประเมินว่าชุด Top-3 และการให้คะแนน CLIP ช่วยกู้คืนคำตอบเมื่อ Top-1 ผิดได้เพียงใด
+  และเปรียบเทียบความมั่นใจแบบ self-report กับ cosine similarity ของ CLIP (RQ3)
+
+เหตุผล
+  VLM เดี่ยวมีจุดอ่อน overconfidence และ single-point failure
+  ระบบจริงจึงให้ผู้ใช้เลือกจาก 3 ตัวเลือก (Switch Name)
+
+วิธีการที่ออกแบบไว้
+  - เงื่อนไข A (No CLIP / 1-Turn): VLM ตอบตรงจากภาพ
+  - เงื่อนไข B (CLIP / 2-Turn): VLM เสนอ candidates → ดึงรูปอ้างอิง → CLIP re-rank → Top-3
+  - ให้คะแนนแต่ละ candidate 0–3 แล้วคำนวณ Top-1 Strict และ Top-3 Recall
+
+สถานะข้อมูล ณ วันตรวจ (ต้องเขียนในวิธีวิจัย/ข้อจำกัด)
+  คอลัมน์ Predicted (CLIP), Correct (CLIP), Latency CLIP มีค่า
+  คอลัมน์ Predicted (No CLIP) ว่างทั้ง 144 แถว
+  ดังนั้นการวิเคราะห์ในบท 4 จากไฟล์นี้ควรถือเป็น
+    (1) คุณภาพ Top-3 และ Human Recovery ของรัน 2-Turn ที่บันทึกไว้
+    (2) อย่าสรุป A/B CLIP vs No-CLIP จนกว่าคอลัมน์ No CLIP จะมีข้อมูล
+  หากต้องการเปรียบเทียบ 1-Turn จริง ให้ใช้ Exp 2 เป็น proxy ของโหมด A บนชุดภาพที่ซ้อนกันได้
+  และเปิดเผยว่าไม่ใช่ paired trial บนภาพชุดเดียวกันทุกไฟล์
+
+ตัวชี้วัด: Top-1 Strict, Top-3 Recall, Human Recovery Gain, Avg Candidate Score,
+          Confidence (CLIP), Latency CLIP, Cost
+
+--------------------------------------------------------------------------------
+3.4.4 การทดลองที่ 4 — Robustness ต่อสภาพภาพในโลกจริง
+--------------------------------------------------------------------------------
+ไฟล์: experiment/exp4_robustness.csv (450 แถว, 27 คอลัมน์)
+
+วัตถุประสงค์
+  วัดความทนทานเมื่อภาพไม่ใช่มุมสวยในเวลากลางวัน (RQ4)
+
+เหตุผล
+  นักท่องเที่ยวถ่ายกลางคืน ฝน มุมโดรน หรือมีคนบัง — ไม่ใช่การสังเคราะห์ noise/JPEG ในห้องทดลอง
+
+วิธีการ (ห้ามเขียนว่า Noise, Blur สังเคราะห์, JPEG compression, Low Resolution, Cropped)
+  ภาพจริง 5 กลุ่ม กลุ่มละ 90 รัน (15 ภาพ × 6 โมเดล):
+    C1 Baseline        สภาวะปกติ (กลุ่มควบคุม)
+    C2 Illumination    กลางคืน ย้อนแสง แสงพลบค่ำ
+    C3 Atmospheric     ฝน หมอก ฟ้าครึ้ม
+    C4 Geometric       มุมสูงจัด / ภาพโดรน / มุมกด
+    C5 Occlusion       คนบัง วัตถุบัง หรือภาพสั่นเบลอ
+
+  ขอบเขต: เฉพาะ Tier 1–3 (ไม่รวม Tier 4 UGC เพื่อไม่ให้ปน domain shift เข้ากับ stress)
+  Prompt ใน CSV: P2    Temperature: 0.1
+  หน่วยทดลอง: 75 ภาพ × 6 โมเดล = 450
+
+ตัวแปรอิสระ: Condition Category (5) × โมเดล × Tier (1–3)
+ตัวแปรตาม: Accuracy เทียบ Baseline, Accuracy drop, Failure Mode
+ตัวแปรควบคุม: prompt P2, temperature 0.1, โหมด 1-Turn
+
+--------------------------------------------------------------------------------
+3.4.5 การทดลองที่ 5 — Consistency และผลของ Temperature
+--------------------------------------------------------------------------------
+ไฟล์: experiment/exp5_consistency.csv (720 แถว, 28 คอลัมน์)
+
+วัตถุประสงค์
+  วัดความคงที่ของคำตอบเมื่อป้อนภาพเดิมซ้ำ และเปรียบเทียบ temperature 0.1 กับ 0.7 (RQ5)
+
+เหตุผล
+  ระบบแนะนำแผนเที่ยวไม่ควรสุ่มเปลี่ยนชื่อสถานที่ในคำขอซ้ำของผู้ใช้คนเดียวกัน
+
+วิธีการ
+  - โหมด 1-Turn, Prompt ใน CSV = P2
+  - รันซ้ำ 5 ครั้งต่อภาพ-โมเดล (คอลัมน์ Run Number, Total Runs, Session ID)
+  - Temperature เป็นตัวแปรอิสระ 2 ระดับ: 0.1 และ 0.7 (อย่างละ 360 แถว)
+  - ชุดภาพ: 11 ชื่อไฟล์ กระจาย 4 tier (tier ละประมาณ 3)
+
+ตัวชี้วัด
+  Consistency Rate = สัดส่วนรอบที่ Predicted Place ตรงกับโหมดของกลุ่มนั้น
+  ส่วนเบี่ยงเบนของ Confidence และ Latency
+  (อย่าเขียนว่าทดสอบแค่ temperature 0.1)
+
+หมายเหตุข้อมูล: เซลล์ส่วนใหญ่มี 5 รอบ; 12 เซลล์มี 10 รอบ — ตอนวิเคราะห์ให้กำหนดกฎรวม/ตัดซ้ำให้ชัด
+
+--------------------------------------------------------------------------------
+3.4.6 การทดลองที่ 6 — Plan Quality (Human Evaluation)
+--------------------------------------------------------------------------------
+ไฟล์: experiment/exp6_plan_evaluation.csv (74 แถว)
+หน้าทดลอง: frontend/src/pages/Exp6PlanEvaluation.tsx
+เกณฑ์: frontend/src/utils/evaluationCriteria.ts
+(มีอินเทอร์เฟซ Blind Evaluation แยกสำหรับประเมินแบบไม่รู้โมเดล)
+
+วัตถุประสงค์
+  ประเมินคุณภาพแผนเดินทางทั้งระบบ ไม่ใช่แค่ชื่อสถานที่ (RQ6)
+
+วิธีการ
+  1. ผู้ประเมินอัปโหลดชุดภาพจากทริป
+  2. ติดฉลากความยากของภาพ: Easy / Medium / Hard / Social
+       Easy    มุมกว้าง แสงธรรมชาติ สถาปัตยกรรมชัด
+       Medium  มุมเอียง ย้อนแสง มีคนบัง หรือระยะไกล
+       Hard    ซูมเจาะจุด แสงน้อย/กลางคืน หรือครอปแคบ
+       Social  สไตล์ IG/TikTok คาเฟ่ อาหาร เซลฟี่ ฟิลเตอร์
+  3. ระบบระบุสถานที่ (multi-model ได้) แล้วสร้างแผนตามบริบททริป
+  4. ผู้ประเมินให้คะแนน 20 ข้อ มาตร 1–5 ตาม rubric ด้านล่าง
+  5. บันทึกคะแนนรายมิติ + JSON รายข้อ + แผนที่สร้างได้
+
+บริบททริปที่ควบคุมได้ใน UI
+  - จำนวนวัน
+  - งบประมาณ: budget / standard / (ช่วงเงินบาท)
+  - ประเภทนักเดินทาง: เช่น solo, friends, family_kids, family_seniors
+  - จังหวะเที่ยว (pace): relaxed / balanced ฯลฯ
+
+โมเดลสร้างแผนหลักในระบบ: anthropic-claude-sonnet5 (และหน้า Exp 6 รองรับเปรียบเทียบหลายโมเดล)
+
+Evaluation Rubric จริง (5 มิติ รวม 20 ข้อ) — ห้ามใช้ชุด Place Recognition / UX แบบร่างเก่า
+  มิติที่ 1 Constraint Satisfaction (1.1–1.5)     สอดคล้องวัน งบ คน ประเภทกิจกรรม ความหนาแน่น
+  มิติที่ 2 Activity & Place Relevance (2.1–2.4)  ตรงความสนใจ ประเภทเที่ยว ความหลากหลาย วัตถุประสงค์
+  มิติที่ 3 Spatiality & Timing (3.1–3.4)         ลำดับเส้นทาง ลดย้อนกลับ ระยะทาง เวลาเดินทางเป็นไปได้
+  มิติที่ 4 Accuracy & Validity (4.1–4.3)         สถานที่จริง ข้อมูลถูกต้อง ไม่ขัดแย้งในแผน
+  มิติที่ 5 Overall Quality (5.1–5.4)             ครบ ชัด ใช้จริงได้ ความพึงพอใจรวม
+
+  Place Recognition เป็นขั้นก่อนสร้างแผน ไม่ใช่มิติที่ 1 ของ rubric นี้
+
+สถานะข้อมูล: ไฟล์ exp6_plan_evaluation.csv บันทึกผลประเมินจริง (74 แถว)
+ตอนเขียนบท 4 ให้นับจำนวนผู้ประเมิน จำนวนทริป จำนวนแผนที่ถูกให้คะแนน
 
 --------------------------------------------------------------------------------
 3.5 เมตริกการวัดผล (Evaluation Metrics)
 --------------------------------------------------------------------------------
 
-3.5.1 เมตริกด้านความแม่นยำ
+3.5.1 ความแม่นยำ (Exp 1–5)
+
+  เมตริก                 นิยามในงานนี้
+  --------------------------------------------------------------------------------
+  Top-1 Accuracy         สัดส่วนรันที่ Is Correct = True (alias matcher ≥ 0.72)
+  Top-1 Strict           Exp 3: candidate 1 ได้คะแนน 3 (Exact POI)
+  Top-3 Recall           Exp 3: มี candidate ใน Top-3 ที่ได้ ≥ 2
+  Human Recovery Gain    Top-3 Recall − Top-1 Strict
+  Avg Candidate Score    ค่าเฉลี่ยคะแนน 0–3 ของ 3 ตัวเลือก (Exp 3)
+  Consistency Rate       สัดส่วนรอบซ้ำที่ชื่อสถานที่ตรงกัน (Exp 5)
+  Failure Mode share     สัดส่วน visual_confusion / hallucination / degradation_rejection
+
+3.5.2 ประสิทธิภาพและต้นทุน
+
+  เมตริก                      แหล่งวัด
+  --------------------------------------------------------------------------------
+  Time MS                     เวลาไป-กลับฝั่งไคลเอนต์ (network + คิว + โมเดล + parse)
+  Generation Time MS          เวลาสร้างโทเค็นจริงจาก OpenRouter generation API
+  Tokens Per Sec              completion tokens / (Time MS / 1000)
+  Pure Tokens Per Sec         completion tokens / (Generation Time MS / 1000)
+  Prompt / Completion / Total Tokens
+  Cost USD                    คิดจากโทเค็น × อัตราของโมเดลผ่าน OpenRouter
+  Provider Name, OpenRouter ID  สำหรับตรวจสอบย้อนหลัง
+
+  ต้องอธิบายว่า Time MS ≠ Generation Time MS เพราะรวมเน็ตเวิร์ก
+
+3.5.3 คุณภาพแผน (Exp 6)
+
+  Overall Score          ค่าเฉลี่ย 20 ข้อ (สเกล 1–5)
+  Dimension Scores       ค่าเฉลี่ยรายมิติ 1–5
+  (ถ้ามีหลายผู้ประเมิน: รายงานจำนวนคน และถ้าคำนวณได้ให้รายงานความสอดคล้องระหว่างผู้ประเมิน)
+
 --------------------------------------------------------------------------------
-เมตริก               นิยาม
---------------------------------------------------------------------------------
-Top-1 Accuracy       ร้อยละของภาพที่ระบบตอบถูกในอันดับแรก
-Top-3 Recall         ร้อยละของภาพที่คำตอบที่ถูกต้องอยู่ใน 3 อันดับแรก
-Human Recovery Gain  ผลต่างระหว่าง Top-3 Recall และ Top-1 Accuracy
-Consistency Rate     สัดส่วนรัน (ใน 5 ครั้ง) ที่ตอบเหมือนกัน
+3.6 เครื่องมือและเทคโนโลยี (Tools & Technology)
 --------------------------------------------------------------------------------
 
-3.5.2 เมตริกด้านประสิทธิภาพ
---------------------------------------------------------------------------------
-เมตริก                   นิยาม
---------------------------------------------------------------------------------
-Latency (ms)             เวลาตั้งแต่ส่ง request จนได้ response
-Generation Time (ms)     เวลาที่ LLM ใช้สร้าง token จริง (จาก OpenRouter API)
-Tokens Per Second (TPS)  จำนวน token ที่ผลิตต่อวินาที
-Cost (USD)               ต้นทุนต่อ query (คำนวณจาก input + output tokens × rate)
---------------------------------------------------------------------------------
+เขียนกระชับเป็นตาราง ไม่ขยายเป็นคู่มือซอฟต์แวร์
 
-3.5.3 เมตริกด้านคุณภาพ (Exp 6)
---------------------------------------------------------------------------------
-เมตริก                นิยาม
---------------------------------------------------------------------------------
-Overall Score (avg)   ค่าเฉลี่ย 20 ข้อ (สเกล 1–5)
-Dimension Scores      คะแนนเฉลี่ยรายมิติ (5 มิติ)
-Failure Mode          ประเภทข้อผิดพลาด: visual_confusion / hallucination_overconfidence / none
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
-3.6 เครื่องมือและเทคโนโลยีที่ใช้ (Tools & Technology)
---------------------------------------------------------------------------------
-
-3.6.1 ส่วน Frontend
-- Framework: React 18 + TypeScript + Vite
-- Testing: Vitest + Playwright
-- Styling: TailwindCSS + shadcn/ui
-- APIs: Geoapify (Places & Geocoding), Foursquare (Place Details), Wikimedia (Photos), Serper (Image Search)
-
-3.6.2 ส่วน Backend
-- Runtime: Python 3.x + Flask + Gunicorn
-- Computer Vision: OpenCLIP (ViT-B/32, openai pretrained, vit_b_32.pt)
-- Device: CPU (with torch thread optimization) / CUDA if available
-- AI Gateway: OpenRouter API (compatible with OpenAI SDK)
-- Image Formats: JPEG, PNG, HEIF/HEIC (via pillow-heif)
-- Deployment: Railway (Backend), Vercel (Frontend)
-
-3.6.3 ส่วนข้อมูลและการทดลอง
-- Database: Supabase (vector store + blind evaluation records)
-- Data Format: CSV (experiment logs), JSON (itinerary outputs)
-- Analysis: Python (pandas, matplotlib) — scripts ใน experiment/scripts/
-- Visualization: Matplotlib plots ใน experiment/plots/
+Frontend     React 18, TypeScript, Vite, TailwindCSS, shadcn/ui
+Backend      Python, Flask, Gunicorn, OpenCLIP ViT-B-32, pillow-heif
+AI Gateway   OpenRouter (รูปแบบเข้ากันได้ OpenAI SDK)
+Places/Geo   Geoapify, Foursquare, Wikimedia, Serper
+Data         CSV ผลการทดลอง, JSON แผนเดินทาง, Supabase (auth + blind eval)
+Analysis     Python pandas + matplotlib ใน experiment/scripts/
+Deploy       Railway (backend), Vercel (frontend)
+ทดสอบซอฟต์แวร์ Vitest / Playwright — กล่าวสั้นว่าใช้ประกันคุณภาพแอป ไม่ใช่เกณฑ์วิจัยหลัก
 
 --------------------------------------------------------------------------------
 3.7 กระบวนการรวบรวมและบันทึกข้อมูลการทดลอง
 --------------------------------------------------------------------------------
 
-อธิบายว่า backend (clip_server.py) บันทึกข้อมูลอย่างไร:
-1. Real-time Logging: ทุก inference request บันทึก timestamp, model, image_id, tier, predicted_place, confidence, time_ms, tokens, cost_usd ลง CSV ทันที
-2. OpenRouter Generation Stats: ระบบ fetch generation_time_ms, pure_tokens_per_sec, provider_name จาก OpenRouter API (with retry + backfill mechanism)
-3. Backfill Mechanism: daemon thread สำหรับเติม generation stats ที่ยังขาดอยู่ในภายหลัง
-4. Backup System: ระบบสร้าง timestamped backup ก่อน overwrite CSV ทุกครั้ง
+ย่อให้เหลือขั้นตอนที่ทำให้ผลทำซ้ำได้:
+
+  1. หน้าทดลองฝั่ง frontend ส่งภาพและพารามิเตอร์ไปยังโมเดล ตามโหมดของแต่ละ Exp
+  2. เมื่อได้ผล บันทึกทันทีลง CSV ผ่าน backend/clip_server.py
+     ฟิลด์หลัก: Timestamp, Image Name, Ground Truth, Tier, Model,
+     Prompt Variant, Predicted Place, Confidence, Time MS, Is Correct,
+     Failure Mode, tokens, Cost USD, OpenRouter ID
+  3. ดึง Generation Time MS, Pure Tokens Per Sec, Provider Name จาก
+     OpenRouter /api/v1/generation?id=... (มี retry)
+  4. Daemon เติมสถิติที่ยังว่าง (backfill)
+  5. ก่อนเขียนทับ CSV สร้างสำเนาประทับเวลาใน experiment/backup/
+
+ไฟล์ต่อการทดลอง (อ้างอิงไฟล์จริงในโฟลเดอร์ experiment/):
+  Exp 1 (Prompt Sensitivity):   experiment/exp1_prompt_sensitivity.csv (1,199 แถว)
+  Exp 2 (Model Benchmark):       experiment/exp2_model_benchmark.csv (600 แถว)
+  Exp 3 (Pipeline & Recovery):   experiment/exp3_pipeline_comparison.csv (144 แถว)
+  Exp 4 (Robustness):            experiment/exp4_robustness.csv (450 แถว)
+  Exp 5 (Consistency):           experiment/exp5_consistency.csv (720 แถว)
+  Exp 6 (Plan Evaluation):       experiment/exp6_plan_evaluation.csv (74 แถว)
 
 --------------------------------------------------------------------------------
 3.8 กระบวนการประเมินคุณภาพแผนเดินทาง (Human Evaluation Protocol)
 --------------------------------------------------------------------------------
 
-3.8.1 ขั้นตอนการประเมิน
-1. ผู้ประเมินเข้าสู่ระบบผ่าน Blind Evaluation Interface (Login + role-based access)
-2. อัปโหลดชุดภาพจากทริปจริง (Easy / Medium / Hard difficulty)
-3. กำหนด Context: จำนวนวัน, Budget (budget/standard), Traveler Type (solo/friends/family_kids), Style (relaxed/balanced)
-4. ระบบสร้าง Itinerary ผ่าน claude-sonnet-3.5 (primary model)
-5. ผู้ประเมินให้คะแนน 20 ข้อตาม Rubric
-6. ข้อมูลบันทึกลง Supabase (exp6_plan_evaluation.csv สำหรับ offline analysis)
+3.8.1 ขั้นตอน
+  1. ผู้ประเมินเข้าสู่ระบบ (role-based; มีโหมด Blind Evaluation แยก)
+  2. อัปโหลดภาพทริปและติดฉลาก Easy / Medium / Hard / Social
+  3. กำหนดบริบท: วัน, งบ, ประเภทนักเดินทาง, pace
+  4. ระบบรู้จำสถานที่ → spatial planner → LLM เขียนแผน
+  5. ผู้ประเมินให้คะแนน 20 ข้อ (1–5) ตาม EVALUATION_DIMENSIONS
+  6. บันทึกคะแนนรายมิติ, JSON รายข้อ, แผนที่สร้าง, latency/tokens ของการสร้างแผน
 
-3.8.2 ระดับความยากของชุดข้อมูล Exp 6
---------------------------------------------------------------------------------
-ระดับ     ลักษณะภาพ
---------------------------------------------------------------------------------
-Easy      ภาพสถานที่ท่องเที่ยวที่รู้จักดี ระบุได้ง่าย
-Medium    ภาพสถานที่ทั่วไปที่มีความหลากหลายระดับกลาง
-Hard      ภาพสถานที่หายาก ภาพธรรมชาติล้วน หรือภาพจากมุมที่ยาก
---------------------------------------------------------------------------------
+3.8.2 สิ่งที่ต้องรายงานเมื่อมีข้อมูลครบ
+  จำนวนผู้ประเมิน, จำนวนทริป, จำนวนแผน, โมเดลที่ถูกประเมิน, ว่าปกปิดชื่อโมเดลหรือไม่
 
 --------------------------------------------------------------------------------
-3.9 ข้อจำกัดของการวิจัย (Limitations)
+3.9 ข้อจำกัดของวิธีวิจัย (Limitations of the Method)
 --------------------------------------------------------------------------------
 
-1. Dataset Scope: ชุดภาพทดสอบ Exp 1-5 ใช้ภาพจำนวนจำกัด (100 ภาพ) อาจไม่ครอบคลุมความหลากหลายของสถานที่ทั่วโลก
-2. Model Dependency: ระบบพึ่งพา Commercial LLM APIs ผ่าน OpenRouter ซึ่งมีการเปลี่ยนแปลง pricing และ model version อยู่เสมอ
-3. CLIP Model Version: ใช้ ViT-B/32 ซึ่งเป็นรุ่นขนาดกลาง อาจให้ embedding ที่ด้อยกว่ารุ่นใหญ่กว่า (ViT-L/14)
-4. Nature Images (Tier 3): ภาพธรรมชาติล้วนมีความแม่นยำต่ำทุกโมเดล (~30-50%) เนื่องจากขาด visual landmark เฉพาะตัว
-5. Human Evaluation Subjectivity: คะแนน Exp 6 ขึ้นกับผู้ประเมิน ซึ่งมีความ subjective ในการให้คะแนน
+เขียนเฉพาะข้อจำกัดวิธี ไม่ใส่ตัวเลขผลลัพธ์
+
+  1. ขนาดชุดภาพจำกัด และการชนกันของชื่อไฟล์
+     จำนวนรันใช้เป็นหน่วยวิเคราะห์หลัก ชื่อไฟล์ไม่ซ้ำน้อยกว่าจำนวนรันที่ออกแบบไว้
+  2. Exp 1 ขาด 1 รัน จากเซลล์ที่ออกแบบ 1,200 (anthropic-claude-sonnet5 × 30.jpg × P1)
+  3. Exp 3 คอลัมน์ No-CLIP ว่าง — ยังไม่มี paired A/B ครบใน CSV ชุดนี้
+  4. Exp 5 ใช้ 11 ชื่อไฟล์ และมีสองระดับ temperature; บางเซลล์รันเกิน 5 รอบ
+  5. Exp 6 ขึ้นกับผู้ประเมิน (อัตวิสัย)
+  6. ระบบพึ่งพา Commercial VLM ผ่าน OpenRouter รุ่นและราคาเปลี่ยนได้
+  7. CLIP เป็น ViT-B-32 ไม่ใช่รุ่นใหญ่กว่า (เช่น ViT-L/14) จึงจำกัดคุณภาพ embedding
+  8. Open-world re-ranking พึ่งรูปอ้างอิงจากบริการภายนอก หากดึงรูปไม่ได้คะแนน CLIP จะขาด
+  9. Alias matcher เป็น heuristic (เกณฑ์ 0.72) อาจนับถูก/ผิดคลาดในชื่อที่มีหลายภาษา
+  10. Exp 2, 4, 5 ใช้ prompt P2 ซึ่งคัดเลือกมาจาก Exp 1 ไม่ใช่ P1 ดังนั้น baseline ข้ามการทดลองต้องไม่สลับ paradigm โดยไม่บอก
 
 --------------------------------------------------------------------------------
-แนะนำลำดับการเขียน
+ภาคผนวกที่ควรเตรียมคู่บทที่ 3 (ไม่ต้องยาวในตัวบท)
 --------------------------------------------------------------------------------
+  ก. ข้อความเต็ม Prompt P1–P5
+  ข. รายการ alias ของ Ground Truth
+  ค. นิยามคะแนน 0–3 ของ Exp 3 และตัวอย่างการให้คะแนน
+  ง. รายข้อ rubric 20 ข้อของ Exp 6
+  จ. พจนานุกรมคอลัมน์ CSV (อ้าง experiment/reports/experiment_objectives_and_csv_schemas_summary.txt
+     เฉพาะส่วน schema ที่ตรงไฟล์จริง — ตัดชื่อโมเดลเก่าออก)
 
-3.1 → 3.2 → 3.3 → 3.4 (ลำดับ Exp1→Exp6) → 3.5 → 3.6 → 3.7 → 3.8 → 3.9
-
-[คำแนะนำ]
-- หัวข้อ 3.4 เป็นหัวใจของบท ควรเขียนละเอียดที่สุด โดยอธิบาย rationale ว่าทำไมถึงออกแบบแต่ละการทดลองแบบนั้น
-- ควร reference ตัวเลขจาก CSV จริงเพื่อความน่าเชื่อถือ เช่น "รัน 600 การทดลองจาก exp1_model_benchmark.csv"
+--------------------------------------------------------------------------------
+เช็กลิสต์ก่อนขยายเป็นต้นฉบับบทที่ 3
+--------------------------------------------------------------------------------
+  [ ] ชื่อโมเดลตรง OpenRouter ID
+  [ ] P1–P5 ตรง CANONICAL_VPR_PROMPTS และระบุว่า Exp 2/4/5 ใช้ P2 จากผล Exp 1
+  [ ] CLIP อธิบายเป็น re-ranking จากรูปอ้างอิง ไม่ใช่ Supabase vector store
+  [ ] Exp 4 เป็น 5 สภาวะภาพจริง ไม่ใช่ noise สังเคราะห์
+  [ ] ตาราง N แยกจำนวนรัน / ชื่อไฟล์ไม่ซ้ำ
+  [ ] Rubric Exp 6 เป็น 5 มิติตาม evaluationCriteria.ts
+  [ ] ไม่มีตัวเลข accuracy/คะแนนในบทที่ 3
+  [ ] RQ1–RQ6 สอดคล้องกับ Exp 1–6 (RQ1=Prompt, RQ2=Model, RQ3=Pipeline, RQ4=Robustness, RQ5=Consistency, RQ6=Plan)
+================================================================================

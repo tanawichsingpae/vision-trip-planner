@@ -119,5 +119,36 @@ describe("AI Poster Export Logic", () => {
     expect(prompt).toContain("Narita Airport");
     expect(prompt).toContain("Sensoji Temple");
     expect(prompt).toContain("Part 1 of 2");
+    // Verify mandatory location text contract & single linear layout
+    expect(prompt).toContain("CRITICAL MANDATORY REQUIREMENT - EVERY LOCATION MUST HAVE A VISIBLE TEXT NAME");
+    expect(prompt).toContain("Clean Single-Column Linear Vertical Timeline");
+    expect(prompt).toContain("TRIP DURATION: 5 DAYS (Part 1 of 2: Days 1-3)");
+  });
+
+  it("sanitizes generic placeholder activity names into descriptive titles", async () => {
+    const { sanitizeActivityName, deriveDayHighlight } = await import("@/lib/export/aiPosterPrompt");
+    expect(sanitizeActivityName("Bangkok City Landmark & Park", undefined, "landmark", "Bangkok")).toBe(
+      "Lumphini Park & Greenery"
+    );
+    expect(sanitizeActivityName("Street Food, Lunch near Bangkok Center", undefined, "food", "Bangkok")).toBe(
+      "Bangkok Street Food & Local Dining"
+    );
+    expect(sanitizeActivityName("วัดเบญจมบพิตรดุสิตวนารามราชวรวิหาร", "Wat Benchamabophit", "temple", "Bangkok")).toBe(
+      "วัดเบญจมบพิตรดุสิตวนาราม (Wat Benchamabophit)"
+    );
+
+
+    const testDay: ExportDay = {
+      day: 1,
+      date: "Fri 16 Oct",
+      title: "Day 1",
+      accentColor: "#e91e63",
+      activities: [
+        { index: 1, time: "10:00", name: "Wat Arun", category: "temple" },
+        { index: 2, time: "12:00", name: "Pad Thai Thatien", category: "food" },
+      ],
+    };
+    expect(deriveDayHighlight(testDay, "Bangkok")).toBe("Historic Temples & Authentic Street Food");
   });
 });
+

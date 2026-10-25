@@ -9,6 +9,7 @@ import { fetchSmartPhoto, getCuratedFallbackPhoto } from "@/services/photoServic
 import { type DayCluster, roundTimeToCleanMinutes, formatMinutesToTime, parseTimeToMinutes } from "@/api/spatialPlanner";
 import { hasThaiScript, translateTextSync } from "@/services/translatorService";
 import { type EnvironmentData } from "@/services/environmentService";
+import { getFallbackSuggestions, deduplicateItineraryActivities, normalizePlaceKey } from "@/data/fallbackPlaces";
 
 const GEOAPIFY_API_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY;
 validateApiKey(GEOAPIFY_API_KEY, "Geoapify");
@@ -250,6 +251,14 @@ ACADEMIC OPTIMIZATION & TRIP OVERVIEW REVIEW (TTDP & OPTW STANDARDS):
    - All activity start times MUST be clean, round numbers (e.g. "09:00", "09:30", "10:00", "10:15", "10:30", "11:00", "11:30", "12:00", "13:30", "14:00", "14:30", "15:00", "16:30", "17:00", "18:00", "18:30", "19:00", "20:00", or clean 15-minute intervals ending in :00, :15, :30, :45).
    - STRICTLY NEVER output awkward odd minute fractions such as "11:36", "10:17", "13:23", "14:41", "16:38", "18:08"!
    - If any activity in the current itinerary has unrounded times or odd minutes (like 11:36), AI Review MUST round and adjust all activity times into clean, round figures while maintaining non-decreasing chronological order and comfortable visit dwell times.
+17. STRICT ZERO DUPLICATES RULE (INTRA-DAY & CROSS-DAY - CRITICAL & MANDATORY):
+   - Every single scheduled activity across all days MUST be a unique, distinct venue.
+   - It is STRICTLY FORBIDDEN to schedule the same place twice anywhere in the trip (neither within the same day nor across different days).
+   - A venue visited on Day 1 CANNOT be scheduled on Day 2, Day 3, or any later day.
+18. MINIMIZE GENERIC ZONE PLACES (CONCRETE REAL VENUES ONLY):
+   - Sightseeing, culture, nature, and landmark activities MUST be concrete, specific, named real-world venues (e.g. 'Wat Pho', 'Museum Siam', 'Jim Thompson House', 'Lumphini Park', 'Raan Jay Fai').
+   - DO NOT generate vague zone descriptions or placeholders like 'City Landmark & Park', 'Cultural Center & Heritage', or 'Downtown Sightseeing Area'. These make the trip feel aimless.
+   - Limit street food exploration zones to at most 1 meal per day (e.g. for lunch or dinner). All other stops must be concrete, specific POIs.
 
 Return ONLY the refined itinerary strictly in this JSON format:
 {
@@ -376,7 +385,8 @@ ${currentItinerary.map((d, idx) => `    {
         }
       }
 
-      return refinedDays;
+      const targetCity = (preferences as any)?.destination || currentItinerary[0]?.activities[0]?.title || "Bangkok";
+      return deduplicateItineraryActivities(refinedDays, targetCity);
     } else if (parsed && Array.isArray(parsed.itinerary)) {
       console.warn(`[refineItineraryWithAI] AI dropped days (got ${parsed.itinerary.length}, expected ${currentItinerary.length}). Preserving original multi-day itinerary.`);
     }
@@ -1270,7 +1280,15 @@ ${places.map((p, idx) => `     * Place ${idx + 1}: "${p}"`).join("\n")}
   16. CLEAN ROUNDED SCHEDULING TIMES (ตัวเลขเวลากลมๆ - CRITICAL & MANDATORY):
       - All activity start times MUST be clean, round numbers (e.g. 09:00, 09:30, 10:00, 10:15, 10:30, 11:00, 11:30, 12:00, 13:30, 14:00, 14:30, 15:00, 16:30, 17:00, 18:00, 18:30, 19:00, 20:00, or clean 15-minute intervals ending in :00, :15, :30, :45).
       - STRICTLY NEVER output awkward odd minute fractions such as 11:36, 10:17, 13:23, 14:41, 16:38, 18:08!
-
+  17. STRICT ZERO DUPLICATES RULE (INTRA-DAY & CROSS-DAY - CRITICAL & MANDATORY):
+      - Every single activity in the entire ${totalDays}-day trip MUST BE A UNIQUE, DISTINCT PLACE.
+      - STRICTLY NO REPEATING VENUES: You are STRICTLY FORBIDDEN from scheduling the same place more than once anywhere in the trip.
+      - A venue visited on Day 1 CANNOT be scheduled on Day 2, Day 3, or any later day.
+      - A venue CANNOT appear twice on the same day (e.g. NEVER schedule Wat Arun twice on Day 1).
+  18. MINIMIZE GENERIC ZONE PLACES (CONCRETE REAL VENUES ONLY):
+      - Sightseeing, culture, nature, and landmark activities MUST be concrete, specific, named real-world venues (e.g. 'Wat Pho', 'Museum Siam', 'Jim Thompson House', 'Lumphini Park', 'Raan Jay Fai').
+      - DO NOT generate vague zone descriptions or placeholders like 'City Landmark & Park', 'Cultural Center & Heritage', or 'Downtown Sightseeing Area' as activities. These make the trip feel aimless.
+      - Limit street food exploration zones to at most 1 meal per day (e.g. for lunch or dinner). All other stops must be concrete, specific POIs.
 
   Return the response strictly in JSON format matching this schema:
   {
@@ -1403,15 +1421,19 @@ ${daySchemaExamples}
       }
     }
 
-    // Phase 2: Backfill any day that still has fewer than 3 activities using suggestions or curated anchors
+    // Phase 2: Backfill any day that still has fewer than 3 activities using unique suggestions or curated authentic places
     const defaultTimes = ["09:30", "12:00", "14:30", "18:30", "20:00"];
     const suggestionsPool = Array.isArray(parsed.suggestions) ? [...parsed.suggestions] : [];
-    const curatedAnchors = [
-      { title: `${destinationCity} Cultural Center & Heritage`, type: "culture", desc: `Visit iconic cultural landmarks and historic sites in ${destinationCity}` },
-      { title: `Street Food, Lunch near ${destinationCity} Center`, type: "food", desc: `Savor famous local delicacies and authentic street food specialties in ${destinationCity}` },
-      { title: `${destinationCity} City Landmark & Park`, type: "landmark", desc: `Relax and take photos at famous local landmarks in ${destinationCity}` },
-      { title: `${destinationCity} Night Market & Evening Dining`, type: "nightlife", desc: `Explore vibrant night market and evening street food in ${destinationCity}` }
-    ];
+    const fallbackPool = getFallbackSuggestions(destinationCity);
+
+    // Track used place keys across all days to guarantee ZERO duplicates cross-day
+    const usedPlaceKeys = new Set<string>();
+    for (const d of parsed.itinerary) {
+      for (const a of d.activities || []) {
+        const k = normalizePlaceKey(a.title || a.name);
+        if (k) usedPlaceKeys.add(k);
+      }
+    }
 
     for (let dIdx = 0; dIdx < parsed.itinerary.length; dIdx++) {
       const day = parsed.itinerary[dIdx];
@@ -1419,8 +1441,12 @@ ${daySchemaExamples}
 
       while (day.activities.length < 3) {
         let newAct: any = null;
-        const sug = suggestionsPool.shift();
-        if (sug) {
+
+        // Try to find an unused suggestion from pool
+        const sugIdx = suggestionsPool.findIndex(s => !usedPlaceKeys.has(normalizePlaceKey(s.name)));
+        if (sugIdx >= 0) {
+          const sug = suggestionsPool.splice(sugIdx, 1)[0];
+          usedPlaceKeys.add(normalizePlaceKey(sug.name));
           newAct = {
             time: defaultTimes[tOffset % defaultTimes.length],
             title: sug.name,
@@ -1434,19 +1460,28 @@ ${daySchemaExamples}
             openingHours: sug.openingHours || null,
           };
         } else {
-          const anchor = curatedAnchors[tOffset % curatedAnchors.length];
-          newAct = {
-            time: defaultTimes[tOffset % defaultTimes.length],
-            title: anchor.title,
-            english_name: anchor.title,
-            description: anchor.desc,
-            type: anchor.type,
-            lat: 0,
-            lng: 0,
-          };
+          // Find an unused authentic place from fallbackPool
+          const fb = fallbackPool.find(f => !usedPlaceKeys.has(normalizePlaceKey(f.name)));
+          if (fb) {
+            usedPlaceKeys.add(normalizePlaceKey(fb.name));
+            newAct = {
+              time: defaultTimes[tOffset % defaultTimes.length],
+              title: fb.name,
+              english_name: fb.english_name || fb.name,
+              description: fb.description,
+              type: fb.category || "landmark",
+              lat: fb.lat || 0,
+              lng: fb.lng || 0,
+            };
+          }
         }
-        day.activities.push(newAct);
-        tOffset++;
+
+        if (newAct) {
+          day.activities.push(newAct);
+          tOffset++;
+        } else {
+          break;
+        }
       }
 
       // Re-sequence times cleanly if missing or awkward
@@ -1456,6 +1491,9 @@ ${daySchemaExamples}
         }
       });
     }
+
+    // Apply strict intra-day and cross-day deduplication and zone place minimization
+    parsed.itinerary = deduplicateItineraryActivities(parsed.itinerary, destinationCity);
   }
 
   return await formatResponse(parsed, destinationCity, destinationCountry);

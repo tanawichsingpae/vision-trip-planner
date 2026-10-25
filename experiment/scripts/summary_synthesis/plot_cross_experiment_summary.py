@@ -36,40 +36,48 @@ def generate_cross_summary_plots():
     # Fig 1: Comprehensive Model Benchmark Ranking Matrix (All Exp 1-5)
     # -------------------------------------------------------------
     # Load and aggregate data from all experiments
-    # Exp 1: Baseline Acc, Latency, Cost
-    f1 = os.path.join(BASE_DIR, 'exp1_model_benchmark.csv')
+    def resolve_path(primary, fallback=None):
+        p = os.path.join(BASE_DIR, primary)
+        if os.path.exists(p):
+            return p
+        if fallback and os.path.exists(os.path.join(BASE_DIR, fallback)):
+            return os.path.join(BASE_DIR, fallback)
+        return p
+
+    # Exp 1: Prompt Sensitivity & Stability (Average across all 5 Prompts)
+    f1 = resolve_path('exp1_prompt_sensitivity.csv', 'exp4_prompt_sensitivity.csv')
     df1 = pd.read_csv(f1)
-    df1['is_correct_bool'] = df1['Is Correct'].astype(str).str.lower().isin(['true', '1'])
     df1['Model_Label'] = df1['Model'].map(lambda x: MODEL_LABELS_MAP.get(x, x))
-    exp1_stats = df1.groupby('Model_Label').agg(
-        Exp1_Accuracy=('is_correct_bool', lambda x: x.mean() * 100),
+    df1['is_correct_bool'] = df1['Is Correct'].astype(str).str.lower().isin(['true', '1'])
+    exp1_stats = df1.groupby('Model_Label')['is_correct_bool'].mean() * 100
+    exp1_stats.name = 'Exp1_Prompt_Mean'
+
+    # Exp 2: Baseline Acc, Latency, Cost (Model Benchmark)
+    f2 = resolve_path('exp2_model_benchmark.csv', 'exp1_model_benchmark.csv')
+    df2 = pd.read_csv(f2)
+    df2['is_correct_bool'] = df2['Is Correct'].astype(str).str.lower().isin(['true', '1'])
+    df2['Model_Label'] = df2['Model'].map(lambda x: MODEL_LABELS_MAP.get(x, x))
+    exp2_stats = df2.groupby('Model_Label').agg(
+        Exp2_Accuracy=('is_correct_bool', lambda x: x.mean() * 100),
         Cost_Per_1k=('Cost USD', lambda x: x.mean() * 1000.0),
         Mean_Latency_Sec=('Time MS', lambda x: (x / 1000.0).mean())
     )
 
-    # Exp 2: Top-3 Candidate Recall
-    f2 = os.path.join(BASE_DIR, 'exp2_pipeline_comparison.csv')
-    df2 = pd.read_csv(f2)
-    df2['Model_Label'] = df2['Model'].map(lambda x: MODEL_LABELS_MAP.get(x, x))
-    df2['Top_3_Recall_bool'] = df2['Top 3 Recall'].astype(str).str.lower().isin(['true', '1'])
-    exp2_stats = df2.groupby('Model_Label')['Top_3_Recall_bool'].mean() * 100
-    exp2_stats.name = 'Exp2_Top3_Recall'
-
-    # Exp 3: Stress Condition Retention Rate
-    f3 = os.path.join(BASE_DIR, 'exp3_robustness.csv')
+    # Exp 3: Top-3 Candidate Recall (Two-Turn Pipeline)
+    f3 = resolve_path('exp3_pipeline_comparison.csv', 'exp2_pipeline_comparison.csv')
     df3 = pd.read_csv(f3)
     df3['Model_Label'] = df3['Model'].map(lambda x: MODEL_LABELS_MAP.get(x, x))
-    df3['is_correct_bool'] = df3['Is Correct'].astype(str).str.lower().isin(['true', '1'])
-    exp3_stats = df3.groupby('Model_Label')['is_correct_bool'].mean() * 100
-    exp3_stats.name = 'Exp3_Robustness'
+    df3['Top_3_Recall_bool'] = df3['Top 3 Recall'].astype(str).str.lower().isin(['true', '1'])
+    exp3_stats = df3.groupby('Model_Label')['Top_3_Recall_bool'].mean() * 100
+    exp3_stats.name = 'Exp3_Top3_Recall'
 
-    # Exp 4: Prompt Stability (Average across all 5 Prompts)
-    f4 = os.path.join(BASE_DIR, 'exp4_prompt_sensitivity.csv')
+    # Exp 4: Stress Condition Retention Rate (Environmental Robustness)
+    f4 = resolve_path('exp4_robustness.csv', 'exp3_robustness.csv')
     df4 = pd.read_csv(f4)
     df4['Model_Label'] = df4['Model'].map(lambda x: MODEL_LABELS_MAP.get(x, x))
     df4['is_correct_bool'] = df4['Is Correct'].astype(str).str.lower().isin(['true', '1'])
     exp4_stats = df4.groupby('Model_Label')['is_correct_bool'].mean() * 100
-    exp4_stats.name = 'Exp4_Prompt_Mean'
+    exp4_stats.name = 'Exp4_Robustness'
 
     # Exp 5: Strict Consistency Rate at T=0.1
     f5 = os.path.join(BASE_DIR, 'exp5_consistency.csv')
@@ -85,14 +93,14 @@ def generate_cross_summary_plots():
 
     # Combine all dimensions into a master summary dataframe
     summary_df = pd.concat([exp1_stats, exp2_stats, exp3_stats, exp4_stats, exp5_stats], axis=1)
-    summary_df = summary_df.sort_values('Exp1_Accuracy', ascending=False)
+    summary_df = summary_df.sort_values('Exp2_Accuracy', ascending=False)
 
     # Rename columns for clear publication presentation
     col_labels = {
-        'Exp1_Accuracy': 'Exp 1: Baseline Acc (%)',
-        'Exp2_Top3_Recall': 'Exp 2: Fallback Top-3 (%)',
-        'Exp3_Robustness': 'Exp 3: Robustness Acc (%)',
-        'Exp4_Prompt_Mean': 'Exp 4: Prompt Stability (%)',
+        'Exp1_Prompt_Mean': 'Exp 1: Prompt Stability (%)',
+        'Exp2_Accuracy': 'Exp 2: Baseline Acc (%)',
+        'Exp3_Top3_Recall': 'Exp 3: Fallback Top-3 (%)',
+        'Exp4_Robustness': 'Exp 4: Robustness Acc (%)',
         'Exp5_Consistency': 'Exp 5: Consistency @ T=0.1 (%)',
         'Cost_Per_1k': 'Cost ($/1k Queries)',
         'Mean_Latency_Sec': 'Mean Latency (Sec)'
@@ -138,8 +146,14 @@ def generate_cross_summary_plots():
     # Fig 2: Total Time MS vs Generation Time MS by Provider
     # -------------------------------------------------------------
     dfs_lat = []
-    for f_name in ['exp1_model_benchmark.csv', 'exp2_pipeline_comparison.csv', 'exp3_robustness.csv', 'exp4_prompt_sensitivity.csv', 'exp5_consistency.csv']:
-        p = os.path.join(BASE_DIR, f_name)
+    for f_name, fb_name in [
+        ('exp1_prompt_sensitivity.csv', 'exp4_prompt_sensitivity.csv'),
+        ('exp2_model_benchmark.csv', 'exp1_model_benchmark.csv'),
+        ('exp3_pipeline_comparison.csv', 'exp2_pipeline_comparison.csv'),
+        ('exp4_robustness.csv', 'exp3_robustness.csv'),
+        ('exp5_consistency.csv', None)
+    ]:
+        p = resolve_path(f_name, fb_name)
         if os.path.exists(p):
             sub = pd.read_csv(p)
             needed = ['Time MS', 'Generation Time MS', 'Provider Name', 'Model']

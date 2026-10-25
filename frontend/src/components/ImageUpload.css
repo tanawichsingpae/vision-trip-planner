@@ -1,0 +1,982 @@
+/* ─── Pixinerary ImageUpload Styles (Aperture Lens & Polaroid Scrapbook Experience) ─── */
+
+/* ── Pixo Mascot Companion on Dropzone ── */
+.pixo-upload-companion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-bottom: 0px;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pixo-upload-companion.compact .pixo-mascot-avatar {
+  width: 28px;
+  height: 28px;
+  border-width: 2px;
+}
+
+.pixo-upload-companion.compact .pixo-mini-shutter {
+  width: 14px;
+  height: 14px;
+}
+
+.pixo-upload-companion.compact .pixo-upload-bubble {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 10px;
+}
+
+.pixo-mascot-avatar {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2.5px solid #fff;
+  box-shadow: 0 4px 14px rgba(18, 108, 120, 0.25);
+  background: #fbf9f4;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.pixo-mascot-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.pixo-mini-shutter {
+  position: absolute;
+  bottom: -2px;
+  right: -3px;
+  background: #ff8c72;
+  color: #fff;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid #fff;
+  box-shadow: 0 2px 6px rgba(255, 140, 114, 0.5);
+}
+
+.pixo-upload-bubble {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(18, 108, 120, 0.2);
+  color: #125761;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(18, 108, 120, 0.08);
+  backdrop-filter: blur(8px);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dark .pixo-upload-bubble {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(56, 189, 248, 0.25);
+  color: #e2e8f0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.pixo-upload-bubble .bubble-arrow {
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: 5px 6px 5px 0;
+  border-style: solid;
+  border-color: transparent rgba(255, 255, 255, 0.95) transparent transparent;
+}
+
+.dark .pixo-upload-bubble .bubble-arrow {
+  border-color: transparent rgba(15, 23, 42, 0.92) transparent transparent;
+}
+
+/* ── Magnetic Holographic Dropzone ── */
+.aperture-dropzone {
+  position: relative;
+  border-radius: 20px;
+  border: 2px dashed rgba(18, 108, 120, 0.25);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.85) 0%, rgba(240, 249, 250, 0.65) 100%);
+  backdrop-filter: blur(12px);
+  padding: 14px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 6px 20px rgba(18, 108, 120, 0.05);
+}
+
+.dark .aperture-dropzone {
+  border-color: rgba(56, 189, 248, 0.25);
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.75) 0%, rgba(30, 41, 59, 0.5) 100%);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.aperture-dropzone:hover {
+  border-color: #2ea3ad;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(230, 246, 248, 0.85) 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px rgba(18, 108, 120, 0.12);
+}
+
+.dark .aperture-dropzone:hover {
+  border-color: #38bdf8;
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
+  box-shadow: 0 16px 36px rgba(56, 189, 248, 0.15);
+}
+
+/* Drag-Active Magnetic Aura */
+.aperture-dropzone.is-drag-active {
+  transform: scale(1.02);
+  border-style: solid;
+  border-color: transparent;
+  background: linear-gradient(145deg, rgba(240, 253, 250, 0.98), rgba(224, 242, 254, 0.95));
+  box-shadow: 0 0 0 4px rgba(46, 163, 173, 0.25), 0 20px 45px rgba(46, 163, 173, 0.25);
+}
+
+.dark .aperture-dropzone.is-drag-active {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(8, 47, 73, 0.85));
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.35), 0 20px 45px rgba(56, 189, 248, 0.3);
+}
+
+.aperture-dropzone.is-drag-active::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 30px;
+  background: conic-gradient(from 0deg, #38ef7d, #00d2ff, #ff8c72, #38ef7d);
+  z-index: -1;
+  animation: auroraSpin 3s linear infinite;
+}
+
+@keyframes auroraSpin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Center Lens Icon Wrap */
+.lens-aperture-wrap {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, rgba(46, 163, 173, 0.15), rgba(255, 140, 114, 0.15));
+  border: 1px solid rgba(46, 163, 173, 0.25);
+  display: grid;
+  place-items: center;
+  color: #176873;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+}
+
+.dark .lens-aperture-wrap {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.aperture-dropzone:hover .lens-aperture-wrap {
+  transform: scale(1.08) rotate(6deg);
+}
+
+.aperture-dropzone.is-drag-active .lens-aperture-wrap {
+  transform: scale(1.15) rotate(14deg);
+  background: #176873;
+  color: #fff;
+}
+
+/* Dropzone Action Buttons */
+.dropzone-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+  z-index: 15;
+}
+
+.dropzone-btn-primary {
+  background: linear-gradient(135deg, #176873, #2ea3ad);
+  color: #fff;
+  border: none;
+  border-radius: 11px;
+  padding: 5px 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(23, 104, 115, 0.2);
+  transition: all 0.2s ease;
+}
+
+.dropzone-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(23, 104, 115, 0.3);
+}
+
+.dropzone-btn-surprise {
+  background: linear-gradient(135deg, #ff8c72, #f56d4e);
+  color: #fff;
+  border: none;
+  border-radius: 11px;
+  padding: 5px 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(255, 140, 114, 0.25);
+  transition: all 0.2s ease;
+}
+
+.dropzone-btn-surprise:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 5px 14px rgba(255, 140, 114, 0.35);
+}
+
+/* ══════════════════════════════════════════════════════
+   ── TRAVELWISH STANDALONE CARD (Prominent & Clickable) ──
+   ══════════════════════════════════════════════════════ */
+.travelwish-standalone-card {
+  position: relative;
+  border-radius: 16px;
+  border: 1.5px solid rgba(244, 114, 182, 0.4);
+  background: linear-gradient(135deg, rgba(255, 245, 249, 0.95) 0%, rgba(253, 244, 255, 0.88) 50%, rgba(245, 243, 255, 0.92) 100%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 9px 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(236, 72, 153, 0.06);
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.dark .travelwish-standalone-card {
+  border-color: rgba(244, 114, 182, 0.28);
+  background: linear-gradient(135deg, rgba(46, 16, 32, 0.75) 0%, rgba(35, 18, 48, 0.65) 50%, rgba(20, 24, 48, 0.7) 100%);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
+}
+
+.travelwish-standalone-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(244, 114, 182, 0.7);
+  box-shadow: 0 12px 32px rgba(236, 72, 153, 0.16);
+}
+
+.dark .travelwish-standalone-card:hover {
+  border-color: rgba(244, 114, 182, 0.5);
+  box-shadow: 0 12px 32px rgba(236, 72, 153, 0.22);
+}
+
+.travelwish-card-glow {
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(244, 114, 182, 0.25) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.travelwish-card-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.travelwish-card-info {
+  flex: 1;
+  min-width: 260px;
+}
+
+.travelwish-card-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.travelwish-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(253, 231, 240, 0.95);
+  color: #be185d;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 99px;
+  border: 1px solid rgba(244, 114, 182, 0.4);
+}
+
+.dark .travelwish-pill-badge {
+  background: rgba(131, 24, 67, 0.4);
+  color: #f472b6;
+  border-color: rgba(244, 114, 182, 0.3);
+}
+
+.travelwish-sub-badge {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #db2777;
+}
+
+.dark .travelwish-sub-badge {
+  color: #f472b6;
+}
+
+.travelwish-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.4;
+  margin: 0 0 4px;
+}
+
+.dark .travelwish-card-title {
+  color: #f1f5f9;
+}
+
+.travelwish-gradient-text {
+  background: linear-gradient(135deg, #db2777, #9333ea);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 800;
+}
+
+.travelwish-card-desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.dark .travelwish-card-desc {
+  color: #94a3b8;
+}
+
+.travelwish-card-action {
+  flex-shrink: 0;
+}
+
+.travelwish-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #ec4899 0%, #d946ef 100%);
+  color: #ffffff !important;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 11px;
+  text-decoration: none;
+  box-shadow: 0 3px 10px rgba(236, 72, 153, 0.3);
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  cursor: pointer;
+}
+
+.travelwish-cta-btn:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 8px 20px rgba(236, 72, 153, 0.45);
+  background: linear-gradient(135deg, #f43f5e 0%, #d946ef 100%);
+}
+
+.travelwish-cta-btn svg {
+  transition: transform 0.2s ease;
+}
+
+.travelwish-cta-btn:hover svg {
+  transform: translate(2px, -2px);
+}
+
+@media (max-width: 640px) {
+  .travelwish-standalone-card {
+    padding: 16px;
+  }
+  .travelwish-card-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .travelwish-card-action {
+    width: 100%;
+  }
+  .travelwish-cta-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   ── INSPIRATION FILMSTRIP (25 Real Landmarks) ──
+   ══════════════════════════════════════════════════════ */
+.filmstrip-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.filmstrip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filmstrip-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #174b54;
+}
+
+.dark .filmstrip-title-row {
+  color: #e2e8f0;
+}
+
+/* Mood Filter Tabs */
+.mood-filter-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.mood-tab {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(18, 108, 120, 0.15);
+  border-radius: 99px;
+  padding: 4px 11px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #557980;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dark .mood-tab {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+}
+
+.mood-tab:hover {
+  background: rgba(255, 255, 255, 0.95);
+  color: #176873;
+}
+
+.dark .mood-tab:hover {
+  background: rgba(51, 65, 85, 0.9);
+  color: #38bdf8;
+}
+
+.mood-tab.is-active {
+  background: #176873;
+  color: #fff;
+  border-color: #176873;
+  box-shadow: 0 2px 8px rgba(23, 104, 115, 0.25);
+}
+
+.dark .mood-tab.is-active {
+  background: #0284c7;
+  color: #fff;
+  border-color: #0284c7;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
+}
+
+/* Filmstrip Track (Horizontal Scroll) */
+.filmstrip-scroll-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.filmstrip-track {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  padding: 6px 4px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(46, 163, 173, 0.3) transparent;
+}
+
+.filmstrip-track::-webkit-scrollbar {
+  height: 6px;
+}
+
+.filmstrip-track::-webkit-scrollbar-thumb {
+  background: rgba(46, 163, 173, 0.3);
+  border-radius: 99px;
+}
+
+/* Filmstrip Card */
+.filmstrip-card {
+  flex: 0 0 126px;
+  position: relative;
+  border-radius: 13px;
+  overflow: hidden;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(18, 108, 120, 0.07);
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+  text-align: left;
+}
+
+.dark .filmstrip-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.filmstrip-card:hover {
+  transform: translateY(-3px) scale(1.02);
+  border-color: #ff8c72;
+  box-shadow: 0 8px 18px rgba(255, 140, 114, 0.22);
+}
+
+.filmstrip-img-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 11;
+  overflow: hidden;
+}
+
+.filmstrip-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s ease;
+}
+
+.filmstrip-card:hover .filmstrip-img-wrap img {
+  transform: scale(1.1);
+}
+
+.filmstrip-badge {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  background: rgba(14, 55, 62, 0.8);
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 1.5px 5px;
+  border-radius: 99px;
+  backdrop-filter: blur(4px);
+}
+
+.filmstrip-info {
+  padding: 5px 8px 6px;
+}
+
+.filmstrip-info h5 {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #174249;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .filmstrip-info h5 {
+  color: #f1f5f9;
+}
+
+.filmstrip-info p {
+  margin: 2px 0 0;
+  font-size: 10px;
+  color: #64868e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .filmstrip-info p {
+  color: #94a3b8;
+}
+
+/* ══════════════════════════════════════════════════════
+   ── POLAROID SCRAPBOOK PREVIEW (When images uploaded) ──
+   ══════════════════════════════════════════════════════ */
+.polaroid-scrapbook-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 16px;
+  padding: 10px 6px;
+}
+
+.polaroid-card {
+  position: relative;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 8px 8px 24px 8px;
+  box-shadow: 0 8px 24px rgba(18, 108, 120, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+  transform: rotate(var(--polaroid-angle, 0deg));
+}
+
+.dark .polaroid-card {
+  background: #1e293b;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.polaroid-card:hover {
+  transform: rotate(0deg) scale(1.05) translateY(-4px) !important;
+  z-index: 10;
+  box-shadow: 0 16px 36px rgba(18, 108, 120, 0.22);
+}
+
+/* Washi Tape / Pushpin on Top of Polaroid */
+.washi-tape {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 48px;
+  height: 14px;
+  background: rgba(255, 218, 185, 0.85);
+  border-left: 1px dashed rgba(200, 160, 120, 0.4);
+  border-right: 1px dashed rgba(200, 160, 120, 0.4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.polaroid-photo-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0f2e34;
+}
+
+.polaroid-photo-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: photoDevelop 0.6s ease forwards;
+}
+
+@keyframes photoDevelop {
+  0% {
+    filter: brightness(1.8) contrast(0.7) blur(2px);
+    opacity: 0.6;
+  }
+
+  100% {
+    filter: brightness(1) contrast(1) blur(0);
+    opacity: 1;
+  }
+}
+
+/* Laser Scan Sweep Beam across photo */
+.polaroid-laser-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #38ef7d, #fff, #38ef7d, transparent);
+  box-shadow: 0 0 8px #38ef7d;
+  animation: laserScanDown 1.8s ease-in-out infinite alternate;
+  z-index: 4;
+}
+
+@keyframes laserScanDown {
+  0% {
+    top: 4px;
+  }
+
+  100% {
+    top: 92%;
+  }
+}
+
+.polaroid-caption {
+  position: absolute;
+  bottom: 6px;
+  left: 10px;
+  right: 10px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  color: #4b6f76;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+.dark .polaroid-caption {
+  color: #94a3b8;
+}
+
+/* Delete button on hover */
+.polaroid-remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.85);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s;
+  z-index: 6;
+}
+
+.polaroid-card:hover .polaroid-remove-btn {
+  opacity: 1;
+}
+
+.polaroid-remove-btn:hover {
+  background: #ef4444;
+}
+
+/* ══════════════════════════════════════════════════════
+   ── STAGED PHOTOS UPLOAD BOX (Pre-Upload Queue Hub) ──
+   ══════════════════════════════════════════════════════ */
+.staged-dropzone {
+  cursor: default !important;
+  align-items: stretch !important;
+  padding: 12px 16px !important;
+  gap: 8px !important;
+}
+
+.staged-thumbnails-grid {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 4px 2px 6px 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.4) transparent;
+}
+
+.staged-thumbnails-grid::-webkit-scrollbar {
+  height: 5px;
+}
+
+.staged-thumbnails-grid::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.35);
+  border-radius: 999px;
+}
+
+.staged-thumb-card {
+  flex: 0 0 74px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.staged-thumb-img-wrap {
+  width: 74px;
+  height: 74px;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  border: 1.5px solid rgba(18, 108, 120, 0.2);
+  background: #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s;
+}
+
+.dark .staged-thumb-img-wrap {
+  border-color: rgba(56, 189, 248, 0.25);
+  background: #1e293b;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.staged-thumb-card:hover .staged-thumb-img-wrap {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(18, 108, 120, 0.15);
+}
+
+.staged-thumb-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.staged-thumb-index {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 6px;
+  line-height: 1.2;
+}
+
+.staged-thumb-remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.9);
+  color: #fff;
+  border: none;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.2s, transform 0.2s, background 0.2s;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+}
+
+.staged-thumb-card:hover .staged-thumb-remove-btn {
+  opacity: 1;
+}
+
+.staged-thumb-remove-btn:hover {
+  background: #dc2626;
+  transform: scale(1.12);
+}
+
+.staged-thumb-name {
+  font-size: 10px;
+  color: var(--muted-foreground, #64748b);
+  max-width: 74px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.staged-add-slot {
+  flex: 0 0 74px;
+  height: 74px;
+  border-radius: 12px;
+  border: 1.5px dashed rgba(56, 189, 248, 0.55);
+  background: rgba(240, 249, 255, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dark .staged-add-slot {
+  background: rgba(8, 47, 73, 0.25);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.staged-add-slot:hover {
+  border-color: #0284c7;
+  background: rgba(224, 242, 254, 0.85);
+  transform: translateY(-2px);
+}
+
+.dark .staged-add-slot:hover {
+  background: rgba(8, 47, 73, 0.45);
+  border-color: #38bdf8;
+}
+
+.staged-add-slot-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.staged-launch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f766e 100%);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 8px 22px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.3);
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.staged-launch-btn:hover {
+  transform: translateY(-1.5px) scale(1.01);
+  box-shadow: 0 6px 22px rgba(2, 132, 199, 0.42);
+  background: linear-gradient(135deg, #0369a1 0%, #0284c7 50%, #14b8a6 100%);
+}
+
+.staged-launch-btn:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+@keyframes spinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spinSlow 6s linear infinite;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .aperture-dropzone {
+    padding: 24px 16px;
+  }
+
+  .staged-dropzone {
+    padding: 10px 12px !important;
+  }
+
+  .filmstrip-card {
+    flex: 0 0 132px;
+  }
+
+  .polaroid-scrapbook-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

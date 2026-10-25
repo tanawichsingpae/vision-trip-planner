@@ -305,7 +305,7 @@ export default function Exp3RobustnessTest() {
 
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/results_exp3`);
+      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/results_exp4`);
       if (res.ok) {
         const data = await res.json();
         const mapped = (data.results || []).map((row: any) => ({
@@ -517,7 +517,7 @@ export default function Exp3RobustnessTest() {
     };
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/save_exp3`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080"}/experiment/save_exp4`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -529,7 +529,7 @@ export default function Exp3RobustnessTest() {
         setCurrentResults([]);
       }
     } catch (e) {
-      toast.error("Failed to save Exp3 results.");
+      toast.error("Failed to save Exp4 results.");
     }
   };
 

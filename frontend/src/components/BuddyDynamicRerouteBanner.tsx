@@ -186,31 +186,70 @@ export const BuddyDynamicRerouteBanner: React.FC<BuddyDynamicRerouteBannerProps>
 
       {/* Proposal Action Area */}
       {proposal.type === "SWAP" && proposal.toActivityTitle && (
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
-          {/* Visual Swap Preview */}
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground overflow-x-auto py-1">
-            <span className="font-medium text-foreground px-2 py-1 rounded-md bg-muted/80 truncate max-w-[130px] border border-border/40">
-              {proposal.fromActivityTitle}
-            </span>
-            <ArrowLeftRight className="size-3 text-amber-500 shrink-0 animate-pulse" />
-            <span className="font-medium text-primary px-2 py-1 rounded-md bg-primary/10 border border-primary/20 truncate max-w-[130px]">
-              {proposal.toActivityTitle}
-            </span>
+        <div className="space-y-2.5 pt-1">
+          {/* Visual Route Swap Comparison Box */}
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 dark:bg-amber-950/20 p-2.5 sm:p-3">
+            <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-200 mb-2 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <ArrowLeftRight className="size-3.5 text-amber-500" />
+                {isTh ? "เปรียบเทียบการสลับลำดับสถานที่:" : "Route Swap Comparison:"}
+              </span>
+              {proposal.timeSavedMinutes && (
+                <span className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded-md font-medium shrink-0">
+                  {isTh ? `ประหยัดเวลา ~${proposal.timeSavedMinutes} นาที` : `Save ~${proposal.timeSavedMinutes}m`}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              {/* Original place */}
+              <div className="flex-1 min-w-0 bg-background/90 dark:bg-slate-900/80 p-2 sm:p-2.5 rounded-lg border border-border/60 shadow-2xs">
+                <div className="text-[10px] font-medium text-muted-foreground mb-1 flex items-center gap-1">
+                  <span className="size-1.5 rounded-full bg-slate-400" />
+                  {isTh ? "ลำดับเดิม (รถติด/เสียเวลา)" : "Original Order"}
+                </div>
+                <div 
+                  className="font-medium text-xs text-foreground leading-snug break-words"
+                  title={proposal.fromActivityTitle}
+                >
+                  {proposal.fromActivityTitle}
+                </div>
+              </div>
+
+              {/* Swap arrow icon */}
+              <div className="shrink-0 flex items-center justify-center py-0.5 sm:py-0">
+                <div className="size-7 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-2xs">
+                  <ArrowLeftRight className="size-3.5 animate-pulse rotate-90 sm:rotate-0" />
+                </div>
+              </div>
+
+              {/* To place */}
+              <div className="flex-1 min-w-0 bg-amber-500/10 dark:bg-amber-950/30 p-2 sm:p-2.5 rounded-lg border border-amber-500/30 shadow-2xs">
+                <div className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 mb-1 flex items-center gap-1">
+                  <span className="size-1.5 rounded-full bg-amber-500" />
+                  {isTh ? "สลับไปก่อน (ทางคล่องตัวกว่า)" : "Recommended First"}
+                </div>
+                <div 
+                  className="font-semibold text-xs text-foreground dark:text-amber-100 leading-snug break-words"
+                  title={proposal.toActivityTitle}
+                >
+                  {proposal.toActivityTitle}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Action Button */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center justify-end">
             <Button
               type="button"
               size="sm"
               onClick={handleApplySwap}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-medium text-xs px-3 py-1.5 h-8 rounded-xl shadow-xs transition-transform active:scale-95 flex items-center gap-1.5 cursor-pointer"
+              className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-medium text-xs px-4 py-2 h-9 rounded-xl shadow-xs transition-transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
             >
               <ArrowLeftRight className="size-3.5" />
               <span>
-                {isTh
-                  ? `สลับลำดับ ${proposal.fromActivityTitle.slice(0, 10)}... ⇄ ${proposal.toActivityTitle.slice(0, 10)}...`
-                  : `Swap Order Now`}
+                {isTh ? "ยืนยันสลับลำดับสถานที่ตามที่แนะนำ" : "Confirm Swap Order"}
               </span>
             </Button>
           </div>

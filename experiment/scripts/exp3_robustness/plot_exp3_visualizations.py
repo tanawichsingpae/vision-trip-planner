@@ -21,7 +21,9 @@ from plot_style import (
     save_academic_figure,
 )
 
-CSV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'exp3_robustness.csv'))
+CSV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'exp4_robustness.csv'))
+if not os.path.exists(CSV_PATH):
+    CSV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'exp3_robustness.csv'))
 OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'figures', 'exp3_robustness'))
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 

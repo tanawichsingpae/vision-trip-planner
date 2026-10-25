@@ -12,10 +12,10 @@ import time
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 SCRIPTS = [
-    ("Experiment 1 (Model Benchmark)", os.path.join(BASE_DIR, 'scripts', 'exp1_model_benchmark', 'plot_exp1_visualizations.py')),
-    ("Experiment 2 (Two-Turn Pipeline)", os.path.join(BASE_DIR, 'scripts', 'exp2_pipeline_comparison', 'plot_exp2_visualizations.py')),
-    ("Experiment 3 (Environmental Robustness)", os.path.join(BASE_DIR, 'scripts', 'exp3_robustness', 'plot_exp3_visualizations.py')),
-    ("Experiment 4 (Prompt Sensitivity)", os.path.join(BASE_DIR, 'scripts', 'exp4_prompt_sensitivity', 'plot_exp4_visualizations.py')),
+    ("Experiment 1 (Prompt Sensitivity)", os.path.join(BASE_DIR, 'scripts', 'exp4_prompt_sensitivity', 'plot_exp4_visualizations.py')),
+    ("Experiment 2 (Model Benchmark)", os.path.join(BASE_DIR, 'scripts', 'exp1_model_benchmark', 'plot_exp1_visualizations.py')),
+    ("Experiment 3 (Two-Turn Pipeline)", os.path.join(BASE_DIR, 'scripts', 'exp2_pipeline_comparison', 'plot_exp2_visualizations.py')),
+    ("Experiment 4 (Environmental Robustness)", os.path.join(BASE_DIR, 'scripts', 'exp3_robustness', 'plot_exp3_visualizations.py')),
     ("Experiment 5 (Consistency & Stability)", os.path.join(BASE_DIR, 'scripts', 'exp5_consistency', 'plot_exp5_visualizations.py')),
     ("Cross-Experiment Synthesis Summary", os.path.join(BASE_DIR, 'scripts', 'summary_synthesis', 'plot_cross_experiment_summary.py'))
 ]
