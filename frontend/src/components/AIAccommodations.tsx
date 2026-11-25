@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { BedDouble, Plus, Globe, Star, Phone, MapPin, RefreshCw, ExternalLink, Building2, Clock, Search, ChevronUp, Sparkles } from "lucide-react";
 import { useDraggable } from "@dnd-kit/core";
 import { Badge } from "@/components/ui/badge";
@@ -18,11 +18,79 @@ export const TIME_OPTIONS_24H = Array.from({ length: 48 }, (_, i) => {
   return `${hours}:${minutes}`;
 });
 
+const SAFE_HOTEL_PLACEHOLDER_SVG =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240"><rect width="400" height="240" fill="#e0e7ff"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#4f46e5" font-family="sans-serif" font-size="18" font-weight="600">Hotel</text></svg>`
+  );
+
+function handleHotelImageError(
+  e: React.SyntheticEvent<HTMLImageElement, Event>,
+  hotelName?: string
+) {
+  const img = e.currentTarget;
+  // Prevent infinite onError loops if fallback URL also fails to load
+  if (img.dataset.fallbackApplied === "1") {
+    img.onerror = null;
+    if (img.src !== SAFE_HOTEL_PLACEHOLDER_SVG) {
+      img.src = SAFE_HOTEL_PLACEHOLDER_SVG;
+    }
+    return;
+  }
+  img.dataset.fallbackApplied = "1";
+  const fallback = getCuratedFallbackPhoto("hotel", hotelName || "hotel");
+  if (fallback && img.src !== fallback) {
+    img.src = fallback;
+  } else {
+    img.onerror = null;
+    img.src = SAFE_HOTEL_PLACEHOLDER_SVG;
+  }
+}
+
+class AccommodationsErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("[AIAccommodations] Render error caught:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 text-center text-xs text-muted-foreground bg-muted/20 rounded-2xl border border-dashed border-border/60">
+          <p className="font-medium text-foreground mb-2">
+            Unable to display Stays &amp; Hotels right now.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => this.setState({ hasError: false })}
+          >
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─────────────────────────────────────────
 // Draggable Hotel Card
 // ─────────────────────────────────────────
 interface DraggableHotelCardProps {
   hotel: SuggestedPlace & { rating?: number | null; website?: string | null; phoneNumber?: string | null; priceLevel?: number | null };
+  indexFallback: number;
   onAdd?: (hotel: SuggestedPlace, checkInDay: number, checkInTime: string, checkOutDay: number, checkOutTime: string) => void;
   daysCount: number;
   cityName?: string;
@@ -30,7 +98,7 @@ interface DraggableHotelCardProps {
   checkOutDate?: string;
 }
 
-const DraggableHotelCard = ({ hotel, onAdd, daysCount, cityName = "", checkInDate, checkOutDate }: DraggableHotelCardProps) => {
+const DraggableHotelCard = ({ hotel, indexFallback, onAdd, daysCount, cityName = "", checkInDate, checkOutDate }: DraggableHotelCardProps) => {
   const { language, locPlace, locDesc } = useLanguage();
   const [checkInDay, setCheckInDay] = useState<string>("0");
   const [checkInTime, setCheckInTime] = useState<string>("15:00");
@@ -40,15 +108,19 @@ const DraggableHotelCard = ({ hotel, onAdd, daysCount, cityName = "", checkInDat
 
   const checkInTimes = TIME_OPTIONS_24H;
   const checkOutTimes = TIME_OPTIONS_24H;
+  const safeHotelName = hotel.name || "Hotel";
+  const safeHotelId = hotel.id || `idx-${indexFallback}`;
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `hotel-suggestion-${hotel.id}`,
+    id: `hotel-suggestion-${safeHotelId}`,
     data: { type: "hotel-suggestion", place: hotel },
   });
 
-  const priceLabel = hotel.priceLevel != null
+  const priceLabel = typeof hotel.priceLevel === "number"
     ? (["Free", "$", "$$", "$$$", "$$$$"][hotel.priceLevel] ?? "$")
     : null;
+  const numericRating = hotel.rating != null ? Number(hotel.rating) : NaN;
+  const hasValidRating = Number.isFinite(numericRating) && numericRating > 0;
 
   return (
     <div
@@ -62,36 +134,35 @@ const DraggableHotelCard = ({ hotel, onAdd, daysCount, cityName = "", checkInDat
       {/* Hotel Image */}
       <div className="relative h-40 overflow-hidden">
         <img
-          src={hotel.image_url || getCuratedFallbackPhoto("hotel", hotel.name)}
-          alt={hotel.name}
+          src={hotel.image_url || getCuratedFallbackPhoto("hotel", safeHotelName)}
+          alt={safeHotelName}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
-          onError={(e) => {
-            e.currentTarget.src = getCuratedFallbackPhoto("hotel", hotel.name);
-          }}
+          decoding="async"
+          onError={(e) => handleHotelImageError(e, safeHotelName)}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 to-transparent" />
 
         {/* Hotel Badge */}
         <Badge
           variant="outline"
-          className="absolute top-2.5 left-2.5 text-[10px] backdrop-blur-sm bg-indigo-100 text-indigo-700 border-indigo-300 font-semibold"
+          className="absolute top-2.5 left-2.5 text-[10px] bg-indigo-100/95 text-indigo-700 border-indigo-300 font-semibold"
         >
           🏨 {language === "th" ? "ที่พัก" : "Accommodation"}
         </Badge>
 
         {/* Price Badge */}
         {priceLabel && (
-          <span className="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300 backdrop-blur-sm">
+          <span className="absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100/95 text-amber-700 border border-amber-300">
             {priceLabel}
           </span>
         )}
 
         {/* Rating on image overlay */}
-        {hotel.rating != null && hotel.rating > 0 && (
-          <div className="absolute bottom-2 left-2.5 flex items-center gap-1 bg-card/90 backdrop-blur-sm rounded-full px-2 py-0.5">
+        {hasValidRating && (
+          <div className="absolute bottom-2 left-2.5 flex items-center gap-1 bg-card/95 rounded-full px-2 py-0.5 shadow-xs">
             <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-            <span className="text-[11px] font-semibold text-foreground">{hotel.rating.toFixed(1)}</span>
+            <span className="text-[11px] font-semibold text-foreground">{numericRating.toFixed(1)}</span>
           </div>
         )}
 
@@ -308,12 +379,11 @@ export const HotelDragOverlay = ({ hotel }: { hotel: SuggestedPlace }) => {
     <div className="w-64 rounded-2xl overflow-hidden bg-card border border-indigo-400 shadow-2xl scale-105 rotate-1">
       <div className="relative h-36 overflow-hidden">
         <img
-          src={hotel.image_url || getCuratedFallbackPhoto("hotel", hotel.name)}
-          alt={locPlace(hotel) || hotel.name}
+          src={hotel.image_url || getCuratedFallbackPhoto("hotel", hotel.name || "hotel")}
+          alt={locPlace(hotel) || hotel.name || "Hotel"}
           className="w-full h-full object-cover"
-          onError={(e) => {
-            e.currentTarget.src = getCuratedFallbackPhoto("hotel", hotel.name);
-          }}
+          decoding="async"
+          onError={(e) => handleHotelImageError(e, hotel.name)}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
       </div>
@@ -410,15 +480,20 @@ const AIAccommodations = ({
     [onAddToItinerary],
   );
 
+  const safeAccommodations = Array.isArray(accommodations) ? accommodations.filter(Boolean) : [];
+  const safeLocationName = locationName || "";
+
   // Compute YYYY-MM-DD string for check-in and check-out
   let checkInStr: string | undefined;
   let checkOutStr: string | undefined;
   if (tripStartDate) {
     const inDate = new Date(tripStartDate);
-    const outDate = new Date(tripStartDate);
-    outDate.setDate(outDate.getDate() + (daysCount > 0 ? daysCount : 1));
-    checkInStr = inDate.toISOString().slice(0, 10);
-    checkOutStr = outDate.toISOString().slice(0, 10);
+    if (!Number.isNaN(inDate.getTime())) {
+      const outDate = new Date(inDate.getTime());
+      outDate.setDate(outDate.getDate() + (daysCount > 0 ? daysCount : 1));
+      checkInStr = inDate.toISOString().slice(0, 10);
+      checkOutStr = outDate.toISOString().slice(0, 10);
+    }
   }
 
   // custom selected hotel object
@@ -574,15 +649,16 @@ const AIAccommodations = ({
   // Recommendations Carousel list JSX helper
   const renderRecommendationsList = () => (
     <div className="relative">
-      {accommodations && accommodations.length > 0 ? (
+      {safeAccommodations.length > 0 ? (
         <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-thin">
-          {accommodations.map((hotel, idx) => (
+          {safeAccommodations.map((hotel, idx) => (
             <DraggableHotelCard
               key={hotel?.id || `hotel-opt-${idx}`}
+              indexFallback={idx}
               hotel={hotel as any}
               onAdd={handleAdd}
               daysCount={daysCount}
-              cityName={locationName}
+              cityName={safeLocationName}
               checkInDate={checkInStr}
               checkOutDate={checkOutStr}
             />
@@ -592,7 +668,7 @@ const AIAccommodations = ({
         <div className="p-6 text-center text-xs text-muted-foreground bg-muted/20 rounded-2xl border border-dashed border-border/60 flex flex-col items-center gap-2">
           <BedDouble className="w-8 h-8 text-muted-foreground/40" />
           <p className="font-medium text-foreground">
-            {language === "th" ? `ยังไม่มีรายการแนะนำที่พักรอบ ${locationName}` : `No accommodation recommendations near ${locationName} yet`}
+            {language === "th" ? `ยังไม่มีรายการแนะนำที่พักรอบ ${safeLocationName}` : `No accommodation recommendations near ${safeLocationName} yet`}
           </p>
           {onRefreshAccommodations && (
             <Button
@@ -618,6 +694,7 @@ const AIAccommodations = ({
   );
 
   return (
+    <AccommodationsErrorBoundary>
     <div className="animate-slide-up w-full">
       {hasHotel ? (
         /* Case 1: Has hotel from Preferences — Warm banner with search button */
@@ -656,7 +733,7 @@ const AIAccommodations = ({
                     ? (language === "th" ? "ซ่อนค้นหา" : "Hide Search")
                     : (language === "th" ? "ค้นหา / เปลี่ยนที่พัก" : "Search / Change Hotel")}
                 </Button>
-                {accommodations.length > 0 && (
+                {safeAccommodations.length > 0 && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -665,7 +742,7 @@ const AIAccommodations = ({
                   >
                     {showRecommendations
                       ? (language === "th" ? "ซ่อนคำแนะนำ" : "Hide Recommendations")
-                      : (language === "th" ? `ดูคำแนะนำที่พักอื่น (${accommodations.length})` : `More recommendations (${accommodations.length})`)}
+                      : (language === "th" ? `ดูคำแนะนำที่พักอื่น (${safeAccommodations.length})` : `More recommendations (${safeAccommodations.length})`)}
                   </Button>
                 )}
               </div>
@@ -736,9 +813,9 @@ const AIAccommodations = ({
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {accommodations.length > 0 && (
+                {safeAccommodations.length > 0 && (
                   <span className="text-xs bg-primary/5 border border-primary/20 text-primary px-2.5 py-1 rounded-full font-medium hidden sm:inline-flex">
-                    {accommodations.length} available
+                    {safeAccommodations.length} available
                   </span>
                 )}
                 <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
@@ -755,9 +832,9 @@ const AIAccommodations = ({
                 <ChevronUp className="w-3.5 h-3.5" />
                 {language === "th" ? "ซ่อนกล่องค้นหา" : "Hide Search Panel"}
               </button>
-              {accommodations.length > 0 && (
+              {safeAccommodations.length > 0 && (
                 <span className="text-xs bg-primary/5 border border-primary/20 text-primary px-3 py-1 rounded-full font-medium">
-                  {accommodations.length} options available
+                  {safeAccommodations.length} options available
                 </span>
               )}
             </div>
@@ -771,6 +848,7 @@ const AIAccommodations = ({
         </div>
       )}
     </div>
+    </AccommodationsErrorBoundary>
   );
 };
 

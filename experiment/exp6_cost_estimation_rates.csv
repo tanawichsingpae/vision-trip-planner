@@ -1,0 +1,7 @@
+﻿Exp6 Model,Backend Pricing Key,Input USD per 1M Tokens,Output USD per 1M Tokens,Exp6 Requests,Exp6 Estimated Cost USD,Mean USD per Request,Cost per 1000 Queries USD,Pricing Source,Note
+anthropic-claude-sonnet5,anthropic/claude-sonnet-5,3.00,15.00,12,3.3162540,0.2763545,276.3545,backend/clip_server.py: BENCHMARK_MODEL_PRICING / calculate_fallback_cost,Estimated fallback amount; Exp. 6 CSV did not contain OpenRouter usage.cost.
+google-gemini-38-flash,gemini-3.8-flash,0.10,0.40,12,0.0750895,0.0062575,6.2575,backend/clip_server.py: BENCHMARK_MODEL_PRICING / calculate_fallback_cost,Estimated fallback amount; Exp. 6 CSV did not contain OpenRouter usage.cost.
+meta-llama4,llama-4-maverick,0.20,0.60,12,0.0749006,0.0062417,6.2417,backend/clip_server.py: BENCHMARK_MODEL_PRICING / calculate_fallback_cost,Estimated fallback amount; Exp. 6 CSV did not contain OpenRouter usage.cost.
+openai-gpt-54,openai/gpt-5.4,2.50,10.00,12,1.7211475,0.1434290,143.4290,backend/clip_server.py: BENCHMARK_MODEL_PRICING / calculate_fallback_cost,Estimated fallback amount; Exp. 6 CSV did not contain OpenRouter usage.cost.
+openai-gpt-54-mini,openai/gpt-5.4-mini,0.15,0.60,12,0.0725840,0.0060487,6.0487,backend/clip_server.py: BENCHMARK_MODEL_PRICING / calculate_fallback_cost,Estimated fallback amount; Exp. 6 CSV did not contain OpenRouter usage.cost.
+qwen-38-flash,qwen3.8-flash,0.80,1.00,12,0.2527838,0.0210653,21.0653,backend/clip_server.py: BENCHMARK_MODEL_PRICING / calculate_fallback_cost,Estimated fallback amount; Exp. 6 CSV did not contain OpenRouter usage.cost.

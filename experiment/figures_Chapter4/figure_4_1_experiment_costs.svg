@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1130" viewBox="0 0 1700 1130">
+<defs><pattern id="estimateHatch" width="10" height="10" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#E8D7C7"/><line x1="0" y1="0" x2="0" y2="10" stroke="#9A6B3F" stroke-width="3"/></pattern></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#172B4D}.title{font-size:34px;font-weight:700}.subtitle{font-size:19px;fill:#52657A}.panel{font-size:23px;font-weight:700}.axis{font-size:16px;fill:#42566C}.label{font-size:17px}.small{font-size:15px;fill:#52657A}.value{font-size:17px;font-weight:700}.grid{stroke:#D9E1EA;stroke-width:1}.axisline{stroke:#64748B;stroke-width:1.5}.foot{font-size:14px;fill:#52657A}</style>
+<title>Experiment costs and cost per 1,000 queries</title><desc>Total CSV cost, and mean cost per 1,000 queries calculated from mean Cost USD per request. Exp. 6 cost uses backend fallback token pricing.</desc><rect width="100%" height="100%" fill="#FFFFFF"/>
+<text x="110" y="72" class="title" text-anchor="start" >Cost by experiment</text>
+<text x="110" y="108" class="subtitle" text-anchor="start" >Recorded cost for Experiments 1?5; fallback estimate for Experiment 6.</text>
+<text x="110" y="160" class="panel" text-anchor="start" >A. Total cost (USD)</text>
+<line x1="475.0" y1="192" x2="475.0" y2="485" class="grid"/>
+<text x="475.0" y="511" class="axis" text-anchor="middle" >0.0</text>
+<line x1="561.6666666666666" y1="192" x2="561.6666666666666" y2="485" class="grid"/>
+<text x="561.6666666666666" y="511" class="axis" text-anchor="middle" >0.5</text>
+<line x1="648.3333333333334" y1="192" x2="648.3333333333334" y2="485" class="grid"/>
+<text x="648.3333333333334" y="511" class="axis" text-anchor="middle" >1.0</text>
+<line x1="735.0" y1="192" x2="735.0" y2="485" class="grid"/>
+<text x="735.0" y="511" class="axis" text-anchor="middle" >1.5</text>
+<line x1="821.6666666666667" y1="192" x2="821.6666666666667" y2="485" class="grid"/>
+<text x="821.6666666666667" y="511" class="axis" text-anchor="middle" >2.0</text>
+<line x1="908.3333333333333" y1="192" x2="908.3333333333333" y2="485" class="grid"/>
+<text x="908.3333333333333" y="511" class="axis" text-anchor="middle" >2.5</text>
+<line x1="995.0" y1="192" x2="995.0" y2="485" class="grid"/>
+<text x="995.0" y="511" class="axis" text-anchor="middle" >3.0</text>
+<line x1="1081.6666666666665" y1="192" x2="1081.6666666666665" y2="485" class="grid"/>
+<text x="1081.6666666666665" y="511" class="axis" text-anchor="middle" >3.5</text>
+<line x1="1168.3333333333335" y1="192" x2="1168.3333333333335" y2="485" class="grid"/>
+<text x="1168.3333333333335" y="511" class="axis" text-anchor="middle" >4.0</text>
+<line x1="1255.0" y1="192" x2="1255.0" y2="485" class="grid"/>
+<text x="1255.0" y="511" class="axis" text-anchor="middle" >4.5</text>
+<line x1="1341.6666666666665" y1="192" x2="1341.6666666666665" y2="485" class="grid"/>
+<text x="1341.6666666666665" y="511" class="axis" text-anchor="middle" >5.0</text>
+<line x1="1428.3333333333335" y1="192" x2="1428.3333333333335" y2="485" class="grid"/>
+<text x="1428.3333333333335" y="511" class="axis" text-anchor="middle" >5.5</text>
+<line x1="1515.0" y1="192" x2="1515.0" y2="485" class="grid"/>
+<text x="1515.0" y="511" class="axis" text-anchor="middle" >6.0</text>
+<text x="110" y="225" class="label" text-anchor="start" >Experiment 1  |  Prompt sensitivity</text>
+<text x="438" y="225" class="small" text-anchor="end" >n = 1200</text>
+<rect x="475" y="207" width="621.2350780999999" height="25" fill="#3568A8" stroke="none" rx="3"/>
+<text x="1107.2350781" y="225" class="value" text-anchor="start" >$3.5840</text>
+<text x="110" y="273" class="label" text-anchor="start" >Experiment 2  |  Model benchmark</text>
+<text x="438" y="273" class="small" text-anchor="end" >n = 600</text>
+<rect x="475" y="255" width="261.43468086666667" height="25" fill="#3C82A0" stroke="none" rx="3"/>
+<text x="747.4346808666667" y="273" class="value" text-anchor="start" >$1.5083</text>
+<text x="110" y="321" class="label" text-anchor="start" >Experiment 3  |  Pipeline comparison</text>
+<text x="438" y="321" class="small" text-anchor="end" >n = 144</text>
+<rect x="475" y="303" width="215.05614" height="25" fill="#8B6FB0" stroke="none" rx="3"/>
+<text x="701.05614" y="321" class="value" text-anchor="start" >$1.2407</text>
+<text x="110" y="369" class="label" text-anchor="start" >Experiment 4  |  Robustness</text>
+<text x="438" y="369" class="small" text-anchor="end" >n = 450</text>
+<rect x="475" y="351" width="183.62300233333335" height="25" fill="#D18442" stroke="none" rx="3"/>
+<text x="669.6230023333334" y="369" class="value" text-anchor="start" >$1.0594</text>
+<text x="110" y="417" class="label" text-anchor="start" >Experiment 5  |  Consistency</text>
+<text x="438" y="417" class="small" text-anchor="end" >n = 720</text>
+<rect x="475" y="399" width="306.5241881" height="25" fill="#3E8B72" stroke="none" rx="3"/>
+<text x="792.5241881" y="417" class="value" text-anchor="start" >$1.7684</text>
+<text x="110" y="465" class="label" text-anchor="start" >Experiment 6  |  Travel-plan evaluation (estimated)</text>
+<text x="438" y="465" class="small" text-anchor="end" >n = 72</text>
+<rect x="475" y="447" width="955.5449626666667" height="25" fill="url(#estimateHatch)" stroke="#9A6B3F" rx="3"/>
+<text x="1441.5449626666668" y="465" class="value" text-anchor="start" >$5.5128*</text>
+<line x1="475" y1="192" x2="475" y2="485" class="axisline"/>
+<text x="995.0" y="538" class="axis" text-anchor="middle" >Cost in US dollars (USD)</text>
+<text x="110" y="565" class="panel" text-anchor="start" >B. Cost per 1,000 Queries (USD)</text>
+<line x1="475.0" y1="597" x2="475.0" y2="890" class="grid"/>
+<text x="475.0" y="916" class="axis" text-anchor="middle" >0</text>
+<line x1="579.0" y1="597" x2="579.0" y2="890" class="grid"/>
+<text x="579.0" y="916" class="axis" text-anchor="middle" >10</text>
+<line x1="683.0" y1="597" x2="683.0" y2="890" class="grid"/>
+<text x="683.0" y="916" class="axis" text-anchor="middle" >20</text>
+<line x1="787.0" y1="597" x2="787.0" y2="890" class="grid"/>
+<text x="787.0" y="916" class="axis" text-anchor="middle" >30</text>
+<line x1="891.0" y1="597" x2="891.0" y2="890" class="grid"/>
+<text x="891.0" y="916" class="axis" text-anchor="middle" >40</text>
+<line x1="995.0" y1="597" x2="995.0" y2="890" class="grid"/>
+<text x="995.0" y="916" class="axis" text-anchor="middle" >50</text>
+<line x1="1099.0" y1="597" x2="1099.0" y2="890" class="grid"/>
+<text x="1099.0" y="916" class="axis" text-anchor="middle" >60</text>
+<line x1="1203.0" y1="597" x2="1203.0" y2="890" class="grid"/>
+<text x="1203.0" y="916" class="axis" text-anchor="middle" >70</text>
+<line x1="1307.0" y1="597" x2="1307.0" y2="890" class="grid"/>
+<text x="1307.0" y="916" class="axis" text-anchor="middle" >80</text>
+<line x1="1411.0" y1="597" x2="1411.0" y2="890" class="grid"/>
+<text x="1411.0" y="916" class="axis" text-anchor="middle" >90</text>
+<line x1="1515.0" y1="597" x2="1515.0" y2="890" class="grid"/>
+<text x="1515.0" y="916" class="axis" text-anchor="middle" >100</text>
+<text x="110" y="630" class="label" text-anchor="start" >Experiment 1  |  Prompt sensitivity</text>
+<text x="438" y="630" class="small" text-anchor="end" >n = 1200</text>
+<rect x="475" y="612" width="31.061753905" height="25" fill="#3568A8" stroke="none" rx="3"/>
+<text x="517.0617539049999" y="630" class="value" text-anchor="start" >$2.99</text>
+<text x="110" y="678" class="label" text-anchor="start" >Experiment 2  |  Model benchmark</text>
+<text x="438" y="678" class="small" text-anchor="end" >n = 600</text>
+<rect x="475" y="660" width="26.143468086666665" height="25" fill="#3C82A0" stroke="none" rx="3"/>
+<text x="512.1434680866666" y="678" class="value" text-anchor="start" >$2.51</text>
+<text x="110" y="726" class="label" text-anchor="start" >Experiment 3  |  Pipeline comparison</text>
+<text x="438" y="726" class="small" text-anchor="end" >n = 144</text>
+<rect x="475" y="708" width="89.60672499999998" height="25" fill="#8B6FB0" stroke="none" rx="3"/>
+<text x="575.606725" y="726" class="value" text-anchor="start" >$8.62</text>
+<text x="110" y="774" class="label" text-anchor="start" >Experiment 4  |  Robustness</text>
+<text x="438" y="774" class="small" text-anchor="end" >n = 450</text>
+<rect x="475" y="756" width="24.483066977777774" height="25" fill="#D18442" stroke="none" rx="3"/>
+<text x="510.48306697777775" y="774" class="value" text-anchor="start" >$2.35</text>
+<text x="110" y="822" class="label" text-anchor="start" >Experiment 5  |  Consistency</text>
+<text x="438" y="822" class="small" text-anchor="end" >n = 720</text>
+<rect x="475" y="804" width="25.543682341666667" height="25" fill="#3E8B72" stroke="none" rx="3"/>
+<text x="511.5436823416667" y="822" class="value" text-anchor="start" >$2.46</text>
+<text x="110" y="870" class="label" text-anchor="start" >Experiment 6  |  Travel-plan evaluation (estimated)</text>
+<text x="438" y="870" class="small" text-anchor="end" >n = 72</text>
+<rect x="475" y="852" width="796.287468888889" height="25" fill="url(#estimateHatch)" stroke="#9A6B3F" rx="3"/>
+<text x="1282.287468888889" y="870" class="value" text-anchor="start" >$76.57*</text>
+<line x1="475" y1="597" x2="475" y2="890" class="axisline"/>
+<text x="995.0" y="943" class="axis" text-anchor="middle" >Cost in US dollars (USD)</text>
+<rect x="110" y="1025" width="25" height="18" fill="#3568A8" stroke="none" rx="2"/>
+<text x="145" y="1040" class="small" text-anchor="start" >Recorded Cost USD (Experiments 1?5)</text>
+<rect x="505" y="1025" width="25" height="18" fill="url(#estimateHatch)" stroke="#9A6B3F" rx="2"/>
+<text x="540" y="1040" class="small" text-anchor="start" >Estimated fallback cost (Experiment 6)</text>
+<text x="1590" y="1070" class="foot" text-anchor="end" >Cost per 1,000 Queries = mean Cost USD per request ? 1,000. Exp. 6 uses backend fallback rates; not actual usage.cost.</text>
+<text x="1590" y="1100" class="foot" text-anchor="end" >Sources: experiment/exp1?exp6 CSV files; backend/clip_server.py; rate details in exp6_cost_estimation_rates.csv.</text>
+</svg>

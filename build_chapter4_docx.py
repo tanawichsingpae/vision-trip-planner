@@ -1097,6 +1097,28 @@ def main():
         "เพื่อปรับระยะเวลาเดินทางให้สมจริงยิ่งขึ้น"
     )
 
+    # Figure Placeholder 4.9 (Cost Synthesis)
+    add_callout_box(
+        doc,
+        title="ภาพที่ 4.9 ชุดภาพรวมการวิเคราะห์ต้นทุนและภาระเชิงคำนวณข้ามการทดลอง (Comprehensive Cost & Computational Overhead Synthesis)",
+        filename_base="fig4_09_cross_experiment_cost_synthesis_4panel",
+        description="แสดง 4 มิติด้านต้นทุน: (a) กราฟแท่งเปรียบเทียบต้นทุนต่อ 1,000 คำขอของแต่ละโมเดลข้าม 6 การทดลอง (Log Scale) "
+                    "(b) การเติบโตของขนาดโทเค็น (Prompt vs Completion) และต้นทุนเฉลี่ยต่อคำขอ "
+                    "(c) การวิเคราะห์ผลตอบแทนการลงทุนเชิงคำนวณ (Computational ROI: ΔCost vs ΔAccuracy) "
+                    "(d) การจำลองงบประมาณคลาวด์รายปีระดับโปรดักชันจริง (Production Scalability Simulation สเกล 10,000 ถึง 1,000,000 ทริป/ปี)"
+    )
+
+    # Figure Placeholder 4.10 (Model Capability Synthesis)
+    add_callout_box(
+        doc,
+        title="ภาพที่ 4.10 ชุดภาพรวมการสังเคราะห์จุดเด่นเชิงสมรรถนะ ขอบเขตพาเรโต และลายนิ้วมือขีดความสามารถของ 6 โมเดล VLM (Multi-Dimensional Capability Fingerprint & Pareto Frontier)",
+        filename_base="fig4_10_cross_model_capability_synthesis_4panel",
+        description="แสดง 4 มิติด้านสมรรถนะ: (a) ลายนิ้วมือสมรรถนะ 6 มิติ (Radar Chart: VPR Accuracy, Robustness, Consistency, Plan Quality, Cost Economy, Speed) "
+                    "(b) ขอบเขตพาเรโตการรู้จำสถานที่ (Accuracy vs Throughput พร้อม 95% Bootstrap CI) "
+                    "(c) กราฟเส้นลาดเอียงความทนทานต่อสภาวะรบกวน 5 กลุ่ม (Exp 4 C1–C5 Degradation Slopes) "
+                    "(d) แผนผังควอดรันต์เปรียบเทียบระหว่างคุณภาพการวางแผนเชิงเหตุผลกับเสถียรภาพความแม่นยำ (Exp 6 Plan Score vs Exp 5 Consistency)"
+    )
+
     # ==========================================================================
     # 4.11 สรุปผลการทดลอง
     # ==========================================================================

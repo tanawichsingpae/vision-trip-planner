@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="1490" viewBox="0 0 1900 1490">
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#172B4D}.title{font-size:34px;font-weight:700}.subtitle{font-size:19px;fill:#52657A}.panel{font-size:23px;font-weight:700}.axis{font-size:16px;fill:#42566C}.label{font-size:18px}.small{font-size:15px;fill:#52657A}.value{font-size:17px;font-weight:700}.grid{stroke:#D9E1EA;stroke-width:1}.axisline{stroke:#64748B;stroke-width:1.5}.foot{font-size:14px;fill:#52657A}</style>
+<title>Model strengths across experiments</title><desc>Heatmap of landmark identification accuracy in experiments 1 through 5, plus a separate score-latency comparison for travel-plan evaluation in experiment 6.</desc><rect width="100%" height="100%" fill="#FFFFFF"/>
+<text x="100" y="70" class="title" text-anchor="start" >Comparative model performance profile</text>
+<text x="100" y="106" class="subtitle" text-anchor="start" >Accuracy by landmark task (top) and plan quality versus generation time (bottom); experimental tasks are shown separately.</text>
+<text x="100" y="165" class="panel" text-anchor="start" >A. Landmark identification accuracy (%)</text>
+<text x="690.0" y="205" class="axis" text-anchor="middle" >Exp. 1</text>
+<text x="690.0" y="228" class="axis" text-anchor="middle" >Prompt</text>
+<text x="930.0" y="205" class="axis" text-anchor="middle" >Exp. 2</text>
+<text x="930.0" y="228" class="axis" text-anchor="middle" >Benchmark</text>
+<text x="1170.0" y="205" class="axis" text-anchor="middle" >Exp. 3</text>
+<text x="1170.0" y="228" class="axis" text-anchor="middle" >Pipeline*</text>
+<text x="1410.0" y="205" class="axis" text-anchor="middle" >Exp. 4</text>
+<text x="1410.0" y="228" class="axis" text-anchor="middle" >Robustness</text>
+<text x="1650.0" y="205" class="axis" text-anchor="middle" >Exp. 5</text>
+<text x="1650.0" y="228" class="axis" text-anchor="middle" >Consistency</text>
+<text x="520" y="299" class="label" text-anchor="end" >Claude Sonnet 5</text>
+<rect x="575" y="252" width="230" height="80" fill="#6d95be" stroke="#FFFFFF" rx="6"/>
+<text x="690.0" y="298" class="value" text-anchor="middle" fill="#FFFFFF">81.0%</text>
+<rect x="815" y="252" width="230" height="80" fill="#5583b2" stroke="#FFFFFF" rx="6"/>
+<text x="930.0" y="298" class="value" text-anchor="middle" fill="#FFFFFF">87.0%</text>
+<rect x="1055" y="252" width="230" height="80" fill="#759bc1" stroke="#FFFFFF" rx="6"/>
+<text x="1170.0" y="298" class="value" text-anchor="middle" fill="#17324D">79.2%</text>
+<rect x="1295" y="252" width="230" height="80" fill="#4073a9" stroke="#FFFFFF" rx="6"/>
+<text x="1410.0" y="298" class="value" text-anchor="middle" fill="#FFFFFF">92.0%</text>
+<rect x="1535" y="252" width="230" height="80" fill="#3068a1" stroke="#FFFFFF" rx="6"/>
+<text x="1650.0" y="298" class="value" text-anchor="middle" fill="#FFFFFF">95.8%</text>
+<text x="520" y="391" class="label" text-anchor="end" >Gemini 3.8 Flash</text>
+<rect x="575" y="344" width="230" height="80" fill="#366ca4" stroke="#FFFFFF" rx="6"/>
+<text x="690.0" y="390" class="value" text-anchor="middle" fill="#FFFFFF">94.5%</text>
+<rect x="815" y="344" width="230" height="80" fill="#2b649f" stroke="#FFFFFF" rx="6"/>
+<text x="930.0" y="390" class="value" text-anchor="middle" fill="#FFFFFF">97.0%</text>
+<rect x="1055" y="344" width="230" height="80" fill="#a8c1da" stroke="#FFFFFF" rx="6"/>
+<text x="1170.0" y="390" class="value" text-anchor="middle" fill="#17324D">66.7%</text>
+<rect x="1295" y="344" width="230" height="80" fill="#245f9c" stroke="#FFFFFF" rx="6"/>
+<text x="1410.0" y="390" class="value" text-anchor="middle" fill="#FFFFFF">98.7%</text>
+<rect x="1535" y="344" width="230" height="80" fill="#4175a9" stroke="#FFFFFF" rx="6"/>
+<text x="1650.0" y="390" class="value" text-anchor="middle" fill="#FFFFFF">91.7%</text>
+<text x="520" y="483" class="label" text-anchor="end" >GPT-5.4</text>
+<rect x="575" y="436" width="230" height="80" fill="#80a3c7" stroke="#FFFFFF" rx="6"/>
+<text x="690.0" y="482" class="value" text-anchor="middle" fill="#17324D">76.5%</text>
+<rect x="815" y="436" width="230" height="80" fill="#5583b2" stroke="#FFFFFF" rx="6"/>
+<text x="930.0" y="482" class="value" text-anchor="middle" fill="#FFFFFF">87.0%</text>
+<rect x="1055" y="436" width="230" height="80" fill="#bacee2" stroke="#FFFFFF" rx="6"/>
+<text x="1170.0" y="482" class="value" text-anchor="middle" fill="#17324D">62.5%</text>
+<rect x="1295" y="436" width="230" height="80" fill="#2a639e" stroke="#FFFFFF" rx="6"/>
+<text x="1410.0" y="482" class="value" text-anchor="middle" fill="#FFFFFF">97.3%</text>
+<rect x="1535" y="436" width="230" height="80" fill="#7198c0" stroke="#FFFFFF" rx="6"/>
+<text x="1650.0" y="482" class="value" text-anchor="middle" fill="#17324D">80.0%</text>
+<text x="520" y="575" class="label" text-anchor="end" >GPT-5.4 mini</text>
+<rect x="575" y="528" width="230" height="80" fill="#9bb7d3" stroke="#FFFFFF" rx="6"/>
+<text x="690.0" y="574" class="value" text-anchor="middle" fill="#17324D">70.0%</text>
+<rect x="815" y="528" width="230" height="80" fill="#769bc2" stroke="#FFFFFF" rx="6"/>
+<text x="930.0" y="574" class="value" text-anchor="middle" fill="#17324D">79.0%</text>
+<rect x="1055" y="528" width="230" height="80" fill="#cbdaea" stroke="#FFFFFF" rx="6"/>
+<text x="1170.0" y="574" class="value" text-anchor="middle" fill="#17324D">58.3%</text>
+<rect x="1295" y="528" width="230" height="80" fill="#4b7cae" stroke="#FFFFFF" rx="6"/>
+<text x="1410.0" y="574" class="value" text-anchor="middle" fill="#FFFFFF">89.3%</text>
+<rect x="1535" y="528" width="230" height="80" fill="#a8c1da" stroke="#FFFFFF" rx="6"/>
+<text x="1650.0" y="574" class="value" text-anchor="middle" fill="#17324D">66.7%</text>
+<text x="520" y="667" class="label" text-anchor="end" >Llama 4</text>
+<rect x="575" y="620" width="230" height="80" fill="#9db8d4" stroke="#FFFFFF" rx="6"/>
+<text x="690.0" y="666" class="value" text-anchor="middle" fill="#17324D">69.5%</text>
+<rect x="815" y="620" width="230" height="80" fill="#86a8ca" stroke="#FFFFFF" rx="6"/>
+<text x="930.0" y="666" class="value" text-anchor="middle" fill="#17324D">75.0%</text>
+<rect x="1055" y="620" width="230" height="80" fill="#cbdaea" stroke="#FFFFFF" rx="6"/>
+<text x="1170.0" y="666" class="value" text-anchor="middle" fill="#17324D">58.3%</text>
+<rect x="1295" y="620" width="230" height="80" fill="#3a6fa6" stroke="#FFFFFF" rx="6"/>
+<text x="1410.0" y="666" class="value" text-anchor="middle" fill="#FFFFFF">93.3%</text>
+<rect x="1535" y="620" width="230" height="80" fill="#86a8ca" stroke="#FFFFFF" rx="6"/>
+<text x="1650.0" y="666" class="value" text-anchor="middle" fill="#17324D">75.0%</text>
+<text x="520" y="759" class="label" text-anchor="end" >Qwen 2.5 VL 72B</text>
+<rect x="575" y="712" width="230" height="80" fill="#b5cbe0" stroke="#FFFFFF" rx="6"/>
+<text x="690.0" y="758" class="value" text-anchor="middle" fill="#17324D">63.5%</text>
+<rect x="815" y="712" width="230" height="80" fill="#7ea1c6" stroke="#FFFFFF" rx="6"/>
+<text x="930.0" y="758" class="value" text-anchor="middle" fill="#17324D">77.0%</text>
+<rect x="1055" y="712" width="230" height="80" fill="#dce7f2" stroke="#FFFFFF" rx="6"/>
+<text x="1170.0" y="758" class="value" text-anchor="middle" fill="#17324D">54.2%</text>
+<rect x="1295" y="712" width="230" height="80" fill="#2a639e" stroke="#FFFFFF" rx="6"/>
+<text x="1410.0" y="758" class="value" text-anchor="middle" fill="#FFFFFF">97.3%</text>
+<rect x="1535" y="712" width="230" height="80" fill="#b3c9df" stroke="#FFFFFF" rx="6"/>
+<text x="1650.0" y="758" class="value" text-anchor="middle" fill="#17324D">64.2%</text>
+<text x="570" y="819" class="small" text-anchor="start" >Accuracy scale:</text>
+<rect x="720" y="801" width="85" height="22" fill="#edf4fa" stroke="#FFFFFF" rx="3"/>
+<text x="762" y="843" class="small" text-anchor="middle" >50%</text>
+<rect x="816" y="801" width="85" height="22" fill="#bacee2" stroke="#FFFFFF" rx="3"/>
+<text x="858" y="843" class="small" text-anchor="middle" >62%</text>
+<rect x="912" y="801" width="85" height="22" fill="#86a8ca" stroke="#FFFFFF" rx="3"/>
+<text x="954" y="843" class="small" text-anchor="middle" >75%</text>
+<rect x="1008" y="801" width="85" height="22" fill="#5281b1" stroke="#FFFFFF" rx="3"/>
+<text x="1050" y="843" class="small" text-anchor="middle" >88%</text>
+<rect x="1104" y="801" width="85" height="22" fill="#1f5b99" stroke="#FFFFFF" rx="3"/>
+<text x="1146" y="843" class="small" text-anchor="middle" >100%</text>
+<text x="100" y="930" class="panel" text-anchor="start" >B. Travel-plan evaluation (Experiment 6): quality and generation time</text>
+<line x1="280.0" y1="1030" x2="280.0" y2="1360" class="grid"/>
+<text x="280.0" y="1390" class="axis" text-anchor="middle" >2.8</text>
+<line x1="485.00000000000017" y1="1030" x2="485.00000000000017" y2="1360" class="grid"/>
+<text x="485.00000000000017" y="1390" class="axis" text-anchor="middle" >3.0</text>
+<line x1="690.0000000000003" y1="1030" x2="690.0000000000003" y2="1360" class="grid"/>
+<text x="690.0000000000003" y="1390" class="axis" text-anchor="middle" >3.2</text>
+<line x1="895.0" y1="1030" x2="895.0" y2="1360" class="grid"/>
+<text x="895.0" y="1390" class="axis" text-anchor="middle" >3.4</text>
+<line x1="1100.0" y1="1030" x2="1100.0" y2="1360" class="grid"/>
+<text x="1100.0" y="1390" class="axis" text-anchor="middle" >3.6</text>
+<line x1="1304.9999999999998" y1="1030" x2="1304.9999999999998" y2="1360" class="grid"/>
+<text x="1304.9999999999998" y="1390" class="axis" text-anchor="middle" >3.8</text>
+<line x1="1510.0" y1="1030" x2="1510.0" y2="1360" class="grid"/>
+<text x="1510.0" y="1390" class="axis" text-anchor="middle" >4.0</text>
+<line x1="280" y1="1360.0" x2="1510" y2="1360.0" class="grid"/>
+<text x="262" y="1365.0" class="axis" text-anchor="end" >0</text>
+<line x1="280" y1="1305.0" x2="1510" y2="1305.0" class="grid"/>
+<text x="262" y="1310.0" class="axis" text-anchor="end" >100</text>
+<line x1="280" y1="1250.0" x2="1510" y2="1250.0" class="grid"/>
+<text x="262" y="1255.0" class="axis" text-anchor="end" >200</text>
+<line x1="280" y1="1195.0" x2="1510" y2="1195.0" class="grid"/>
+<text x="262" y="1200.0" class="axis" text-anchor="end" >300</text>
+<line x1="280" y1="1140.0" x2="1510" y2="1140.0" class="grid"/>
+<text x="262" y="1145.0" class="axis" text-anchor="end" >400</text>
+<line x1="280" y1="1085.0" x2="1510" y2="1085.0" class="grid"/>
+<text x="262" y="1090.0" class="axis" text-anchor="end" >500</text>
+<line x1="280" y1="1030.0" x2="1510" y2="1030.0" class="grid"/>
+<text x="262" y="1035.0" class="axis" text-anchor="end" >600</text>
+<line x1="280" y1="1030" x2="280" y2="1360" class="axisline"/>
+<line x1="280" y1="1360" x2="1510" y2="1360" class="axisline"/>
+<text x="895.0" y="1425" class="axis" text-anchor="middle" >Mean overall quality score (scale: 1?5)</text>
+<text x="205" y="1195.0" class="axis" text-anchor="middle" transform="rotate(-90 205 1195.0)">Mean generation latency (seconds; lower is faster)</text>
+<circle cx="1281.1" cy="1214.4" r="10" fill="#3568A8" stroke="#FFFFFF" stroke-width="3"/>
+<text x="1294.083333333333" y="1201.3615125" class="small" text-anchor="start" >Claude Sonnet 5 (3.78; 265s)</text>
+<circle cx="936.0" cy="1247.8" r="10" fill="#3C82A0" stroke="#FFFFFF" stroke-width="3"/>
+<text x="950.0" y="1195" class="small" text-anchor="start" >Gemini 3.8 Flash (3.44; 204s)</text>
+<circle cx="999.2" cy="1276.1" r="10" fill="#8B6FB0" stroke="#FFFFFF" stroke-width="3"/>
+<text x="1013.2083333333331" y="1302" class="small" text-anchor="start" >GPT-5.4 (3.50; 153s)</text>
+<circle cx="671.2" cy="1322.7" r="10" fill="#D18442" stroke="#FFFFFF" stroke-width="3"/>
+<text x="685.2083333333335" y="1309.7127041666668" class="small" text-anchor="start" >GPT-5.4 mini (3.18; 68s)</text>
+<circle cx="655.0" cy="1207.2" r="10" fill="#3E8B72" stroke="#FFFFFF" stroke-width="3"/>
+<text x="668.979166666667" y="1194.1722333333332" class="small" text-anchor="start" >Llama 4 Maverick (3.17; 278s)</text>
+<circle cx="675.5" cy="1072.6" r="10" fill="#C25555" stroke="#FFFFFF" stroke-width="3"/>
+<text x="689.479166666667" y="1059.5551500000001" class="small" text-anchor="start" >Qwen 3.8 Flash (3.19; 523s)</text>
+<rect x="100" y="1418" width="1700" height="42" fill="#F2F5F8" stroke="#CAD5E1" rx="7"/>
+<text x="120" y="1445" class="small" text-anchor="start" >Exp. 3 Top-1 Strict equals Correct (CLIP); Predicted (No CLIP) is blank in the CSV. Exp. 5 scores use Is Correct. Exp. 6 uses Qwen 3.8 Flash, distinct from Qwen 2.5 VL 72B.</text>
+<text x="1800" y="1480" class="foot" text-anchor="end" >Source: experiment/exp1?exp6 CSV files. Scores are means across rows; Exp. 6 score scale is 1?5. *Exp. 3 CLIP/no-CLIP fields require validation.</text>
+</svg>
